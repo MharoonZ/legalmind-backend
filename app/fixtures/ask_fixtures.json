@@ -1,0 +1,19 @@
+{
+  "_note": "MOCK DATA for Sprint 1. Page numbers and evidence IDs are placeholders until Haroon's reviewed PDF and database are ready. Remove this file when /ask is wired to real retrieval.",
+  "supported": {
+    "supported": true,
+    "answer": "An agreement is a contract when the parties agree freely, are able to contract, and the agreement has a lawful payment or exchange and a lawful purpose. It must also not be declared void by law.",
+    "quote": "All agreements are contracts if they are made by the free consent of parties competent to contract, for a lawful consideration and with a lawful object, and are not hereby expressly declared to be void.",
+    "section": 10,
+    "page": 7,
+    "evidence_id": "mock-ca1872-s10-p7"
+  },
+  "unsupported": {
+    "supported": false,
+    "answer": "I can only answer questions that are supported by sections 1 to 30 of the Contract Act, 1872. I could not find support for this question.",
+    "quote": null,
+    "section": null,
+    "page": null,
+    "evidence_id": null
+  }
+}
