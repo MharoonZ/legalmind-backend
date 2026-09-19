@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     app_name: str = "LegalMind AI API"
     app_version: str = "0.1.0"
     environment: str = "development"  # development | staging | production
-    debug: bool = False
+    # Avoid reading a generic DEBUG variable set by unrelated tools/shells.
+    debug: bool = Field(default=False, validation_alias="LEGALMIND_DEBUG")
     log_level: str = "INFO"
 
     # Comma separated list, e.g. "http://localhost:3000,https://legalmind.example.com"
