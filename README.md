@@ -5,6 +5,43 @@ FastAPI backend for grounded Q&A over the Contract Act, 1872 (sections 1–30).
 **Sprint 1, week 1 status:** project skeleton, one shared database connection,
 `POST /ask` and `GET /health`. `/ask` returns fixture JSON only (no retrieval yet).
 
+## Contract Act corpus (Haroon)
+
+The Sprint 1 source PDF, a 30-section draft transcription, a review workbook,
+and a PostgreSQL migration are now in this repository. The PDF's SHA-256 is
+`930c60f67216530fab28f37d439ad3c3ae941dc918c914f2e7c18ddbabb7bfbd`.
+Sections 1–30 occupy PDF pages 11–24; inserted 19A and 30A–30C are separate
+scope decisions and are excluded from the numbered corpus. The draft has
+41 page-specific passages, each with a stable evidence ID. See
+[`docs/corpus_review.md`](docs/corpus_review.md) for the review checklist and
+source link. **All extracted text remains `needs_review`.** Importing it does
+not approve it or make `/ask` use it.
+
+To build the draft data and review workbook again:
+
+```bash
+python scripts/build_contract_act_corpus.py
+node scripts/build_contract_act_review.mjs
+```
+
+The workbook builder uses the Codex `@oai/artifact-tool` runtime; the generated
+workbook is already in `outputs/haroon-sprint1-20260919/`. The JSON and PDF do
+not require that runtime. To create tables and import the draft into your
+configured PostgreSQL database:
+
+```bash
+python scripts/ingest_contract_act_corpus.py --check-only
+alembic upgrade head
+python scripts/ingest_contract_act_corpus.py
+```
+
+Use a database account that can enable the `vector` extension. The migration
+must be run explicitly; application startup does not create tables. Embeddings
+remain null until a later, model-versioned indexing job fills them. The schema
+uses PostgreSQL full-text search and `vector(3072)` storage; this small corpus
+can use exact vector scans without an approximate index. The source review flag
+must be checked by future retrieval code.
+
 ## Quick start
 
 Needs Python 3.11 or newer.
