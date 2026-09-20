@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LegalMind AI — System Workflow Diagrams</title>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#e8eef6",
+        primaryTextColor: "#1a365d",
+        primaryBorderColor: "#2c5282",
+        lineColor: "#4a5568",
+        secondaryColor: "#f7fafc",
+        tertiaryColor: "#edf2f7",
+        fontFamily: "Segoe UI, Calibri, sans-serif",
+        fontSize: "15px",
+      },
+      flowchart: { curve: "basis", htmlLabels: true },
+      sequence: { actorMargin: 24, messageMargin: 40 },
+    });
+  </script>
+  <style>
+    :root {
+      --ink: #1a202c;
+      --muted: #4a5568;
+      --line: #e2e8f0;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --accent: #2c5282;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Calibri, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.45;
+    }
+    header {
+      background: #1a365d;
+      color: #fff;
+      padding: 1.5rem 1.75rem;
+    }
+    header h1 { margin: 0 0 0.35rem; font-size: 1.55rem; font-weight: 650; }
+    header p { margin: 0; opacity: 0.9; font-size: 0.95rem; }
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      padding: 0.65rem 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem 0.85rem;
+    }
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    nav a:hover { text-decoration: underline; }
+    main { max-width: 1100px; margin: 0 auto; padding: 1.25rem 1.25rem 3rem; }
+    section {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 1.1rem 1.25rem 0.5rem;
+      margin: 1.1rem 0;
+    }
+    section h2 {
+      margin: 0 0 0.35rem;
+      font-size: 1.15rem;
+      color: #1a365d;
+    }
+    section .note {
+      color: var(--muted);
+      font-size: 0.92rem;
+      margin: 0 0 0.85rem;
+    }
+    .mermaid {
+      background: #fafbfc;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.75rem;
+      overflow-x: auto;
+      margin-bottom: 0.85rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 0.4rem 0 1rem;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #1a365d; color: #fff; }
+    tr:nth-child(even) td { background: #f7fafc; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LegalMind AI — System Workflow Diagrams</h1>
+    <p>Sprint 1 · Contract Act 1872 (ss. 1–30) · FastAPI + PostgreSQL/pgvector grounded Q&amp;A</p>
+  </header>
+
+  <nav>
+    <a href="#d1">1. Context</a>
+    <a href="#d2">2. Corpus</a>
+    <a href="#d3">3. Data model</a>
+    <a href="#d4">4. Components</a>
+    <a href="#d5">5. Sequence</a>
+    <a href="#d6">6. Gates</a>
+    <a href="#d7">7. Retrieval</a>
+    <a href="#d8">8. Citations</a>
+    <a href="#d9">9. Response</a>
+    <a href="#d10">10. Ownership</a>
+  </nav>
+
+  <main>
+    <section id="d1">
+      <h2>1. System context</h2>
+      <p class="note">UI never talks to the LLM or DB directly. FastAPI owns retrieval, grounding, and citation checks.</p>
+      <pre class="mermaid">
+flowchart LR
+  U[User] -->|typed English question| FE[Frontend Next.js]
+  FE -->|POST /ask JSON| API[FastAPI app.main]
+  API --> ASK[AskService]
+  ASK --> DB[(PostgreSQL + pgvector)]
+  ASK --> EMB[EmbeddingService]
+  ASK --> LLM[OpenAI LLM]
+  API -->|GET /health| FE
+      </pre>
+    </section>
+
+    <section id="d2">
+      <h2>2. Offline corpus pipeline</h2>
+      <p class="note">Extraction alone cannot go live — approval and embeddings are separate gates.</p>
+      <pre class="mermaid">
+flowchart TD
+  PDF[Contract Act PDF] --> EXTRACT[build corpus / extractor]
+  EXTRACT --> JSON[sections_1_30.json + hashes]
+  JSON --> MIG[alembic upgrade head]
+  JSON --> INGEST[ingest_contract_act_corpus.py]
+  PDF --> INGEST
+  INGEST --> DRAFT[(needs_review)]
+  DRAFT --> APPROVE[approve_source.py]
+  APPROVE --> LIVE[(approved)]
+  LIVE --> EMBED[build_embeddings.py]
+  EMBED --> READY[(embedding + search_vector ready)]
+      </pre>
+      <table>
+        <thead><tr><th>Step</th><th>Why it exists</th></tr></thead>
+        <tbody>
+          <tr><td>PDF + JSON SHA checks</td><td>Corpus bytes must match the reviewed PDF</td></tr>
+          <tr><td>needs_review → approved</td><td>Extraction alone cannot go live</td></tr>
+          <tr><td>Embeddings script separate</td><td>Search never mixes two embedding models</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="d3">
+      <h2>3. Data model (citation truth)</h2>
+      <p class="note">Citation key = <code>evidence_id</code> on <code>law_passages</code>. Queries always filter source review status.</p>
+      <pre class="mermaid">
+erDiagram
+  LAW_SOURCES ||--o{ LAW_SECTIONS : contains
+  LAW_SECTIONS ||--o{ LAW_PASSAGES : splits_into
+  LAW_SOURCES {
+    string id PK
+    string law_name
+    string review_status
+    string pdf_sha256
+  }
+  LAW_SECTIONS {
+    string id PK
+    int section_number
+    string title
+    int pdf_page_start
+    int pdf_page_end
+  }
+  LAW_PASSAGES {
+    string evidence_id PK
+    int page_number
+    text text
+    tsvector search_vector
+    vector embedding
+  }
+      </pre>
+    </section>
+
+    <section id="d4">
+      <h2>4. Runtime components</h2>
+      <pre class="mermaid">
+flowchart TB
+  subgraph HTTP
+    RASK[routes/ask.py POST /ask]
+    RHEALTH[routes/health.py]
+  end
+  subgraph Pipeline
+    AS[AskService]
+    QP[question_parser]
+    LR[LawRepository]
+    FUS[fusion RRF]
+    EMB[embeddings]
+    LLM[llm/openai]
+    CIT[citations.validate]
+  end
+  subgraph Store
+    PG[(PostgreSQL)]
+  end
+  RASK --> AS
+  AS --> QP
+  AS --> LR
+  AS --> FUS
+  AS --> EMB
+  AS --> LLM
+  AS --> CIT
+  LR --> PG
+      </pre>
+    </section>
+
+    <section id="d5">
+      <h2>5. End-to-end POST /ask sequence</h2>
+      <pre class="mermaid">
+sequenceDiagram
+  actor User
+  participant API as FastAPI /ask
+  participant S as AskService
+  participant P as question_parser
+  participant R as LawRepository
+  participant E as EmbeddingService
+  participant L as OpenAI LLM
+  participant C as citations
+
+  User->>API: POST question
+  API->>S: ask(question)
+  S->>P: parse_question()
+  alt only out-of-range sections
+    S-->>API: supported=false
+  else named in-range section
+    S->>R: fetch_sections
+    R-->>S: direct_section hits
+  else open question
+    S->>E: embed_query
+    S->>R: keyword_search
+    S->>R: vector_search
+    S->>S: RRF top K
+  end
+  alt weak or empty evidence
+    S-->>API: supported=false
+  else
+    S->>L: grounded prompt
+    L-->>S: JSON answer + citations
+    S->>C: validate_citations
+    alt invalid citations
+      S-->>API: supported=false
+    else
+      S-->>API: supported=true
+    end
+  end
+  API-->>User: AskResponse
+      </pre>
+    </section>
+
+    <section id="d6">
+      <h2>6. Refusal / evidence gates</h2>
+      <p class="note">Weak evidence never reaches the LLM. Invalid citations still force unsupported.</p>
+      <pre class="mermaid">
+flowchart TD
+  Q[Question] --> PARSE[parse_question]
+  PARSE --> OOR{Only out-of-range sections?}
+  OOR -->|yes| U1[unsupported OUT_OF_RANGE]
+  OOR -->|no| RET[_retrieve]
+  RET --> HITS{Any hits?}
+  HITS -->|no| U2[unsupported NO_EVIDENCE]
+  HITS -->|yes| GATE{Evidence strong enough?}
+  GATE -->|no| U2
+  GATE -->|yes| GEN[LLM generate]
+  GEN --> SUP{model supported?}
+  SUP -->|no| U3[unsupported MODEL_REFUSED]
+  SUP -->|yes| VAL[validate_citations]
+  VAL --> OK{valid citation?}
+  OK -->|no| U2
+  OK -->|yes| OKR[supported=true]
+      </pre>
+    </section>
+
+    <section id="d7">
+      <h2>7. Hybrid retrieval</h2>
+      <pre class="mermaid">
+flowchart LR
+  Q[Question] --> KW[Keyword tsvector GIN]
+  Q --> VEC[Vector cosine HNSW]
+  KW --> RRF[RRF merge]
+  VEC --> RRF
+  RRF --> TOP[Top K evidence_ids]
+  Q2[Names section N] --> DIR[fetch_sections]
+  DIR --> TOP2[section hits]
+      </pre>
+      <table>
+        <thead><tr><th>Retriever</th><th>Signal</th><th>Index</th></tr></thead>
+        <tbody>
+          <tr><td>section</td><td>Explicit section number</td><td>section_number</td></tr>
+          <tr><td>keyword</td><td>Lexical / statute wording</td><td>GIN search_vector</td></tr>
+          <tr><td>vector</td><td>Semantic similarity</td><td>HNSW embedding</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="d8">
+      <h2>8. Citation validation</h2>
+      <pre class="mermaid">
+flowchart TD
+  RAW[LLM citations] --> MAP{evidence_id retrieved?}
+  MAP -->|no| DROP[Drop]
+  MAP -->|yes| QUOTE[repair_quote]
+  QUOTE --> EXACT{Exact substring?}
+  EXACT -->|yes| KEEP[verbatim quote]
+  EXACT -->|no| LCS{Common run ≥ 30?}
+  LCS -->|yes| FIX[repaired quote]
+  LCS -->|no| FALL[leading sentences]
+  KEEP --> OUT[ValidatedCitation]
+  FIX --> OUT
+  FALL --> OUT
+      </pre>
+    </section>
+
+    <section id="d9">
+      <h2>9. Response contract</h2>
+      <pre class="mermaid">
+flowchart TB
+  subgraph Supported["supported true"]
+    A1[answer]
+    A2[quote section page evidence_id]
+    A3[citations]
+    A2 -.->|mirrors| C0[citations 0]
+  end
+  subgraph Unsupported["supported false"]
+    B1[refusal answer]
+    B2[evidence fields null]
+  end
+  subgraph Errors["HTTP errors"]
+    E1[422 bad question]
+    E2[503 corpus or LLM down]
+  end
+      </pre>
+      <p class="note"><strong>503</strong> = retry later. <strong>supported: false</strong> = this corpus cannot answer.</p>
+    </section>
+
+    <section id="d10">
+      <h2>10. Sprint ownership → code</h2>
+      <pre class="mermaid">
+flowchart LR
+  H[Haroon corpus retrieval citations] --> H1[extractor ingest models]
+  H --> H2[LawRepository fusion]
+  H --> H3[citations.py]
+  A[Abdullah API answers] --> A1[AskService routes]
+  A --> A2[LLM prompt schemas]
+  S[Shimza UI tests] --> S1[Next.js ask page]
+  S --> S2[clickable citations]
+      </pre>
+    </section>
+  </main>
+
+  <footer>LegalMind AI · Source of truth: app/services/ask_service.py · docs/system_workflows.md</footer>
+</body>
+</html>
