@@ -2,6 +2,9 @@
 
 These classes describe the database shape for application code.  Alembic owns
 the actual schema changes; importing this module does not create tables.
+
+The embedding column width comes from `EMBEDDING_DIM` so the ORM, the search
+SQL and the migration can never disagree about the vector size.
 """
 
 from __future__ import annotations
@@ -9,9 +12,28 @@ from __future__ import annotations
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import CheckConstraint, Computed, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    Computed,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from app.core.config import get_settings
+
+EMBEDDING_DIM = get_settings().embedding_dim
+
+# pgvector can only build HNSW/IVFFlat indexes on vectors of 2000 dimensions
+# or fewer. Above that the column still works, but every search is an exact scan.
+HNSW_MAX_DIM = 2000
 
 
 class Base(DeclarativeBase):
@@ -86,11 +108,8 @@ class LawSection(Base):
     passages: Mapped[list[LawPassage]] = relationship(back_populates="section")
 
 
-class LawPassage(Base):
-    """One section fragment on one PDF page; its ID is the citation key."""
-
-    __tablename__ = "law_passages"
-    __table_args__ = (
+def _passage_table_args() -> tuple:
+    args: list = [
         UniqueConstraint("section_id", "page_number", name="uq_law_passages_section_page"),
         Index("ix_law_passages_section_id", "section_id"),
         CheckConstraint("page_number > 0", name="ck_law_passages_page_positive"),
@@ -100,7 +119,25 @@ class LawPassage(Base):
             name="ck_law_passages_embedding_pair",
         ),
         Index("ix_law_passages_search_vector", "search_vector", postgresql_using="gin"),
-    )
+    ]
+    if EMBEDDING_DIM <= HNSW_MAX_DIM:
+        args.append(
+            Index(
+                "ix_law_passages_embedding_hnsw",
+                "embedding",
+                postgresql_using="hnsw",
+                postgresql_with={"m": 16, "ef_construction": 64},
+                postgresql_ops={"embedding": "vector_cosine_ops"},
+            )
+        )
+    return tuple(args)
+
+
+class LawPassage(Base):
+    """One section fragment on one PDF page; its ID is the citation key."""
+
+    __tablename__ = "law_passages"
+    __table_args__ = _passage_table_args()
 
     evidence_id: Mapped[str] = mapped_column(String(67), primary_key=True)
     section_id: Mapped[str] = mapped_column(
@@ -116,9 +153,9 @@ class LawPassage(Base):
         Computed("to_tsvector('english'::regconfig, search_text)", persisted=True),
         nullable=False,
     )
-    # 3,072 dimensions match the stack recommendation's embedding model.
-    # Leave embeddings NULL until an explicit, model-versioned job fills them.
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(3072))
+    # Filled only by scripts/build_embeddings.py, which also writes the model
+    # name. Search never mixes vectors produced by two different models.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
     embedding_model: Mapped[str | None] = mapped_column(String(100))
 
     section: Mapped[LawSection] = relationship(back_populates="passages")

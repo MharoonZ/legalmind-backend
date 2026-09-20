@@ -61,15 +61,27 @@ class Database:
         """Safe to log (never includes the password)."""
         return self.engine.url.host
 
-    async def ping(self, timeout: float = 3.0) -> bool:
-        """Cheap check that the database answers. Never raises."""
+    async def ping(self, timeout: float | None = None) -> bool:
+        """Cheap check that the database answers. Never raises.
+
+        Defaults to DB_CONNECT_TIMEOUT: a far-away database (for example a
+        Sydney Supabase project reached from South Asia) needs seconds, not
+        milliseconds, to finish the TLS handshake and login.
+        """
+        limit = timeout if timeout is not None else self._settings.db_connect_timeout
         try:
-            async with asyncio.timeout(timeout):
+            async with asyncio.timeout(limit):
                 async with self.engine.connect() as conn:
                     await conn.execute(text("SELECT 1"))
             return True
         except Exception as exc:  # noqa: BLE001 - health check must not crash the app
-            logger.warning("Database ping failed: %s", exc.__class__.__name__)
+            detail = str(exc).strip() or "no error message"
+            if isinstance(exc, TimeoutError):
+                detail = (
+                    f"no answer within {limit:.0f}s; raise DB_CONNECT_TIMEOUT or "
+                    "run: python scripts/check_db.py"
+                )
+            logger.warning("Database ping failed: %s: %s", exc.__class__.__name__, detail)
             return False
 
     async def connect(self) -> bool:

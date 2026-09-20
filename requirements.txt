@@ -7,3 +7,8 @@ alembic>=1.16,<2.0
 pgvector>=0.4,<1.0
 # Legal text extraction must reproduce the checked-in corpus byte for byte.
 PyMuPDF==1.26.3
+# Question and passage embeddings for vector search. Pulls in torch, so the
+# first install is large (~2 GB) and the first run downloads the model (~90 MB).
+sentence-transformers>=3.0,<6.0
+# Gemini is called over plain HTTP; no vendor SDK to keep in sync.
+httpx>=0.27
