@@ -1,0 +1,588 @@
+{
+  "source_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba",
+  "law_name": "Contract Act, 1872",
+  "jurisdiction": "Pakistan",
+  "source_url": "https://pakistancode.gov.pk/pdffiles/administrator8332a6df32386960ac7d81a5cf7aade2.pdf",
+  "pdf_sha256": "930c60f67216530fab28f37d439ad3c3ae941dc918c914f2e7c18ddbabb7bfbd",
+  "corpus_sha256": "97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba",
+  "pdf_page_count": 65,
+  "review_status": "needs_review",
+  "sections": [
+    {
+      "section_number": 1,
+      "title": "Short title",
+      "text": "1. Short title. This Act may be called the [*] Contract Act, 1872.\nExtent and Commencement. It extends to [the whole of Pakistan]; and it shall come into force on the first day of September, 1872.\nEnactments repealed. [* * *] Nothing herein contained shall affect the provisions of any Statute, Act or Regulation not hereby expressly repealed, nor any usage or custom of trade, nor any incident of any contract, not inconsistent with the provisions of this Act.",
+      "pdf_page_start": 11,
+      "pdf_page_end": 11,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s01",
+      "text_sha256": "60b5f58d56b9be24d0e097a933a6122b6631f428115d0353aae705df365dd7c4",
+      "passages": [
+        {
+          "page_number": 11,
+          "text": "1. Short title. This Act may be called the [*] Contract Act, 1872.\nExtent and Commencement. It extends to [the whole of Pakistan]; and it shall come into force on the first day of September, 1872.\nEnactments repealed. [* * *] Nothing herein contained shall affect the provisions of any Statute, Act or Regulation not hereby expressly repealed, nor any usage or custom of trade, nor any incident of any contract, not inconsistent with the provisions of this Act.",
+          "evidence_id": "ev:b002186328792063a72c6c2819db841af61adbf37eb9a2aef800fa63a949588d",
+          "text_sha256": "60b5f58d56b9be24d0e097a933a6122b6631f428115d0353aae705df365dd7c4"
+        }
+      ]
+    },
+    {
+      "section_number": 2,
+      "title": "Interpretation clause",
+      "text": "2. Interpretation clause. In this Act the following words and expressions are used in the following senses, unless a contrary intention appears from the context :\n(a) When one person signifies to another his willingness to do or to abstain from doing anything, with a view to obtaining the assent of that other to such act or abstinence, he is said to make a proposal:\n(b) When the person to whom the proposal is made signifies his assent thereto, the proposal is said to be accepted. A proposal, when accepted becomes a promise:\n(c) The person making the proposal is called the “promisor,” and the person accepting the proposal is called the “promisee”:\n(d) When, at the desire of the promisor, the promisee or any other person has done or abstained from doing, or does or abstains from doing, or promises to do or to abstain from doing, something, such act or abstinence or promise is called a consideration for the promise:\n(e) Every promise and every set of promises, forming the consideration for each other, is an agreement:\n(f) Promises which form the consideration or part of the consideration for each other are called reciprocal promises:\n\n(g) An agreement not enforceable by law is said to be void:\n(h) An agreement enforceable by law is a contract:\n(i) An agreement which is enforceable by law at the option of one or more of the parties thereto, but not at the option of the other or others, is a voidable contract:\n(j) A contract which ceases to be enforceable by law becomes void when it ceases to be enforceable.",
+      "pdf_page_start": 11,
+      "pdf_page_end": 12,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s02",
+      "text_sha256": "817f62837830a63696b0869743a084b7af5acb0cc45547fee595cdcc06ac84ad",
+      "passages": [
+        {
+          "page_number": 11,
+          "text": "2. Interpretation clause. In this Act the following words and expressions are used in the following senses, unless a contrary intention appears from the context :\n(a) When one person signifies to another his willingness to do or to abstain from doing anything, with a view to obtaining the assent of that other to such act or abstinence, he is said to make a proposal:\n(b) When the person to whom the proposal is made signifies his assent thereto, the proposal is said to be accepted. A proposal, when accepted becomes a promise:\n(c) The person making the proposal is called the “promisor,” and the person accepting the proposal is called the “promisee”:\n(d) When, at the desire of the promisor, the promisee or any other person has done or abstained from doing, or does or abstains from doing, or promises to do or to abstain from doing, something, such act or abstinence or promise is called a consideration for the promise:\n(e) Every promise and every set of promises, forming the consideration for each other, is an agreement:\n(f) Promises which form the consideration or part of the consideration for each other are called reciprocal promises:",
+          "evidence_id": "ev:082354983d0e95e374ea9f6853bf380660942c4d5990c77d566d5c9b79b0c418",
+          "text_sha256": "7d12f7fd5a213408c95bfed2fe9855f43dbe1ab3c137d0294e7960a7b35e54d8"
+        },
+        {
+          "page_number": 12,
+          "text": "(g) An agreement not enforceable by law is said to be void:\n(h) An agreement enforceable by law is a contract:\n(i) An agreement which is enforceable by law at the option of one or more of the parties thereto, but not at the option of the other or others, is a voidable contract:\n(j) A contract which ceases to be enforceable by law becomes void when it ceases to be enforceable.",
+          "evidence_id": "ev:1e81f6e1b560eee3270965cfba58a612bdc9341838ccc65a53a4d9110890b478",
+          "text_sha256": "864645af1364b6804809e4b140ddb7b9abee623fa18e9743e5c061b8c7006733"
+        }
+      ]
+    },
+    {
+      "section_number": 3,
+      "title": "Communication, acceptance and revocation of proposals",
+      "text": "3. Communication, acceptance and revocation of proposals. The communication of proposals, the acceptance of proposals, and the revocation of proposals and acceptances, res-\npectively, are deemed to be made by any act or omission of the party proposing, accepting or revoking by which he intends to communicate such proposal, acceptance or revocation, or which has the effect of communicating it.",
+      "pdf_page_start": 12,
+      "pdf_page_end": 12,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s03",
+      "text_sha256": "178c1bf83e31109a9e7732820050270c61c2b3a0a3ecaabe23775b5d08f34b68",
+      "passages": [
+        {
+          "page_number": 12,
+          "text": "3. Communication, acceptance and revocation of proposals. The communication of proposals, the acceptance of proposals, and the revocation of proposals and acceptances, res-\npectively, are deemed to be made by any act or omission of the party proposing, accepting or revoking by which he intends to communicate such proposal, acceptance or revocation, or which has the effect of communicating it.",
+          "evidence_id": "ev:3564440d905b96b5128810837e8fed9cc9fea3f6945e29d569e1e6bc9d877ebf",
+          "text_sha256": "178c1bf83e31109a9e7732820050270c61c2b3a0a3ecaabe23775b5d08f34b68"
+        }
+      ]
+    },
+    {
+      "section_number": 4,
+      "title": "Communication when complete",
+      "text": "4. Communication when complete. The communication of a proposal is complete when it comes to the knowledge of the person to whom it is made.\nThe communication of an acceptance is complete,\nhas against the proposer, when it is put in a course of transmission to him, so as to be out of the power of the acceptor;\nas against the acceptor, when it comes to the knowledge of the proposer.\nThe communication of a revocation is complete,\nas against the person who makes it, when it is put into a course of transmission to the person to whom it is made, so as to be out of the power of the person who makes it;\nas against the person to whom it is made, when it comes to his knowledge.\nIllustrations\n(a) A proposes, by letter, to sell a house to B at a certain price.\nThe communication of the proposal is complete when B receives the letter.\n(b) B accepts A’s proposal by a letter sent by post.\nThe communication of the acceptance is complete,\nas against A, when the letter is posted ;\n\nas against B, when the letter is received by A.\n(c) A revokes his proposal by telegram.\nThe revocation is complete as against A when the telegram is despatched. It is complete as against B when B receives it.\nB revokes his acceptance by telegram. B’s revocation is complete as against B when the telegram is despatched, and as against A when it reaches him.",
+      "pdf_page_start": 12,
+      "pdf_page_end": 13,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s04",
+      "text_sha256": "620c5f92538b9583642f57316b2c0700f2810a069ae8ba80fb811ad6dda401dd",
+      "passages": [
+        {
+          "page_number": 12,
+          "text": "4. Communication when complete. The communication of a proposal is complete when it comes to the knowledge of the person to whom it is made.\nThe communication of an acceptance is complete,\nhas against the proposer, when it is put in a course of transmission to him, so as to be out of the power of the acceptor;\nas against the acceptor, when it comes to the knowledge of the proposer.\nThe communication of a revocation is complete,\nas against the person who makes it, when it is put into a course of transmission to the person to whom it is made, so as to be out of the power of the person who makes it;\nas against the person to whom it is made, when it comes to his knowledge.\nIllustrations\n(a) A proposes, by letter, to sell a house to B at a certain price.\nThe communication of the proposal is complete when B receives the letter.\n(b) B accepts A’s proposal by a letter sent by post.\nThe communication of the acceptance is complete,\nas against A, when the letter is posted ;",
+          "evidence_id": "ev:256da2e52b1ee558b89bc3a57305ecd035ab654cd71af38ce7c07882ed35f2fc",
+          "text_sha256": "00c42bd3728b5f677d4ddea4c9991a02b2a1c524920fed026380a5c3a2de09bf"
+        },
+        {
+          "page_number": 13,
+          "text": "as against B, when the letter is received by A.\n(c) A revokes his proposal by telegram.\nThe revocation is complete as against A when the telegram is despatched. It is complete as against B when B receives it.\nB revokes his acceptance by telegram. B’s revocation is complete as against B when the telegram is despatched, and as against A when it reaches him.",
+          "evidence_id": "ev:9723e8770a3b3bc98e3e48a8c44b622f33173bf7720cee47eec28c3e4739b188",
+          "text_sha256": "07cecbbc3799bc646a6e8c254a3f87849f12045eac5fd0e2b6fb8ba0ccd744b6"
+        }
+      ]
+    },
+    {
+      "section_number": 5,
+      "title": "Revocation of proposals and acceptances",
+      "text": "5. Revocation of proposals and acceptances. A proposal may be revoked at any time before the communication of its acceptance is complete as against the proposer, but not afterwards.\nAn acceptance may be revoked at any time before the communication of the acceptance is complete as against the acceptor, but not afterwards.\nIllustrations\nA proposes, by a letter sent by post, to sell his house to B. B accepts the proposal by a letter sent by post. A may revoke his proposal at any time before or at the moment when B posts his letter of acceptance, but not afterwards.\nB may revoke his acceptance at any time before or at the moment when the letter communicating it reaches A, but not afterwards.",
+      "pdf_page_start": 13,
+      "pdf_page_end": 13,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s05",
+      "text_sha256": "4bb73f919a4acfa3ece84d6827f3f2aa2dfb84a6189ffe2388592fe29fd16a01",
+      "passages": [
+        {
+          "page_number": 13,
+          "text": "5. Revocation of proposals and acceptances. A proposal may be revoked at any time before the communication of its acceptance is complete as against the proposer, but not afterwards.\nAn acceptance may be revoked at any time before the communication of the acceptance is complete as against the acceptor, but not afterwards.\nIllustrations\nA proposes, by a letter sent by post, to sell his house to B. B accepts the proposal by a letter sent by post. A may revoke his proposal at any time before or at the moment when B posts his letter of acceptance, but not afterwards.\nB may revoke his acceptance at any time before or at the moment when the letter communicating it reaches A, but not afterwards.",
+          "evidence_id": "ev:a6b8051438ab908e70132ae81b89e171eb4307a069050c307de40c3c26f8f32f",
+          "text_sha256": "4bb73f919a4acfa3ece84d6827f3f2aa2dfb84a6189ffe2388592fe29fd16a01"
+        }
+      ]
+    },
+    {
+      "section_number": 6,
+      "title": "Revocation how made",
+      "text": "6. Revocation how made. A proposal is revoked—\n(1) by the communication of notice of revocation by the proposer to the other party ;\n(2) by the lapse of the time prescribed in such proposal for its acceptance, or, if no time is so prescribed, by the lapse of a reasonable time, without communication of the acceptance ;\n(3) by the failure of the acceptor to fulfill a condition precedent to acceptance; or\n(4) by the death or insanity of the proposer, if the fact of his death or insanity comes to the knowledge of the acceptor before acceptance.",
+      "pdf_page_start": 13,
+      "pdf_page_end": 13,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s06",
+      "text_sha256": "b6fe30c861372a1807c3a551d53d14c797dc5b3a14ae37cbb19a6cb4f92ca0a2",
+      "passages": [
+        {
+          "page_number": 13,
+          "text": "6. Revocation how made. A proposal is revoked—\n(1) by the communication of notice of revocation by the proposer to the other party ;\n(2) by the lapse of the time prescribed in such proposal for its acceptance, or, if no time is so prescribed, by the lapse of a reasonable time, without communication of the acceptance ;\n(3) by the failure of the acceptor to fulfill a condition precedent to acceptance; or\n(4) by the death or insanity of the proposer, if the fact of his death or insanity comes to the knowledge of the acceptor before acceptance.",
+          "evidence_id": "ev:f8e817fa8b3d467fbc318a30da7fe9ea243fff134b1ea7755d1b7f961bc84cae",
+          "text_sha256": "b6fe30c861372a1807c3a551d53d14c797dc5b3a14ae37cbb19a6cb4f92ca0a2"
+        }
+      ]
+    },
+    {
+      "section_number": 7,
+      "title": "Acceptance must be absolute",
+      "text": "7. Acceptance must be absolute. In order to convert a proposal into a promise, the acceptance must\n(1) be absolute and unqualified ;\n(2) be expressed in some usual and reasonable manner, unless the proposal prescribes the manner in which it is to be accepted. If the proposal prescribes a manner in which it is to be accepted, and the acceptance is not made in such manner, the proposer may, within a reasonable time after the acceptance is communicated to him, insist that his proposal shall be accepted in the prescribed manner, and not otherwise; but if he fails to do so, he accepts the acceptance.",
+      "pdf_page_start": 13,
+      "pdf_page_end": 13,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s07",
+      "text_sha256": "05446a0560cfa8c94a9dd651084f77ddbdf53622d16497e9622845f9056f5eb3",
+      "passages": [
+        {
+          "page_number": 13,
+          "text": "7. Acceptance must be absolute. In order to convert a proposal into a promise, the acceptance must\n(1) be absolute and unqualified ;\n(2) be expressed in some usual and reasonable manner, unless the proposal prescribes the manner in which it is to be accepted. If the proposal prescribes a manner in which it is to be accepted, and the acceptance is not made in such manner, the proposer may, within a reasonable time after the acceptance is communicated to him, insist that his proposal shall be accepted in the prescribed manner, and not otherwise; but if he fails to do so, he accepts the acceptance.",
+          "evidence_id": "ev:752bb6b6baf7fb57475d45b4b041225d42eea2ece00910ef62e9b00c6ceba303",
+          "text_sha256": "05446a0560cfa8c94a9dd651084f77ddbdf53622d16497e9622845f9056f5eb3"
+        }
+      ]
+    },
+    {
+      "section_number": 8,
+      "title": "Acceptance by performing, conditions, or receiving consideration",
+      "text": "8. Acceptance by performing, conditions, or receiving consideration. Performance of the conditions of a proposal, or the acceptance of any consideration for a reciprocal promise which may be offered with a proposal, is an acceptance of the proposal.",
+      "pdf_page_start": 14,
+      "pdf_page_end": 14,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s08",
+      "text_sha256": "d49561a843d9fcc592d515fd6c8f8fbaf01dfd7163ab9416d801b7a4c692bfa6",
+      "passages": [
+        {
+          "page_number": 14,
+          "text": "8. Acceptance by performing, conditions, or receiving consideration. Performance of the conditions of a proposal, or the acceptance of any consideration for a reciprocal promise which may be offered with a proposal, is an acceptance of the proposal.",
+          "evidence_id": "ev:022c9a5ac39fbe750ffd6c6135afb5e85366c9e02a42c4b1ee07941b6485b4ec",
+          "text_sha256": "d49561a843d9fcc592d515fd6c8f8fbaf01dfd7163ab9416d801b7a4c692bfa6"
+        }
+      ]
+    },
+    {
+      "section_number": 9,
+      "title": "Promises, express and implied",
+      "text": "9. Promises, express and implied. In so far as the proposal or acceptance of any promise is made in words, the promise is said to be express. In so far as such proposal or acceptance is made otherwise than in words, the promise is said to be implied.",
+      "pdf_page_start": 14,
+      "pdf_page_end": 14,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s09",
+      "text_sha256": "30898d2bd8f02f48022295b8054e739a7066826d116da76eeb544262ab3ca3be",
+      "passages": [
+        {
+          "page_number": 14,
+          "text": "9. Promises, express and implied. In so far as the proposal or acceptance of any promise is made in words, the promise is said to be express. In so far as such proposal or acceptance is made otherwise than in words, the promise is said to be implied.",
+          "evidence_id": "ev:58da7e6c63d34fd867628ab93ca291b3ec85d37ca8394d4a94e5a5c20ac78ca8",
+          "text_sha256": "30898d2bd8f02f48022295b8054e739a7066826d116da76eeb544262ab3ca3be"
+        }
+      ]
+    },
+    {
+      "section_number": 10,
+      "title": "What agreements are contracts",
+      "text": "10. What agreements are contracts. All agreements are contracts if they are made by the free consent of parties competent to contract, for a lawful consideration and with a lawful object, and are not hereby expressly declared to be void.\nNothing herein contained shall affect any law in force in [Pakistan], and not hereby expressly repealed, by which any contract is required to be made in writing or in the presence of witnesses, or any law relating to the registration of documents.",
+      "pdf_page_start": 14,
+      "pdf_page_end": 14,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s10",
+      "text_sha256": "0cd39386995740f9a4f31d4bf56fba6792e6ac93e12b616633c16e7932b792b7",
+      "passages": [
+        {
+          "page_number": 14,
+          "text": "10. What agreements are contracts. All agreements are contracts if they are made by the free consent of parties competent to contract, for a lawful consideration and with a lawful object, and are not hereby expressly declared to be void.\nNothing herein contained shall affect any law in force in [Pakistan], and not hereby expressly repealed, by which any contract is required to be made in writing or in the presence of witnesses, or any law relating to the registration of documents.",
+          "evidence_id": "ev:23d0191582f0ea2eaaa28406a652082b22a8f191e051ffc670a46fb901e01ae2",
+          "text_sha256": "0cd39386995740f9a4f31d4bf56fba6792e6ac93e12b616633c16e7932b792b7"
+        }
+      ]
+    },
+    {
+      "section_number": 11,
+      "title": "Who are competent to contract",
+      "text": "11. Who are competent to contract. Every person is competent to contract who is of the age of majority according to the law to which he is subject, and who is of sound mind, and is not disqualified from contracting by any law to which he is subject.",
+      "pdf_page_start": 14,
+      "pdf_page_end": 14,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s11",
+      "text_sha256": "a8cd1f47779e049729023fb81b9f19392991e6b7c1f668ac9c3d7b73d4f0130b",
+      "passages": [
+        {
+          "page_number": 14,
+          "text": "11. Who are competent to contract. Every person is competent to contract who is of the age of majority according to the law to which he is subject, and who is of sound mind, and is not disqualified from contracting by any law to which he is subject.",
+          "evidence_id": "ev:974cfedd8efc6f3600ab0d08d041a5e56b23a25b89e4a5443a1bbfa64f5b98a1",
+          "text_sha256": "a8cd1f47779e049729023fb81b9f19392991e6b7c1f668ac9c3d7b73d4f0130b"
+        }
+      ]
+    },
+    {
+      "section_number": 12,
+      "title": "What is a sound mind for the purposes of contracting",
+      "text": "12. What is a sound mind for the purposes of contracting. A person is said to be of sound mind for the purpose of making a contract if, at the time when he makes it, he is capable of understanding it and of forming a rational judgment as to its effect upon his interests.\nA person who is usually of unsound mind, but occasionally of sound mind, may make a contract when he is of sound mind.\nA person who is usually of sound mind, but occasionally of unsound mind, may not make a contract when he is of unsound mind.\nIllustrations\n(a) A patient in a lunatic asylum, who is at intervals of sound mind, may contract during those intervals.\n(b) A sane man, who is delirious from fever or who is so drunk that he cannot understand the terms of a contract or form a rational judgment as to its effect on his interests, cannot contract whilst such delirium or drunkenness lasts.",
+      "pdf_page_start": 14,
+      "pdf_page_end": 14,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s12",
+      "text_sha256": "58d4f27092f3e7499c7b134dc0bace5895543a70edad814de4883650f08b1f47",
+      "passages": [
+        {
+          "page_number": 14,
+          "text": "12. What is a sound mind for the purposes of contracting. A person is said to be of sound mind for the purpose of making a contract if, at the time when he makes it, he is capable of understanding it and of forming a rational judgment as to its effect upon his interests.\nA person who is usually of unsound mind, but occasionally of sound mind, may make a contract when he is of sound mind.\nA person who is usually of sound mind, but occasionally of unsound mind, may not make a contract when he is of unsound mind.\nIllustrations\n(a) A patient in a lunatic asylum, who is at intervals of sound mind, may contract during those intervals.\n(b) A sane man, who is delirious from fever or who is so drunk that he cannot understand the terms of a contract or form a rational judgment as to its effect on his interests, cannot contract whilst such delirium or drunkenness lasts.",
+          "evidence_id": "ev:beac6701c366f8ee1308358c351cc562dfabae1a95d1c5e7adae66aa5c00b167",
+          "text_sha256": "58d4f27092f3e7499c7b134dc0bace5895543a70edad814de4883650f08b1f47"
+        }
+      ]
+    },
+    {
+      "section_number": 13,
+      "title": "“Consent” defined",
+      "text": "13. “Consent” defined. Two or more persons are said to consent when they agree upon the same thing in the same sense.",
+      "pdf_page_start": 15,
+      "pdf_page_end": 15,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s13",
+      "text_sha256": "6d99441da760f488e62bfc304d98643a2d8ff79c0cf56694500269c86578395c",
+      "passages": [
+        {
+          "page_number": 15,
+          "text": "13. “Consent” defined. Two or more persons are said to consent when they agree upon the same thing in the same sense.",
+          "evidence_id": "ev:cad5030a2dd107b61876c226dc603fbd3fe85dd87faa51ae2f8fae5b5be02b9c",
+          "text_sha256": "6d99441da760f488e62bfc304d98643a2d8ff79c0cf56694500269c86578395c"
+        }
+      ]
+    },
+    {
+      "section_number": 14,
+      "title": "“Free consent” defined",
+      "text": "14. “Free consent” defined. Consent is said to be free when it is not caused by—\n(1) coercion, as defined in section 15, or\n(2) undue influence, as defined in section 16, or\n(3) fraud, as defined in section 17, or\n(4) misrepresentation, as defined in section 18, or\n(5) mistake, subject to the provisions of sections 20, 21 and 22.\nConsent is said to be so caused when it would not have been given but for the existence of such coercion, undue influence, fraud, misrepresentation or mistake.",
+      "pdf_page_start": 15,
+      "pdf_page_end": 15,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s14",
+      "text_sha256": "ed29961bbb0257fdb68bf66acb71057cba5b2a3339d5f1d557868be02e5c4ead",
+      "passages": [
+        {
+          "page_number": 15,
+          "text": "14. “Free consent” defined. Consent is said to be free when it is not caused by—\n(1) coercion, as defined in section 15, or\n(2) undue influence, as defined in section 16, or\n(3) fraud, as defined in section 17, or\n(4) misrepresentation, as defined in section 18, or\n(5) mistake, subject to the provisions of sections 20, 21 and 22.\nConsent is said to be so caused when it would not have been given but for the existence of such coercion, undue influence, fraud, misrepresentation or mistake.",
+          "evidence_id": "ev:d3fc15b3b1ef54ac37e48bcb840f60f3d090f613a73107f41026ed5401349aa5",
+          "text_sha256": "ed29961bbb0257fdb68bf66acb71057cba5b2a3339d5f1d557868be02e5c4ead"
+        }
+      ]
+    },
+    {
+      "section_number": 15,
+      "title": "“Coercion” defined",
+      "text": "15. “Coercion” defined. “Coercion” is the committing, or threatening to commit, any act forbidden by the Pakistan Penal Code (XLV of 1860) or the unlawful detaining, or threatening to detain, any property, to the prejudice of any person whatever, with the intention of causing any person to enter into an agreement.\nExplanation.—It is immaterial whether the Pakistan Penal Code (XLV of 1860) is or is not in force in the place where the coercion is employed.\nIllustration\nA, on board an English ship on the high seas, causes B to enter into an agreement by an act amounting to criminal intimidation under the Pakistan of Penal Code (XLV of 1860).\nA afterwards sues B for breach of contract at [Karachi].\nA has employed coercion, although his act is not an offence by the law of England, and although section 506 of the Pakistan Penal Code was not in force at the time when or place where the act was done.",
+      "pdf_page_start": 15,
+      "pdf_page_end": 15,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s15",
+      "text_sha256": "97986fc4af7d90db1e681581e8a5ebe93e116f9bb50a279465020a47fc80630f",
+      "passages": [
+        {
+          "page_number": 15,
+          "text": "15. “Coercion” defined. “Coercion” is the committing, or threatening to commit, any act forbidden by the Pakistan Penal Code (XLV of 1860) or the unlawful detaining, or threatening to detain, any property, to the prejudice of any person whatever, with the intention of causing any person to enter into an agreement.\nExplanation.—It is immaterial whether the Pakistan Penal Code (XLV of 1860) is or is not in force in the place where the coercion is employed.\nIllustration\nA, on board an English ship on the high seas, causes B to enter into an agreement by an act amounting to criminal intimidation under the Pakistan of Penal Code (XLV of 1860).\nA afterwards sues B for breach of contract at [Karachi].\nA has employed coercion, although his act is not an offence by the law of England, and although section 506 of the Pakistan Penal Code was not in force at the time when or place where the act was done.",
+          "evidence_id": "ev:452cfab9de9307413a974fed9ded55a542f1147ab829fdbfa6900acbf48d21b2",
+          "text_sha256": "97986fc4af7d90db1e681581e8a5ebe93e116f9bb50a279465020a47fc80630f"
+        }
+      ]
+    },
+    {
+      "section_number": 16,
+      "title": "“Undue influence” defined",
+      "text": "[16. “Undue influence” defined.—(1) A contract is said to be induced by “undue in-\nfluence” where the relations subsisting between the parties are such that one of the parties is in a position to dominate the will of the other and uses that position to obtain an unfair advantage over the other.\n(2) In particular and without prejudice to the generality of the foregoing principle, a person is deemed to be in a position to dominate the will of another\n(a) where he holds a real or apparent authority over the other or where he stands in a fiduciary relation to the other: or\n\n(b) where he makes a contract with a person whose mental capacity is temporarily or permanently affected by reason of age, illness, or mental or bodily distress.\n(3) Where a person who is in a position to dominate the will of another, enters into a contract with him, and the transaction appears, on the face of it or on the evidence adduced, to be un-\nconscionable, the burden of proving that such contract was not induced by undue influence shall lie upon the person in a position to dominate the will of the other.\nNothing in this sub-section shall affect the provisions of section 111 of the Evidence Act, 1872. (I of 1872).]\nIllustrations\n(a) A having advanced money to his son, B, during his minority, upon B’s coming of age obtains, by misuse of parental influence, a bond from B for a greater amount than the sum due in respect of the advance. A employs undue influence.\n(b) A, a man enfeebled by disease or age, is induced, by B’s influence over him as his medical attendant, to agree to pay B an unreasonable sum for his professional services. B employs undue influence.\n(c) A, being in debt to B, the money-lender of his village, contracts a fresh loan on terms which appear to be unconscionable. It lies on B to prove that the contract was not induced by undue influence.\n(d) A applies to a banker for a loan at a time when there is stringency in the money market. The banker declines to make the loan except at an unusually high rate of interest. A accepts the loan on these terms. This is a transaction in the ordinary course of business, and the contract is not induced by undue influence.",
+      "pdf_page_start": 15,
+      "pdf_page_end": 16,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s16",
+      "text_sha256": "ae6cd0d1bfd8308c1bc7b8b7862c7fc492b76bd64e08cd7183611c9ba0af03a7",
+      "passages": [
+        {
+          "page_number": 15,
+          "text": "[16. “Undue influence” defined.—(1) A contract is said to be induced by “undue in-\nfluence” where the relations subsisting between the parties are such that one of the parties is in a position to dominate the will of the other and uses that position to obtain an unfair advantage over the other.\n(2) In particular and without prejudice to the generality of the foregoing principle, a person is deemed to be in a position to dominate the will of another\n(a) where he holds a real or apparent authority over the other or where he stands in a fiduciary relation to the other: or",
+          "evidence_id": "ev:fc5183b64bcb5b3f9454cf734ff640897943c5fcd46dee1d21e7824ea478def3",
+          "text_sha256": "814deced01104c065501cfa46c6bba7fc606268d9b9b4ca0ff79f9423efd5106"
+        },
+        {
+          "page_number": 16,
+          "text": "(b) where he makes a contract with a person whose mental capacity is temporarily or permanently affected by reason of age, illness, or mental or bodily distress.\n(3) Where a person who is in a position to dominate the will of another, enters into a contract with him, and the transaction appears, on the face of it or on the evidence adduced, to be un-\nconscionable, the burden of proving that such contract was not induced by undue influence shall lie upon the person in a position to dominate the will of the other.\nNothing in this sub-section shall affect the provisions of section 111 of the Evidence Act, 1872. (I of 1872).]\nIllustrations\n(a) A having advanced money to his son, B, during his minority, upon B’s coming of age obtains, by misuse of parental influence, a bond from B for a greater amount than the sum due in respect of the advance. A employs undue influence.\n(b) A, a man enfeebled by disease or age, is induced, by B’s influence over him as his medical attendant, to agree to pay B an unreasonable sum for his professional services. B employs undue influence.\n(c) A, being in debt to B, the money-lender of his village, contracts a fresh loan on terms which appear to be unconscionable. It lies on B to prove that the contract was not induced by undue influence.\n(d) A applies to a banker for a loan at a time when there is stringency in the money market. The banker declines to make the loan except at an unusually high rate of interest. A accepts the loan on these terms. This is a transaction in the ordinary course of business, and the contract is not induced by undue influence.",
+          "evidence_id": "ev:24513e602b3de6893cd4e1c17562b4af52b70b543f8cf2d7bf1403b04bb837c6",
+          "text_sha256": "6af192d52864a4fedbd55d7ea43c8b20e91b0d1687c3038523203774b5dafc51"
+        }
+      ]
+    },
+    {
+      "section_number": 17,
+      "title": "“Fraud” defined",
+      "text": "17. “Fraud” defined. “Fraud” means and includes any of the following acts committed by a party to a contract, or with his connivance, or by his agent, with intent to deceive another party thereto or his agent, or to induce him to enter into the contract :\n(1) the suggestion, as a fact, of that which is not true, by one who does not believe it to be true ;\n(2) the active concealment of a fact by one having knowledge or belief of the fact;\n(3) a promise made without any intention of performing it ;\n(4) any other act fitted to deceive ;\n(5) any such act or omission as the law specially declares to be fraudulent.\n\nExplanation.—Mere silence as to facts likely to affect the willingness of a person to enter into a contract is not fraud, unless the circumstances of the case are such that, regard being had to them, it is the duty of the person keeping silence to speak, or unless his silence is, in itself, equivalent to speech. Illustrations\n(a) A sells, by auction, to B, a horse which A knows to be unsound. A says nothing to B about the horse’s unsoundness. This is not fraud in A.\n(b) B is A’s daughter and has just come of age. Here, the relation between the parties would make it A’s duty to tell B if the horse is unsound.\n(c) B says to A—\"If you do not deny it, I shall assume that the horse is sound.” A says nothing. Here A’s silence is equivalent to speech.\n(d) A and B, being traders, enter upon a contract. A has private information of a change in prices which would affect B’s willingness to proceed with the contract. A is not bound to inform B.",
+      "pdf_page_start": 16,
+      "pdf_page_end": 17,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s17",
+      "text_sha256": "af58c3698199b781f8e014b49dc97324c434c3b3081efe2023a494293b410f66",
+      "passages": [
+        {
+          "page_number": 16,
+          "text": "17. “Fraud” defined. “Fraud” means and includes any of the following acts committed by a party to a contract, or with his connivance, or by his agent, with intent to deceive another party thereto or his agent, or to induce him to enter into the contract :\n(1) the suggestion, as a fact, of that which is not true, by one who does not believe it to be true ;\n(2) the active concealment of a fact by one having knowledge or belief of the fact;\n(3) a promise made without any intention of performing it ;\n(4) any other act fitted to deceive ;\n(5) any such act or omission as the law specially declares to be fraudulent.",
+          "evidence_id": "ev:b28bc0d6f173b854b6d31a1f4509c80fedaae6411705df1c632fa18c1efa5729",
+          "text_sha256": "e758c4cc53457092019e6a49af947f73a53b9c7e4fbff7e4969279075d30a5ee"
+        },
+        {
+          "page_number": 17,
+          "text": "Explanation.—Mere silence as to facts likely to affect the willingness of a person to enter into a contract is not fraud, unless the circumstances of the case are such that, regard being had to them, it is the duty of the person keeping silence to speak, or unless his silence is, in itself, equivalent to speech. Illustrations\n(a) A sells, by auction, to B, a horse which A knows to be unsound. A says nothing to B about the horse’s unsoundness. This is not fraud in A.\n(b) B is A’s daughter and has just come of age. Here, the relation between the parties would make it A’s duty to tell B if the horse is unsound.\n(c) B says to A—\"If you do not deny it, I shall assume that the horse is sound.” A says nothing. Here A’s silence is equivalent to speech.\n(d) A and B, being traders, enter upon a contract. A has private information of a change in prices which would affect B’s willingness to proceed with the contract. A is not bound to inform B.",
+          "evidence_id": "ev:d8e6b2100afc21ac9547181f231b206738b86c159cfcd5523beb175005692779",
+          "text_sha256": "59e76c7210d8f9155d3d7acb9090d0f3ac23e0772b5098af0b5f0846502d74ae"
+        }
+      ]
+    },
+    {
+      "section_number": 18,
+      "title": "“Misrepresentation” defined",
+      "text": "18. “Misrepresentation” defined. “Misrepresentation” means and includes—\n(1) the positive assertion, in a manner not warranted by the information of the person making it, of that which is not true, though he believes it to be true ;\n(2) any breach of duty which, without an intent to deceive, gains an advantage to the person committing it, or any one claiming under him, by misleading another to his prejudice or to the prejudice of any one claiming under him ;\n(3) causing, however innocently, a party to an agreement to make a mistake as to the substance of the thing which is the subject of the agreement.",
+      "pdf_page_start": 17,
+      "pdf_page_end": 17,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s18",
+      "text_sha256": "e0e2e6a641d17d75450676fa382484313f5ed5184856939005d826393db509a8",
+      "passages": [
+        {
+          "page_number": 17,
+          "text": "18. “Misrepresentation” defined. “Misrepresentation” means and includes—\n(1) the positive assertion, in a manner not warranted by the information of the person making it, of that which is not true, though he believes it to be true ;\n(2) any breach of duty which, without an intent to deceive, gains an advantage to the person committing it, or any one claiming under him, by misleading another to his prejudice or to the prejudice of any one claiming under him ;\n(3) causing, however innocently, a party to an agreement to make a mistake as to the substance of the thing which is the subject of the agreement.",
+          "evidence_id": "ev:65c3348b6cb1a313f9f39fa7eae1e27e4544e186d4c88a607965d1347eabaf3a",
+          "text_sha256": "e0e2e6a641d17d75450676fa382484313f5ed5184856939005d826393db509a8"
+        }
+      ]
+    },
+    {
+      "section_number": 19,
+      "title": "Voidability of agreements without free consent",
+      "text": "19. Voidability of agreements without free consent. When consent to an agreement is caused by coercion, [* *] fraud or misrepresentation, the agreement is a contract voidable at the option of the party whose consent was so caused.\nA party to a contract, whose consent was caused by fraud or misrepresentation, may, if he thinks fit, insist that the contract shall be performed, and that he shall be put in the position in which he would have been if the representations made had been true.\nException.—If such consent was caused by misrepresentation or by silence, fraudulent within the meaning of section 17, the contract, nevertheless, is not voidable, if the party whose consent was so caused had the means of discovering the truth with ordinary diligence.\nExplanation.—A fraud or misrepresentation which did not cause the consent to a contract of the party on whom such fraud was practised, or to whom such misrepresentation was made, does not render a contract voidable.\nIllustrations\n(a) A, intending to deceive B, falsely represents that five hundred maunds of indigo are made annually at A’s factory, and thereby induces B to buy the factory. The contract is voidable at the option of B.\n\n(b) A, by a misrepresentation, leads B erroneously to believe that five hundred maunds of indigo are made annually at A’s factory. B examines the accounts of the factory, which show that only four hundred maunds of indigo have been made. After this B buys the factory. The contract is not voidable on account of A’s misrepresentation.\n(c) A fraudulently informs B that A’s estate is free from incumbrance. B thereupon buys the estate. The estate is subject to a mortgage. B may either avoid the contract, or may insist on its being carried out and the mortgage-debt redeemed.\n(d) B, having discovered a vein of ore on the estate of A, adopts means to conceal, and does conceal, the existence of the ore from A. Through A’s ignorance B is enabled to buy the estate at an under-value. The contract is voidable at the option of A.\n(e) A is entitled to succeed to an estate at the death of B ; B dies : C, having received intelligence of B’s death, prevents the intelligence reaching A, and thus induces A to sell him his interest in the estate. The sale is voidable at the option of A.",
+      "pdf_page_start": 17,
+      "pdf_page_end": 18,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s19",
+      "text_sha256": "26c72158999bc183b9e137e9b308bd8b6174be92420818575ed8e676ee4e2d9a",
+      "passages": [
+        {
+          "page_number": 17,
+          "text": "19. Voidability of agreements without free consent. When consent to an agreement is caused by coercion, [* *] fraud or misrepresentation, the agreement is a contract voidable at the option of the party whose consent was so caused.\nA party to a contract, whose consent was caused by fraud or misrepresentation, may, if he thinks fit, insist that the contract shall be performed, and that he shall be put in the position in which he would have been if the representations made had been true.\nException.—If such consent was caused by misrepresentation or by silence, fraudulent within the meaning of section 17, the contract, nevertheless, is not voidable, if the party whose consent was so caused had the means of discovering the truth with ordinary diligence.\nExplanation.—A fraud or misrepresentation which did not cause the consent to a contract of the party on whom such fraud was practised, or to whom such misrepresentation was made, does not render a contract voidable.\nIllustrations\n(a) A, intending to deceive B, falsely represents that five hundred maunds of indigo are made annually at A’s factory, and thereby induces B to buy the factory. The contract is voidable at the option of B.",
+          "evidence_id": "ev:5a5cf19ecde39ef682bbe62eca60455c8430c65639b70f0ea617c18ed2eaccc7",
+          "text_sha256": "60bd5d54b011da8965478d19198d64ccc800f0de6e093fdbbb3153c6f82026be"
+        },
+        {
+          "page_number": 18,
+          "text": "(b) A, by a misrepresentation, leads B erroneously to believe that five hundred maunds of indigo are made annually at A’s factory. B examines the accounts of the factory, which show that only four hundred maunds of indigo have been made. After this B buys the factory. The contract is not voidable on account of A’s misrepresentation.\n(c) A fraudulently informs B that A’s estate is free from incumbrance. B thereupon buys the estate. The estate is subject to a mortgage. B may either avoid the contract, or may insist on its being carried out and the mortgage-debt redeemed.\n(d) B, having discovered a vein of ore on the estate of A, adopts means to conceal, and does conceal, the existence of the ore from A. Through A’s ignorance B is enabled to buy the estate at an under-value. The contract is voidable at the option of A.\n(e) A is entitled to succeed to an estate at the death of B ; B dies : C, having received intelligence of B’s death, prevents the intelligence reaching A, and thus induces A to sell him his interest in the estate. The sale is voidable at the option of A.",
+          "evidence_id": "ev:8d25d840856de18f19975d95a25d6b58014b0407a9317fda5ffc4f1e8ae28e04",
+          "text_sha256": "998771910179e76f7c35488d965ff9123c95b8a3349cecf6fdd60c5383312683"
+        }
+      ]
+    },
+    {
+      "section_number": 20,
+      "title": "Agreement void where both parties are under mistake as to matter of fact",
+      "text": "20. Agreement void where both parties are under mistake as to matter of fact. Where both the parties to an agreement are under a mistake as to a matter of fact essential to the agreement, the agreement is void.\nExplanation.—An erroneous opinion as to the value of the thing which forms the subject-\nmatter of the agreement is not to be deemed a mistake as to a matter of fact.\n\nIllustrations\n(a) A agrees to sell to B a specific cargo of goods supposed to be on its way from England to [Karachi]. It turns out that, before the day of the bargain, the ship conveying the cargo had been cast away and the goods lost. Neither party was aware of the facts. The agreement is void.\n(b) A agrees to buy from B a certain horse. It turns out that the horse was dead at the time of the bargain, though neither party was aware of the fact. The agreement is void.\n(c) A, being entitled to an estate for the life of B, agrees to sell it to C. B was dead at the time of the agreement, but both parties were ignorant of the fact. The agreement is void.",
+      "pdf_page_start": 18,
+      "pdf_page_end": 19,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s20",
+      "text_sha256": "cbb73deac0968c6586fe5c7baad8afb9e5a7ed6f13ad1ca8840856a073dde753",
+      "passages": [
+        {
+          "page_number": 18,
+          "text": "20. Agreement void where both parties are under mistake as to matter of fact. Where both the parties to an agreement are under a mistake as to a matter of fact essential to the agreement, the agreement is void.\nExplanation.—An erroneous opinion as to the value of the thing which forms the subject-\nmatter of the agreement is not to be deemed a mistake as to a matter of fact.",
+          "evidence_id": "ev:64677d5f33c402597d0218ea0e3244b161c78e10eea3944b2f30bced301ec869",
+          "text_sha256": "3b16554abddf62ee683b6bc0a56cbf26656d5a8ae0f78a824cf0204fef6494d1"
+        },
+        {
+          "page_number": 19,
+          "text": "Illustrations\n(a) A agrees to sell to B a specific cargo of goods supposed to be on its way from England to [Karachi]. It turns out that, before the day of the bargain, the ship conveying the cargo had been cast away and the goods lost. Neither party was aware of the facts. The agreement is void.\n(b) A agrees to buy from B a certain horse. It turns out that the horse was dead at the time of the bargain, though neither party was aware of the fact. The agreement is void.\n(c) A, being entitled to an estate for the life of B, agrees to sell it to C. B was dead at the time of the agreement, but both parties were ignorant of the fact. The agreement is void.",
+          "evidence_id": "ev:25482ba784da150a6848fa2f7a6e6b1c447f1e5f1f1137ce57ab3007be2336ea",
+          "text_sha256": "7af313a86d519dbc0601a4406d21b23c1725a7b8b4e1f62447512de1be406318"
+        }
+      ]
+    },
+    {
+      "section_number": 21,
+      "title": "Effect of mistakes as to law",
+      "text": "21. Effect of mistakes as to law. A contract is not voidable because it was caused by a mistake as to any law in force in [Pakistan]; but a mistake as to a law not in force in [Pakistan] has the same effect as a mistake of fact.\n[* * * * * * *]\nIllustration\nA and B make a contract grounded on the erroneous belief that a particular debt is barred by the [Pakistan] Law of Limitation: the contract is not voidable.\n[* * * * * * *]",
+      "pdf_page_start": 19,
+      "pdf_page_end": 19,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s21",
+      "text_sha256": "aa357f48e289bb84bd7560ddd1bcfb14b8d324add6fb79c6f86d9f921841c545",
+      "passages": [
+        {
+          "page_number": 19,
+          "text": "21. Effect of mistakes as to law. A contract is not voidable because it was caused by a mistake as to any law in force in [Pakistan]; but a mistake as to a law not in force in [Pakistan] has the same effect as a mistake of fact.\n[* * * * * * *]\nIllustration\nA and B make a contract grounded on the erroneous belief that a particular debt is barred by the [Pakistan] Law of Limitation: the contract is not voidable.\n[* * * * * * *]",
+          "evidence_id": "ev:fe66b89046c218b726c40d98a59e771566ae92b3a22165a741f028834b3eaff6",
+          "text_sha256": "aa357f48e289bb84bd7560ddd1bcfb14b8d324add6fb79c6f86d9f921841c545"
+        }
+      ]
+    },
+    {
+      "section_number": 22,
+      "title": "Contract caused by mistake of one party as to matter of fact",
+      "text": "22. Contract caused by mistake of one party as to matter of fact. A contract is not voidable merely because it was caused by one of the parties to it being under a mistake as to a matter of fact.",
+      "pdf_page_start": 19,
+      "pdf_page_end": 19,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s22",
+      "text_sha256": "e76ff6e8e1df47f43a982752f5c797f40b39e23342973aa17df5d96c540e0246",
+      "passages": [
+        {
+          "page_number": 19,
+          "text": "22. Contract caused by mistake of one party as to matter of fact. A contract is not voidable merely because it was caused by one of the parties to it being under a mistake as to a matter of fact.",
+          "evidence_id": "ev:65abfa19b2acf7773d23fa3e8cb5e29b7239601f7db83edaec34ba4ed0047a04",
+          "text_sha256": "e76ff6e8e1df47f43a982752f5c797f40b39e23342973aa17df5d96c540e0246"
+        }
+      ]
+    },
+    {
+      "section_number": 23,
+      "title": "What considerations and objects are lawful and what not",
+      "text": "23. What considerations and objects are lawful and what not. The consideration or object of an agreement is lawful, unless—it is forbidden by law; or\nis of such a nature that, if permitted, it would defeat the provisions of any law ; or\nis fraudulent ; or\ninvolves or implies injury to the person or property of another; or the Court regards it as immoral, or opposed to public policy.\n\nIn each of these cases, the consideration or object of an agreement is said to be unlawful. Every agreement of which the object or consideration is unlawful is void.\nIllustrations\n(a) A agrees to sell his house to B for 10,000 rupees. Here B’s promise to pay the sum of 10,000 rupees is the consideration for A’s promise to sell the house, and A’s promise to sell the house is the consideration for B’s promise to pay the 10,000 rupees. These are lawful considerations.\n(b) A promises to pay B 1,000 rupees at the end of six months; if C, who owes that sum to B, fails to pay it. B promises to grant time to C accordingly. Here the promise of each party is the consideration for the promise of the other party and they are lawful considerations.\n(c) A promises, for a certain sum paid to him by B, to make good to B the value of his ship if it is wrecked on a certain voyage. Here A’s promise is the consideration for B’s payment and B’s payment is the consideration for A’s promise and these are lawful considerations.\n(d) A promises to maintain B’s child and B promises to pay A 1,000 rupees yearly for the purpose. Here the promise of each party is the consideration for the promise of the other party. They are lawful considerations.\n(e) A, B and C enter into an agreement for the division among them of gains acquired, or to be acquired, by them by fraud. The agreement is void as its object is unlawful.\n(f) A promises to obtain for B an employment in the public service, and B promises to pay 1,000 rupees to A. The agreement is void, as the consideration for it is unlawful.\n(g) A, being agent for a landed proprietor, agrees for money, without the knowledge of his principal, to obtain for B a lease of land belonging to his principal. The agreement between A and B is void, as it implies a fraud by concealment by A, on his principal.\n(h) A promises B to drop a prosecution which he has instituted against B for robbery, and B promises to restore the value of the things taken. The agreement is void, as its object is unlawful.\n(i) A’s estate is sold for arrears of revenue under the provisions of an Act of the Legislature, by which the defaulter is prohibited from purchasing the estate. B, upon an understanding with A, becomes the purchaser, and agrees to convey the estate to A upon receiving from him the price which B has paid. The agreement is void, as it renders the transaction, in effect, a purchase by the defaulter, and would so defeat the object of the law.\n\n(j) A, who is B’s mukhtar, promises to exercise his influence, as such, with B in favour of C, and C promises to pay 1,000 rupees to A. The agreement is void, because it is immoral.\n(k) A agrees to let her daughter to hire to B for concubinage. The agreement is void, because it is immoral, though the letting may not be punishable under the Pakistan Penal Code (XLV of 1860).",
+      "pdf_page_start": 19,
+      "pdf_page_end": 21,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s23",
+      "text_sha256": "c8338f2d31e4e1b2ef990d2ffff811447a3b2f6ed37c31ce674c4d227a5a61a8",
+      "passages": [
+        {
+          "page_number": 19,
+          "text": "23. What considerations and objects are lawful and what not. The consideration or object of an agreement is lawful, unless—it is forbidden by law; or\nis of such a nature that, if permitted, it would defeat the provisions of any law ; or\nis fraudulent ; or\ninvolves or implies injury to the person or property of another; or the Court regards it as immoral, or opposed to public policy.",
+          "evidence_id": "ev:8783636e1f9e8900c8eb0f9bd945e15993047f797a8cf8021e37d125b29545df",
+          "text_sha256": "86e48f7e09795fcbe8e8d688a33d2201ab350a31b8f0d9599b459f6aa08107cf"
+        },
+        {
+          "page_number": 20,
+          "text": "In each of these cases, the consideration or object of an agreement is said to be unlawful. Every agreement of which the object or consideration is unlawful is void.\nIllustrations\n(a) A agrees to sell his house to B for 10,000 rupees. Here B’s promise to pay the sum of 10,000 rupees is the consideration for A’s promise to sell the house, and A’s promise to sell the house is the consideration for B’s promise to pay the 10,000 rupees. These are lawful considerations.\n(b) A promises to pay B 1,000 rupees at the end of six months; if C, who owes that sum to B, fails to pay it. B promises to grant time to C accordingly. Here the promise of each party is the consideration for the promise of the other party and they are lawful considerations.\n(c) A promises, for a certain sum paid to him by B, to make good to B the value of his ship if it is wrecked on a certain voyage. Here A’s promise is the consideration for B’s payment and B’s payment is the consideration for A’s promise and these are lawful considerations.\n(d) A promises to maintain B’s child and B promises to pay A 1,000 rupees yearly for the purpose. Here the promise of each party is the consideration for the promise of the other party. They are lawful considerations.\n(e) A, B and C enter into an agreement for the division among them of gains acquired, or to be acquired, by them by fraud. The agreement is void as its object is unlawful.\n(f) A promises to obtain for B an employment in the public service, and B promises to pay 1,000 rupees to A. The agreement is void, as the consideration for it is unlawful.\n(g) A, being agent for a landed proprietor, agrees for money, without the knowledge of his principal, to obtain for B a lease of land belonging to his principal. The agreement between A and B is void, as it implies a fraud by concealment by A, on his principal.\n(h) A promises B to drop a prosecution which he has instituted against B for robbery, and B promises to restore the value of the things taken. The agreement is void, as its object is unlawful.\n(i) A’s estate is sold for arrears of revenue under the provisions of an Act of the Legislature, by which the defaulter is prohibited from purchasing the estate. B, upon an understanding with A, becomes the purchaser, and agrees to convey the estate to A upon receiving from him the price which B has paid. The agreement is void, as it renders the transaction, in effect, a purchase by the defaulter, and would so defeat the object of the law.",
+          "evidence_id": "ev:508456bc95d25799a278a2bd8333479d7676ebf583ce8eca46f14ad03393d74c",
+          "text_sha256": "09bf0b0767b31c431ee2dc42faa24e8967803e059f12b980d3359efd89227812"
+        },
+        {
+          "page_number": 21,
+          "text": "(j) A, who is B’s mukhtar, promises to exercise his influence, as such, with B in favour of C, and C promises to pay 1,000 rupees to A. The agreement is void, because it is immoral.\n(k) A agrees to let her daughter to hire to B for concubinage. The agreement is void, because it is immoral, though the letting may not be punishable under the Pakistan Penal Code (XLV of 1860).",
+          "evidence_id": "ev:d687b815875d2f3544cae23e633c6e4a9b8c81adabf16141ce14e72eec7844cd",
+          "text_sha256": "6c231a8ae1d675f9e7f676aec72ae138b034a93096b9f32db337376412979906"
+        }
+      ]
+    },
+    {
+      "section_number": 24,
+      "title": "Agreements void, if considerations and objects unlawful in part",
+      "text": "24. Agreements void, if considerations and objects unlawful in part. If any part of a single consideration for one or more objects, or anyone or any part of anyone of several considerations for a single object, is unlawful, the agreement is void.\nIllustration\nA promises to superintend, on behalf of B, a legal manufacture of indigo, and an illegal traffic in other articles. B promises to pay to A a salary of 10,000 rupees a year. The agreement is void, the object of A’s promise and the considerations B’s promise being in part unlawful.",
+      "pdf_page_start": 21,
+      "pdf_page_end": 21,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s24",
+      "text_sha256": "23473a3d869f91d932b1704b6b044fa82c1e7317479c0316c665ca7e09e5b1bf",
+      "passages": [
+        {
+          "page_number": 21,
+          "text": "24. Agreements void, if considerations and objects unlawful in part. If any part of a single consideration for one or more objects, or anyone or any part of anyone of several considerations for a single object, is unlawful, the agreement is void.\nIllustration\nA promises to superintend, on behalf of B, a legal manufacture of indigo, and an illegal traffic in other articles. B promises to pay to A a salary of 10,000 rupees a year. The agreement is void, the object of A’s promise and the considerations B’s promise being in part unlawful.",
+          "evidence_id": "ev:6f40a8ab53cc137f0817ecb15543cc2e1d437a3e8ffcaadda0a7034b00b2e20c",
+          "text_sha256": "23473a3d869f91d932b1704b6b044fa82c1e7317479c0316c665ca7e09e5b1bf"
+        }
+      ]
+    },
+    {
+      "section_number": 25,
+      "title": "Agreement without consideration void, unless it is in writing and registered, or is a promise to compensate for something done, or is a promise to pay a debt barred by limitation law",
+      "text": "25. Agreement without consideration void, unless it is in writing and registered, or is a promise to compensate for something done, or is a promise to pay a debt barred by limitation law. An agreement made without consideration is void, unless—\n(1) it is expressed in writing and registered under the law for the time being in force for the registration of [documents], and is made on account of natural love and affection between parties standing in a near relation to each other ; or unless\n(2) it is a promise to compensate, wholly or in part, a person who has already voluntarily done something for the promisor, or something which the promisor was legally compellable to do; or unless\n(3) it is a promise, made in writing and signed by the person to be charged therewith, or by his agent generally or specially authorized in that behalf, to pay wholly or in part a debt of which the creditor might have enforced payment but for the law for the limitation of suits.\nIn any of these cases, such an agreement is a contract.\nExplanation 1. Nothing in this section shall affect the validity, as between the donor and donee, of any gift actually made.\nExplanation 2. An agreement to which the consent of the promisor is freely given is not void merely because the consideration is inadequate; but the inadequacy of the consideration may be taken into account by the Court in determining the question whether the consent of the promisor was freely given.\n\nIllustrations\n(a) A promises, for no consideration, to give to B Rs. 1,000. This is a void agreement.\n(b) A, for natural love and affection, promises to give his son, B, Rs. 1,000. A puts his promise to B into writing and registers it. This is a contract.\n(c) A finds B’s purse and gives it to him. B promises to give A Rs. 50. This is a contract.\n(d) A supports B’s infant son. B promises to pay A’s expenses in so doing. This is a contract.\n(e) A owes B Rs. 1,000, but the debt is barred by the Limitation Act. A signs a written promise to pay B Rs. 500 on account of the debt. This is a contract.\n(f) A agrees to sell a horse worth Rs. 1,000 for Rs. 10. A’s consent to the agreement was freely given. The agreement is a contract notwithstanding the inadequacy of the consideration.\n(g) A agrees to sell a horse worth Rs. 1,000 for Rs. 10. A denies that his consent to the agreement was freely given.\nThe inadequacy of the consideration is a fact which the Court should take into account in considering whether or not A’s consent was freely given.",
+      "pdf_page_start": 21,
+      "pdf_page_end": 22,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s25",
+      "text_sha256": "be0031214b782dc3a5da78e9698ff3056aa6270e92a367319f4d9302a1a59676",
+      "passages": [
+        {
+          "page_number": 21,
+          "text": "25. Agreement without consideration void, unless it is in writing and registered, or is a promise to compensate for something done, or is a promise to pay a debt barred by limitation law. An agreement made without consideration is void, unless—\n(1) it is expressed in writing and registered under the law for the time being in force for the registration of [documents], and is made on account of natural love and affection between parties standing in a near relation to each other ; or unless\n(2) it is a promise to compensate, wholly or in part, a person who has already voluntarily done something for the promisor, or something which the promisor was legally compellable to do; or unless\n(3) it is a promise, made in writing and signed by the person to be charged therewith, or by his agent generally or specially authorized in that behalf, to pay wholly or in part a debt of which the creditor might have enforced payment but for the law for the limitation of suits.\nIn any of these cases, such an agreement is a contract.\nExplanation 1. Nothing in this section shall affect the validity, as between the donor and donee, of any gift actually made.\nExplanation 2. An agreement to which the consent of the promisor is freely given is not void merely because the consideration is inadequate; but the inadequacy of the consideration may be taken into account by the Court in determining the question whether the consent of the promisor was freely given.",
+          "evidence_id": "ev:9365707e648bea713209ba852f87f8e5c48adaed5ee037db879dba1b8ea518d8",
+          "text_sha256": "32fe3a1bfdb17dca526927ba1b32dffaddb917b3ccf4df750033f2d4378f21b4"
+        },
+        {
+          "page_number": 22,
+          "text": "Illustrations\n(a) A promises, for no consideration, to give to B Rs. 1,000. This is a void agreement.\n(b) A, for natural love and affection, promises to give his son, B, Rs. 1,000. A puts his promise to B into writing and registers it. This is a contract.\n(c) A finds B’s purse and gives it to him. B promises to give A Rs. 50. This is a contract.\n(d) A supports B’s infant son. B promises to pay A’s expenses in so doing. This is a contract.\n(e) A owes B Rs. 1,000, but the debt is barred by the Limitation Act. A signs a written promise to pay B Rs. 500 on account of the debt. This is a contract.\n(f) A agrees to sell a horse worth Rs. 1,000 for Rs. 10. A’s consent to the agreement was freely given. The agreement is a contract notwithstanding the inadequacy of the consideration.\n(g) A agrees to sell a horse worth Rs. 1,000 for Rs. 10. A denies that his consent to the agreement was freely given.\nThe inadequacy of the consideration is a fact which the Court should take into account in considering whether or not A’s consent was freely given.",
+          "evidence_id": "ev:9eeb29a16289959b44977bbc771872562707eff6d04b53190852006f97105216",
+          "text_sha256": "47864a634ef3b589bbe5e8be10986c716f8e9153110ecce15b1c58ba0e57257f"
+        }
+      ]
+    },
+    {
+      "section_number": 26,
+      "title": "Agreement in restraint of marriage void",
+      "text": "26. Agreement in restraint of marriage void. Every agreement in restraint of the marriage of any person, other than a minor, is void.",
+      "pdf_page_start": 22,
+      "pdf_page_end": 22,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s26",
+      "text_sha256": "19d4f78fb3c0640b2f483461deea05ac59592fbdce0be781dd2c1a61e0ff63bb",
+      "passages": [
+        {
+          "page_number": 22,
+          "text": "26. Agreement in restraint of marriage void. Every agreement in restraint of the marriage of any person, other than a minor, is void.",
+          "evidence_id": "ev:18b11b2b0b786f13b323ddd08480b06eb8cb6ad8a12c96ba19cb0d1738414b94",
+          "text_sha256": "19d4f78fb3c0640b2f483461deea05ac59592fbdce0be781dd2c1a61e0ff63bb"
+        }
+      ]
+    },
+    {
+      "section_number": 27,
+      "title": "Agreement in restraint of trade void",
+      "text": "27. Agreement in restraint of trade void. Every agreement by which any one is restrained from exercising a lawful profession, trade or business of any kind, is to that extent void.\nException 1. Saving of agreement not to carry on business of which good-will is sold. one who sells the good-will of a business may agree with the buyer to refrain from carrying on a similar business, within specified local limits, so long as the buyer, or any person deriving title to the good-will from him, carries on a like business therein : Provided that such limits appear to the Court reasonable, regard being had to the nature of the business.\n[* * * * * *]",
+      "pdf_page_start": 22,
+      "pdf_page_end": 22,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s27",
+      "text_sha256": "a8d3931152ea1f79a83dd6dd79e185d2177f32a2d82ae9a39a35cce473b1d192",
+      "passages": [
+        {
+          "page_number": 22,
+          "text": "27. Agreement in restraint of trade void. Every agreement by which any one is restrained from exercising a lawful profession, trade or business of any kind, is to that extent void.\nException 1. Saving of agreement not to carry on business of which good-will is sold. one who sells the good-will of a business may agree with the buyer to refrain from carrying on a similar business, within specified local limits, so long as the buyer, or any person deriving title to the good-will from him, carries on a like business therein : Provided that such limits appear to the Court reasonable, regard being had to the nature of the business.\n[* * * * * *]",
+          "evidence_id": "ev:83e3174e32a2f58852b5fa2eb12695f27e2e12206e5bcc315537a1ca6d0e1c63",
+          "text_sha256": "a8d3931152ea1f79a83dd6dd79e185d2177f32a2d82ae9a39a35cce473b1d192"
+        }
+      ]
+    },
+    {
+      "section_number": 28,
+      "title": "Agreements in restraint of legal proceedings void",
+      "text": "28. Agreements in restraint of legal proceedings void. Every agreement, by which any party thereto is restricted absolutely from enforcing his rights under or in respect of any contract, by the usual legal proceedings in the ordinary tribunals, or which limits the time within which he may thus enforce his rights, is void to that extent.\nException 1. Saving of contract to refer to arbitration dispute that may arise. This section shall not render illegal a contract by which two or more persons agree that any dispute which may arise between them in respect of any subject or class of subjects shall be referred to arbitration, and that only the amount awarded in such arbitration shall be recoverable in respect of the dispute so referred.\n\nSuits barred by such Contracts. When such a contract has been made, a suit may be brought for its specific performance, and if a suit, other than for such specific performance, or for the recovery of the amount so awarded, is brought by one party to such contract against any other such party in respect of any subject which they have so agreed to refer, the existence of such contract shall be bar to the suit.\nException 2. Saving of contract to refer questions that have already arisen. Nor shall this section render illegal any contract in writing, by which two or more persons agree to refer to arbitration any question between them which has already arisen, or affect any provision of any law in force for the time being as to references to arbitration.",
+      "pdf_page_start": 22,
+      "pdf_page_end": 23,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s28",
+      "text_sha256": "e5c06b9a12d159fc969980c9bd2136fda475c4e3dc76b2be7bf68ef5324af487",
+      "passages": [
+        {
+          "page_number": 22,
+          "text": "28. Agreements in restraint of legal proceedings void. Every agreement, by which any party thereto is restricted absolutely from enforcing his rights under or in respect of any contract, by the usual legal proceedings in the ordinary tribunals, or which limits the time within which he may thus enforce his rights, is void to that extent.\nException 1. Saving of contract to refer to arbitration dispute that may arise. This section shall not render illegal a contract by which two or more persons agree that any dispute which may arise between them in respect of any subject or class of subjects shall be referred to arbitration, and that only the amount awarded in such arbitration shall be recoverable in respect of the dispute so referred.",
+          "evidence_id": "ev:e3fe0322294ae48669eb082324d4f79f5f2935ca11da4a61f1c10203fb5c59eb",
+          "text_sha256": "44f8d2e1d50a1f68a9d4f464c090c16381e5fd614e866d30ff355abca7fb303a"
+        },
+        {
+          "page_number": 23,
+          "text": "Suits barred by such Contracts. When such a contract has been made, a suit may be brought for its specific performance, and if a suit, other than for such specific performance, or for the recovery of the amount so awarded, is brought by one party to such contract against any other such party in respect of any subject which they have so agreed to refer, the existence of such contract shall be bar to the suit.\nException 2. Saving of contract to refer questions that have already arisen. Nor shall this section render illegal any contract in writing, by which two or more persons agree to refer to arbitration any question between them which has already arisen, or affect any provision of any law in force for the time being as to references to arbitration.",
+          "evidence_id": "ev:0a8596b31efa9445170fef69f653f1b108d668db300d0ea2d6b481ffe0616db9",
+          "text_sha256": "88f7bf9ef33f77fc520daaf5686d88c16100f5dad0b6227fca29bc4b65fca760"
+        }
+      ]
+    },
+    {
+      "section_number": 29,
+      "title": "Agreements void for uncertainty",
+      "text": "29. Agreements void for uncertainty. Agreements, the meaning of which is not certain, or capable of being made certain, are void.\nIllustrations\n(a) A agrees to sell to B “a hundred tons of oil”. There is nothing whatever to show what kind of oil was intended. The agreement is void for uncertainty.\n(b) A agrees to sell to B one hundred tons of oil of a specified description, known as an article of commerce. There is no uncertainty here to make the agreement void.\n(c) A, who is a dealer in cocoanut-oil only, agrees to sell to B “one hundred tons of oil”. The nature of A’s trade affords an indication of the meaning of the words, and A has entered into a contract for the sale of one hundred tons of Cocoanut-oil. (d) A agrees to sell B “all the grain in my granary at [Rahimyarkhan]”. There is no uncertainty here to make the agreement void.\n(e) A agrees to sell to B “one thousand maunds of rice at a price to be fixed by C”. As the price is capable of being made certain, there is no uncertainty here to make the agreement void.\n(f) A agrees to sell to B “my white horse for rupees five hundred or rupees one thousand”. There is nothing to show which of the two prices was to be given. The agreement is void.",
+      "pdf_page_start": 23,
+      "pdf_page_end": 23,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s29",
+      "text_sha256": "4a89f686b136c5adfcde894b2deb4a1f20ce26755048c641464d64533a89a019",
+      "passages": [
+        {
+          "page_number": 23,
+          "text": "29. Agreements void for uncertainty. Agreements, the meaning of which is not certain, or capable of being made certain, are void.\nIllustrations\n(a) A agrees to sell to B “a hundred tons of oil”. There is nothing whatever to show what kind of oil was intended. The agreement is void for uncertainty.\n(b) A agrees to sell to B one hundred tons of oil of a specified description, known as an article of commerce. There is no uncertainty here to make the agreement void.\n(c) A, who is a dealer in cocoanut-oil only, agrees to sell to B “one hundred tons of oil”. The nature of A’s trade affords an indication of the meaning of the words, and A has entered into a contract for the sale of one hundred tons of Cocoanut-oil. (d) A agrees to sell B “all the grain in my granary at [Rahimyarkhan]”. There is no uncertainty here to make the agreement void.\n(e) A agrees to sell to B “one thousand maunds of rice at a price to be fixed by C”. As the price is capable of being made certain, there is no uncertainty here to make the agreement void.\n(f) A agrees to sell to B “my white horse for rupees five hundred or rupees one thousand”. There is nothing to show which of the two prices was to be given. The agreement is void.",
+          "evidence_id": "ev:5399465b2c53ab16afd480863392bc735e04be44cda676f7003d555833365394",
+          "text_sha256": "4a89f686b136c5adfcde894b2deb4a1f20ce26755048c641464d64533a89a019"
+        }
+      ]
+    },
+    {
+      "section_number": 30,
+      "title": "Agreements by way of wager void",
+      "text": "30. Agreements by way of wager void. Agreements by way of wager are void ; and no suit shall be brought for recovering anything alleged to be won on any wager, or entrusted to any person to abide the result of any game or other uncertain event on which any wager is made.\nException in favour of certain prizes for horse-racing. This section shall not be deemed to render unlawful a subscription, or contribution, or agreement to subscribe or contribute, made or entered into for or toward any plate, prize or sum of money, of the value or amount of five hundred rupees or upwards, to be awarded to the winner or winners of any horse race.\n\nSection 294A of the Pakistan Penal Code not affected. Nothing in this section shall be deemed to legalize any transaction connected with horse-racing, to which the provisions of section 294A of the Pakistan Penal Code (XLV of 1860) apply.",
+      "pdf_page_start": 23,
+      "pdf_page_end": 24,
+      "section_id": "ca1872:97116f3dc7794f54a40edfa9dce6efe2f0319d7c7b1fb555e519de851a0d43ba:s30",
+      "text_sha256": "295166ae3c38dc391c5698acaaa01b69cb3575deecee6c9a9f3e056edc114811",
+      "passages": [
+        {
+          "page_number": 23,
+          "text": "30. Agreements by way of wager void. Agreements by way of wager are void ; and no suit shall be brought for recovering anything alleged to be won on any wager, or entrusted to any person to abide the result of any game or other uncertain event on which any wager is made.\nException in favour of certain prizes for horse-racing. This section shall not be deemed to render unlawful a subscription, or contribution, or agreement to subscribe or contribute, made or entered into for or toward any plate, prize or sum of money, of the value or amount of five hundred rupees or upwards, to be awarded to the winner or winners of any horse race.",
+          "evidence_id": "ev:e6b82f7ed1b66aef961eb9056a41e456d49388cd566d2240a5e0eb806e35699b",
+          "text_sha256": "f2309e15613ea151bbb1aed5a33c327c995dff5bfbc70910aeb028b30c3a8cb1"
+        },
+        {
+          "page_number": 24,
+          "text": "Section 294A of the Pakistan Penal Code not affected. Nothing in this section shall be deemed to legalize any transaction connected with horse-racing, to which the provisions of section 294A of the Pakistan Penal Code (XLV of 1860) apply.",
+          "evidence_id": "ev:20153b865058056ba4e6a72b8e9e1ed572288a613f694956e7584fca97ff850e",
+          "text_sha256": "64125baa78547eda30b8a0a71e7d444bfc30c39df98fec4d8d42030df67c5c7c"
+        }
+      ]
+    }
+  ]
+}
