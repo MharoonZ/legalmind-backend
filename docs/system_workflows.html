@@ -120,6 +120,7 @@
   </header>
 
   <nav>
+    <a href="#d0">0. Tech stack</a>
     <a href="#d1">1. Context</a>
     <a href="#d2">2. Corpus</a>
     <a href="#d3">3. Data model</a>
@@ -133,6 +134,72 @@
   </nav>
 
   <main>
+    <section id="d0">
+      <h2>0. Technology stack</h2>
+      <p class="note">What Sprint 1 actually uses. Frontend is Next.js (planned UI); backend below is implemented.</p>
+      <pre class="mermaid">
+flowchart TB
+  subgraph Client["Client layer"]
+    NEXT[Next.js + React + TypeScript]
+  end
+  subgraph API["Application API"]
+    FAST[FastAPI + Uvicorn]
+    PYD[Pydantic]
+  end
+  subgraph AI["AI and retrieval"]
+    ST[sentence-transformers all-MiniLM-L6-v2]
+    OAI[OpenAI Chat API e.g. gpt-4o-mini]
+    RRF[Reciprocal Rank Fusion]
+    CIT[Citation validator]
+  end
+  subgraph Data["Data layer"]
+    PG[(PostgreSQL)]
+    PGV[pgvector]
+    FTS[tsvector + GIN]
+    HNSW[HNSW cosine]
+  end
+  subgraph Access["DB access"]
+    SA[SQLAlchemy asyncio + asyncpg]
+    AL[Alembic]
+  end
+  subgraph Docs["Documents"]
+    PDF[PyMuPDF PDF extract]
+  end
+  NEXT -->|POST /ask| FAST
+  FAST --> PYD
+  FAST --> SA
+  SA --> PG
+  PG --- PGV
+  PG --- FTS
+  PG --- HNSW
+  FAST --> ST
+  FAST --> OAI
+  FAST --> RRF
+  FAST --> CIT
+  PDF --> AL
+  AL --> PG
+  ST -->|vectors| PGV
+      </pre>
+      <table>
+        <thead><tr><th>Layer</th><th>Technology</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td>Frontend</td><td>Next.js, React, TypeScript</td><td>Question box, answer, clickable citations</td></tr>
+          <tr><td>API</td><td>Python 3.11+, FastAPI, Uvicorn</td><td>POST /ask, health, OpenAPI</td></tr>
+          <tr><td>Validation</td><td>Pydantic</td><td>AskRequest / AskResponse contracts</td></tr>
+          <tr><td>Database</td><td>PostgreSQL (+ Supabase OK)</td><td>Sources, sections, passages</td></tr>
+          <tr><td>Keyword search</td><td>tsvector + GIN</td><td>Lexical retrieval</td></tr>
+          <tr><td>Vector search</td><td>pgvector + HNSW</td><td>Semantic nearest neighbours</td></tr>
+          <tr><td>ORM / migrations</td><td>SQLAlchemy async, asyncpg, Alembic</td><td>Models and schema</td></tr>
+          <tr><td>Embeddings</td><td>sentence-transformers all-MiniLM-L6-v2 (384-d)</td><td>Local question/passage vectors</td></tr>
+          <tr><td>LLM</td><td>OpenAI (default gpt-4o-mini)</td><td>Grounded JSON after evidence gate</td></tr>
+          <tr><td>PDF</td><td>PyMuPDF</td><td>Contract Act ss. 1–30 extraction</td></tr>
+          <tr><td>Safety</td><td>RRF + citation repair</td><td>Merge ranks; block fake evidence IDs</td></tr>
+          <tr><td>Tests</td><td>pytest</td><td>Pipeline and API tests</td></tr>
+        </tbody>
+      </table>
+      <p class="note"><strong>Not in the live stack:</strong> Express.js, MongoDB / MongoDB Vector Search (old proposal).</p>
+    </section>
+
     <section id="d1">
       <h2>1. System context</h2>
       <p class="note">UI never talks to the LLM or DB directly. FastAPI owns retrieval, grounding, and citation checks.</p>
