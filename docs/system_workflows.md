@@ -8,6 +8,87 @@ These diagrams reflect the **implemented backend** in `legalmind-backend` (`AskS
 
 ---
 
+## 0. Technology stack (what we use)
+
+```mermaid
+flowchart TB
+  subgraph Client["Client layer"]
+    NEXT[Next.js + React + TypeScript<br/>planned Sprint 1 UI]
+  end
+
+  subgraph API["Application API"]
+    FAST[FastAPI]
+    UVI[Uvicorn]
+    PYD[Pydantic / pydantic-settings]
+    FAST --- UVI
+    FAST --- PYD
+  end
+
+  subgraph AI["AI & retrieval services"]
+    ST[sentence-transformers<br/>all-MiniLM-L6-v2 · 384-d]
+    OAI[OpenAI Chat API<br/>e.g. gpt-4o-mini]
+    RRF[Reciprocal Rank Fusion<br/>in-app Python]
+    CIT[Citation validator<br/>Python difflib]
+  end
+
+  subgraph Data["Data layer"]
+    PG[(PostgreSQL)]
+    PGV[pgvector extension]
+    FTS[Full-text search<br/>tsvector + GIN]
+    HNSW[HNSW cosine index]
+    PG --- PGV
+    PG --- FTS
+    PG --- HNSW
+  end
+
+  subgraph Access["DB access & migrations"]
+    SA[SQLAlchemy asyncio + asyncpg]
+    AL[Alembic]
+  end
+
+  subgraph Docs["Document processing"]
+    PDF[PyMuPDF<br/>Contract Act PDF extract]
+  end
+
+  subgraph Ops["Local / deploy tooling"]
+    UV[uvicorn --reload]
+    PY[pytest]
+    ENV[.env config]
+  end
+
+  NEXT -->|HTTPS JSON POST /ask| FAST
+  FAST --> SA
+  SA --> PG
+  FAST --> ST
+  FAST --> OAI
+  FAST --> RRF
+  FAST --> CIT
+  PDF --> AL
+  AL --> PG
+  ST -->|query + passage vectors| PGV
+```
+
+### Stack table (current Sprint 1)
+
+| Layer | Technology | Role in LegalMind |
+|-------|------------|-------------------|
+| Frontend (planned) | **Next.js**, React, TypeScript | Question box, answer area, clickable citations |
+| Backend API | **Python 3.11+**, **FastAPI**, Uvicorn | `POST /ask`, health, CORS, OpenAPI docs |
+| Validation | **Pydantic** | Request/response contracts (`AskRequest` / `AskResponse`) |
+| Database | **PostgreSQL** (+ **Supabase** compatible) | Sources, sections, passages, review status |
+| Keyword search | PostgreSQL **tsvector** + **GIN** | Lexical retrieval over `search_vector` |
+| Vector search | **pgvector** + **HNSW** | Cosine nearest-neighbour over passage embeddings |
+| ORM / migrations | **SQLAlchemy (async)**, **asyncpg**, **Alembic** | Models + schema versions |
+| Embeddings | **sentence-transformers** `all-MiniLM-L6-v2` (384-d) | Encode questions and passages locally |
+| LLM | **OpenAI** chat models (default `gpt-4o-mini`) | Grounded JSON answer only after evidence gate |
+| PDF corpus | **PyMuPDF** | Extract Contract Act ss. 1–30 with page refs |
+| Fusion / safety | In-app **RRF** + citation repair | Merge ranks; block hallucinated evidence IDs |
+| Tests | **pytest** | Pipeline, ask, corpus, health |
+
+**Not used in the live stack (proposal update):** Express.js, MongoDB / MongoDB Vector Search, Socket.IO as the primary API path.
+
+---
+
 ## 1. System context (what talks to what)
 
 ```mermaid
