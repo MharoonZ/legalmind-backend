@@ -9,7 +9,7 @@ SQL and the migration can never disagree about the vector size.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -159,3 +159,93 @@ class LawPassage(Base):
     embedding_model: Mapped[str | None] = mapped_column(String(100))
 
     section: Mapped[LawSection] = relationship(back_populates="passages")
+
+
+# --------------------------------------------------------------------------
+# Uploaded contracts (Sprint 2). Kept in their own tables, never joined with
+# law_sources/law_sections/law_passages above (Sprint 2 shared rule 6): a
+# user's uploaded contract is evidence to check against the law, never text
+# the law-corpus search endpoint should ever be able to return.
+#
+# This is the *upload* stage only (Abdullah, Week 1). Haroon's clause
+# extraction and the Week 2 AI summary are separate, later pieces of work;
+# they should key off `DocumentVersion.id`, which is stable once created here.
+# --------------------------------------------------------------------------
+
+DOCUMENT_VERSION_STATUSES = (
+    "uploaded",  # file stored, nothing processed yet
+    "extracting",  # Haroon's stage: clauses/pages being extracted
+    "extracted",  # Haroon's stage: done, ready for summarising
+    "extraction_failed",
+    "summarizing",  # Week 2: AI summary being generated
+    "summarized",  # Week 2: done
+    "summary_failed",
+)
+
+
+class Document(Base):
+    """Identity of one uploaded contract file: what it is and where it lives.
+
+    One row per upload. Re-processing (a retried extraction, a regenerated
+    summary) creates a new `DocumentVersion`, not a new `Document`.
+    """
+
+    __tablename__ = "documents"
+    __table_args__ = (
+        CheckConstraint("size_bytes > 0", name="ck_documents_size_positive"),
+        CheckConstraint("page_count > 0", name="ck_documents_page_count_positive"),
+    )
+
+    id: Mapped[str] = mapped_column(String(48), primary_key=True)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    pdf_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Local disk path for now (Sprint 2 scope: local/team-only demo). Swap for
+    # object storage later without changing the upload API's response shape.
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    versions: Mapped[list[DocumentVersion]] = relationship(
+        back_populates="document", order_by="DocumentVersion.version_number"
+    )
+
+
+class DocumentVersion(Base):
+    """One processing attempt for a document: upload -> extraction -> summary.
+
+    `status` only ever reaches "uploaded" from this sprint's upload code; the
+    later statuses exist so Haroon's extraction and the Week 2 summary step
+    can update the same row instead of needing a new table.
+    """
+
+    __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint("document_id", "version_number", name="uq_document_versions_number"),
+        Index("ix_document_versions_document_id", "document_id"),
+        CheckConstraint(
+            "status IN ("
+            + ", ".join(f"'{status}'" for status in DOCUMENT_VERSION_STATUSES)
+            + ")",
+            name="ck_document_versions_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(48), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="uploaded")
+    # The chat question the user typed alongside this upload, if any. Not
+    # answerable until extraction (Haroon) and the AI step (Week 2) exist.
+    question: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    document: Mapped[Document] = relationship(back_populates="versions")
