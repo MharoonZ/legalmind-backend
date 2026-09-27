@@ -90,6 +90,18 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.1  # negative = do not send (some models reject it)
     llm_max_output_tokens: int = 2048
 
+    # ---------------------------------------------------- Contract uploads
+    # Sprint 2 scope (Abdullah, Week 1): upload + validate + save only.
+    # Local disk for now (local/team-only demo); swap for object storage
+    # later without changing the /contracts response shape.
+    upload_dir: str = "uploads/contracts"
+    upload_max_size_bytes: int = 10 * 1024 * 1024  # 10 MB, per Sprint 2 scope
+    upload_max_pages: int = 10  # per Sprint 2 scope
+    # Below this many extracted characters, treat the PDF as a scan with no
+    # selectable text layer and reject it (rule: "selectable-text PDF only").
+    # This is a presence check only, not extraction - see document_upload.py.
+    upload_min_text_chars: int = 20
+
     # ------------------------------------------------------------ Validators
     @field_validator("database_url")
     @classmethod

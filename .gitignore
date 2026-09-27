@@ -14,6 +14,9 @@ venv/
 scripts/node_modules/
 tmp/
 
+# Uploaded contracts are private (Sprint 2 shared rule 7) - never commit them.
+/uploads/
+
 # OS / editor
 .DS_Store
 .vscode/

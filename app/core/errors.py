@@ -20,3 +20,14 @@ class EmbeddingError(LegalMindError):
 
 class LLMError(LegalMindError):
     """OpenAI was unreachable, timed out, or returned unusable output."""
+
+
+class DocumentValidationError(LegalMindError):
+    """An uploaded contract failed validation (bad type, too big, too many
+    pages, encrypted, unreadable, or no selectable text). The message is
+    safe to show the user as-is.
+    """
+
+
+class DocumentStorageError(LegalMindError):
+    """An uploaded contract could not be saved to disk."""
