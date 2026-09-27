@@ -31,3 +31,11 @@ class DocumentValidationError(LegalMindError):
 
 class DocumentStorageError(LegalMindError):
     """An uploaded contract could not be saved to disk."""
+
+
+class ContractExtractionError(LegalMindError):
+    """A stored contract could not be converted into pages and clauses."""
+
+
+class ContractCitationError(LegalMindError):
+    """A contract citation does not match its document, clause, quote, or pages."""

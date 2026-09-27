@@ -17,8 +17,10 @@ from sqlalchemy import (
     Computed,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -244,8 +246,123 @@ class DocumentVersion(Base):
     # answerable until extraction (Haroon) and the AI step (Week 2) exist.
     question: Mapped[str | None] = mapped_column(Text)
     error_message: Mapped[str | None] = mapped_column(Text)
+    # Recorded with every successful extraction so the same PDF can be
+    # reproduced and compared after an extractor upgrade.
+    extraction_engine: Mapped[str | None] = mapped_column(String(50))
+    extraction_engine_version: Mapped[str | None] = mapped_column(String(50))
+    extracted_text_sha256: Mapped[str | None] = mapped_column(String(64))
+    extraction_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    extraction_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
 
     document: Mapped[Document] = relationship(back_populates="versions")
+    pages: Mapped[list[ContractPage]] = relationship(
+        back_populates="version",
+        cascade="all, delete-orphan",
+        order_by="ContractPage.page_number",
+    )
+    clauses: Mapped[list[ContractClause]] = relationship(
+        back_populates="version",
+        cascade="all, delete-orphan",
+        order_by="ContractClause.ordinal",
+    )
+
+
+class ContractPage(Base):
+    """Canonical selectable text for one page of an uploaded contract."""
+
+    __tablename__ = "contract_pages"
+    __table_args__ = (
+        PrimaryKeyConstraint("document_version_id", "page_number"),
+        CheckConstraint("page_number > 0", name="ck_contract_pages_page_positive"),
+    )
+
+    document_version_id: Mapped[str] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    version: Mapped[DocumentVersion] = relationship(back_populates="pages")
+
+
+class ContractClause(Base):
+    """A deterministic, version-scoped clause with its original label."""
+
+    __tablename__ = "contract_clauses"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_version_id", "ordinal", name="uq_contract_clauses_version_ordinal"
+        ),
+        UniqueConstraint(
+            "id", "document_version_id", name="uq_contract_clauses_id_version"
+        ),
+        Index("ix_contract_clauses_version_id", "document_version_id"),
+        CheckConstraint("ordinal > 0", name="ck_contract_clauses_ordinal_positive"),
+        CheckConstraint(
+            "page_start > 0 AND page_end >= page_start",
+            name="ck_contract_clauses_pages",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(48), primary_key=True)
+    document_version_id: Mapped[str] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str | None] = mapped_column(String(100))
+    heading: Mapped[str | None] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    page_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_end: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    version: Mapped[DocumentVersion] = relationship(back_populates="clauses")
+    spans: Mapped[list[ContractClauseSpan]] = relationship(
+        back_populates="clause",
+        cascade="all, delete-orphan",
+        order_by="ContractClauseSpan.clause_char_start",
+    )
+
+
+class ContractClauseSpan(Base):
+    """Maps a character range in a clause back to an original PDF page."""
+
+    __tablename__ = "contract_clause_spans"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["clause_id", "document_version_id"],
+            ["contract_clauses.id", "contract_clauses.document_version_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["document_version_id", "page_number"],
+            ["contract_pages.document_version_id", "contract_pages.page_number"],
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "clause_id",
+            "page_number",
+            "clause_char_start",
+            "clause_char_end",
+            name="uq_contract_clause_spans_range",
+        ),
+        Index("ix_contract_clause_spans_clause_id", "clause_id"),
+        CheckConstraint("page_number > 0", name="ck_contract_clause_spans_page_positive"),
+        CheckConstraint(
+            "clause_char_start >= 0 AND clause_char_end > clause_char_start",
+            name="ck_contract_clause_spans_chars",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    clause_id: Mapped[str] = mapped_column(String(48), nullable=False)
+    document_version_id: Mapped[str] = mapped_column(String(48), nullable=False)
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    clause_char_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    clause_char_end: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    clause: Mapped[ContractClause] = relationship(back_populates="spans")

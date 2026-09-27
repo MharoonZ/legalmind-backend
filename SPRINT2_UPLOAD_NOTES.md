@@ -27,12 +27,14 @@
 - His clause/citation tables are his own design (per the sprint doc) - they
   just need a foreign key to `document_versions.id`.
 
-## What's still missing (by design, not yet in scope)
-- No extraction, no clauses, no summary. `GET /contracts/{id}/summary` from
-  the sprint plan is not built yet - it depends on Haroon's tables + the
-  Week 2 AI step.
-- No page-count/OCR handling for scanned PDFs beyond "reject them" (the
-  no-text-layer check here is a quick presence check, not real extraction).
+## Next stage now available
+- Haroon's extraction stage, clause/page tables, and strict citation validator
+  are implemented. See `SPRINT2_EXTRACTION_NOTES.md` and run
+  `python scripts/extract_contract.py --version-id "docver:<id>"`.
+- `GET /contracts/{id}/summary` is still not built; it belongs to the Week 2
+  AI summary step and must use the citation validator before returning evidence.
+- The upload-time no-text-layer check remains a quick presence check. The
+  extractor also keeps OCR disabled because scanned PDFs are outside this sprint.
 
 ## To run it
 ```

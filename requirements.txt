@@ -11,6 +11,9 @@ pgvector>=0.4,<1.0
 PyMuPDF==1.26.3
 # FastAPI needs this to parse multipart/form-data (POST /contracts file upload).
 python-multipart>=0.0.9,<1.0
+# Structured contract extraction (headings, tables, reading order, provenance).
+# OCR is explicitly disabled for Sprint 2; selectable-text PDFs only.
+docling==2.130.0
 # Question and passage embeddings for vector search. Pulls in torch, so the
 # first install is large (~2 GB) and the first run downloads the model (~90 MB).
 sentence-transformers>=3.0,<6.0

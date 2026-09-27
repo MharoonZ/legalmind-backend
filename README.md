@@ -67,6 +67,24 @@ python scripts/check_llm.py
 uvicorn app.main:app --reload
 ```
 
+For Sprint 2 contract extraction, process an uploaded version after applying
+the latest migration:
+
+```bash
+alembic upgrade head
+python scripts/extract_contract.py --version-id "docver:<id>"
+```
+
+To inspect clause IDs, text, tables, and page mappings without database writes:
+
+```bash
+python scripts/extract_contract.py --pdf path/to/sample-service-agreement.pdf
+```
+
+The extractor uses Docling for structure and provenance, PyMuPDF for canonical
+page text, and strict code-based citation validation. See
+`SPRINT2_EXTRACTION_NOTES.md` for the schema and summary-service handoff.
+
 - API docs: http://127.0.0.1:8000/docs
 - Readiness: http://127.0.0.1:8000/health/retrieval
 - Tests: `pytest`
@@ -242,6 +260,7 @@ app/
 ├── db/                            # session.py (pool), models.py (tables)
 ├── corpus/                        # PDF extraction + hash-validated import
 ├── repositories/law_repository.py # keyword / vector / direct-section SQL
+├── repositories/contract_extraction_repository.py # pages/clauses/status
 ├── schemas/                       # request & response models (the API contract)
 ├── services/
 │   ├── ask_service.py             # the pipeline orchestrator
@@ -250,6 +269,8 @@ app/
 │   ├── fusion.py                  # Reciprocal Rank Fusion
 │   ├── prompt.py                  # grounding rules + evidence block
 │   ├── citations.py               # citation & quote validation
+│   ├── contract_extraction.py      # Docling adapter + deterministic clauses
+│   ├── contract_citations.py       # strict uploaded-contract evidence checks
 │   └── llm/                       # base.py (protocol), openai.py, factory.py
 └── api/
     ├── deps.py                    # dependency wiring
