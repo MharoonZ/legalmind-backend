@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Extraction review</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head><body>
+<header>
+  <strong>Extraction review</strong>
+  <select id="pick" aria-label="Document"></select>
+  <input id="reviewer" placeholder="Your name (reviewer)">
+  <span class="grow"></span>
+  <button class="tab on" id="v-review">Review</button>
+  <button class="tab" id="v-db">Database tables</button>
+</header>
+
+<main id="review">
+  <section id="pdfpane">
+    <div class="bar">
+      <button id="prev" aria-label="Previous page">&lsaquo;</button>
+      <input id="pg" type="number" min="1" value="1"><span id="pgtotal"></span>
+      <button id="next" aria-label="Next page">&rsaquo;</button>
+      <span id="hash"></span><span class="grow"></span>
+      <label class="btn">Load PDF…<input type="file" id="file" accept="application/pdf" hidden></label>
+    </div>
+    <div id="canvaswrap"><div id="pdfmsg"></div><canvas id="cv"></canvas></div>
+  </section>
+  <section id="right">
+    <div id="meta"></div>
+    <nav id="tabs"></nav>
+    <div id="tabbody"></div>
+    <div id="detail"></div>
+  </section>
+</main>
+
+<main id="db" hidden>
+  <aside id="dbside"></aside>
+  <section id="dbmain"><p class="muted">Pick a table on the left to see its rows.</p></section>
+</main>
+<script src="app.js"></script>
+</body></html>

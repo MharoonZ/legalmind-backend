@@ -1,0 +1,5 @@
+.env
+reviews.json
+pdf_cache/
+.venv/
+__pycache__/
