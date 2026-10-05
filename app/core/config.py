@@ -102,6 +102,14 @@ class Settings(BaseSettings):
     # This is a presence check only, not extraction - see document_upload.py.
     upload_min_text_chars: int = 20
 
+    # ---------------------------------------- Local legal-corpus administration
+    # Deliberately off by default. No login exists yet, so this endpoint must
+    # only be enabled while both frontend and backend are bound to loopback.
+    legal_ingest_enabled: bool = False
+    legal_upload_dir: str = "uploads/legal"
+    legal_upload_max_size_bytes: int = 100 * 1024 * 1024
+    legal_upload_max_pages: int = 2000
+
     # ------------------------------------------------------------ Validators
     @field_validator("database_url")
     @classmethod

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.db.session import Database
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.legal_ingestion_repository import LegalIngestionRepository
 from app.repositories.law_repository import LawRepository
 from app.services.ask_service import AskService
 from app.services.embeddings import EmbeddingService
@@ -63,6 +64,12 @@ def get_document_repository(
     return DocumentRepository(session)
 
 
+def get_legal_ingestion_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> LegalIngestionRepository:
+    return LegalIngestionRepository(session)
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DatabaseDep = Annotated[Database, Depends(get_database)]
 DbSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
@@ -70,3 +77,4 @@ LawRepositoryDep = Annotated[LawRepository, Depends(get_law_repository)]
 EmbeddingServiceDep = Annotated[EmbeddingService, Depends(get_embedding_service)]
 AskServiceDep = Annotated[AskService, Depends(get_ask_service)]
 DocumentRepositoryDep = Annotated[DocumentRepository, Depends(get_document_repository)]
+LegalIngestionRepositoryDep = Annotated[LegalIngestionRepository, Depends(get_legal_ingestion_repository)]

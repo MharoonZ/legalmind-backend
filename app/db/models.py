@@ -1,7 +1,8 @@
-"""Database tables for a versioned, review-gated legal corpus.
+"""Legacy 30-section corpus and private contract tables.
 
 These classes describe the database shape for application code.  Alembic owns
-the actual schema changes; importing this module does not create tables.
+the actual schema changes; importing this module does not create tables. The
+new full-PDF ingestion schema lives in ``app.db.legal_corpus_models``.
 
 The embedding column width comes from `EMBEDDING_DIM` so the ORM, the search
 SQL and the migration can never disagree about the vector size.
@@ -27,19 +28,16 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.config import get_settings
+from app.db.base import Base
 
 EMBEDDING_DIM = get_settings().embedding_dim
 
 # pgvector can only build HNSW/IVFFlat indexes on vectors of 2000 dimensions
 # or fewer. Above that the column still works, but every search is an exact scan.
 HNSW_MAX_DIM = 2000
-
-
-class Base(DeclarativeBase):
-    """Shared SQLAlchemy metadata used by Alembic autogeneration."""
 
 
 class LawSource(Base):
