@@ -4,9 +4,13 @@ This migration is **additive**. It does not change the legacy 30-section
 `law_sources`, `law_sections`, and `law_passages` search path, and it does not
 mix private uploaded contracts into the authoritative legal corpus. It creates
 the database foundation for an admin upload, extraction inspector, structured
-Act/Rule parser, and review workflow. A local-only upload API and screen now
-register source PDFs and queue extraction jobs; no OCR worker, review UI, or
-publication switch is included yet.
+Act/Rule parser, and review workflow. The local-only upload API and screen
+register source PDFs and queue extraction jobs. A separate OCR-capable worker
+now saves every physical page and its blocks, and a read-only inspector shows
+the original page beside extracted text and warnings. There is still no
+review-decision UI or publication switch. A subsequent additive migration,
+`20261006_06`, adds the draft structure parser's JSON report and per-block
+coverage table; see `LOCAL_LEGAL_STRUCTURE.md` for its precise scope.
 
 ## Table ownership and meaning
 

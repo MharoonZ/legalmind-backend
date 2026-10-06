@@ -275,6 +275,7 @@ class CorpusRevision(Base):
     parser_version: Mapped[str] = mapped_column(String(100), nullable=False)
     normalizer_version: Mapped[str] = mapped_column(String(100), nullable=False)
     content_sha256: Mapped[str | None] = mapped_column(String(64))
+    parser_report: Mapped[dict | None] = mapped_column(JSONB)
     review_state: Mapped[str] = mapped_column(String(20), nullable=False, server_default="draft")
     approved_by: Mapped[UUID | None] = mapped_column(ForeignKey("app_users.id", ondelete="RESTRICT"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -373,6 +374,27 @@ class ProvisionReference(Base):
     target_reference_path: Mapped[str | None] = mapped_column(Text)
     resolution_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="unresolved")
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class RevisionBlockCoverage(Base):
+    """One auditable classification for every extracted source block in a draft."""
+
+    __tablename__ = "revision_block_coverage"
+    __table_args__ = (
+        ForeignKeyConstraint(["revision_id", "extraction_id"], ["revision_sources.revision_id", "revision_sources.extraction_id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["block_id", "page_id", "extraction_id"], ["file_blocks.id", "file_blocks.page_id", "file_blocks.extraction_id"], ondelete="RESTRICT"),
+        UniqueConstraint("revision_id", "block_id", name="uq_revision_block_coverage_block"),
+        CheckConstraint("status IN ('mapped', 'partial', 'ignored', 'unmapped')", name="ck_revision_block_coverage_status"),
+        CheckConstraint("length(btrim(reason)) > 0", name="ck_revision_block_coverage_reason"),
+    )
+
+    id: Mapped[UUID] = _id_column()
+    revision_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    extraction_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    page_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    block_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class InstrumentRelation(Base):
@@ -476,6 +498,7 @@ Index("ix_provisions_revision_parent", Provision.revision_id, Provision.parent_i
 Index("ix_provision_spans_provision_id", ProvisionSpan.provision_id)
 Index("ix_provision_spans_page_id", ProvisionSpan.page_id)
 Index("ix_provision_references_source", ProvisionReference.source_provision_id)
+Index("ix_revision_block_coverage_revision_status", RevisionBlockCoverage.revision_id, RevisionBlockCoverage.status)
 Index("ix_instrument_relations_from", InstrumentRelation.from_instrument_id)
 Index("ix_instrument_relations_to", InstrumentRelation.to_instrument_id)
 Index("ix_review_events_extraction", ReviewEvent.file_extraction_id)

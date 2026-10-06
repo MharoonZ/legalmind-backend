@@ -1,4 +1,4 @@
-"""Schema-only checks for Haroon's additive ingestion migration.
+"""Schema-only checks for Haroon's additive ingestion and structure migrations.
 
 These tests never connect to the real database. PostgreSQL execution and the
 cross-row approval gate still need a disposable database integration test.
@@ -22,17 +22,11 @@ HAROON_TABLES = {
     "instrument_categories", "instrument_relations", "legal_versions",
     "legal_files", "legal_file_assignments", "file_extractions", "file_pages", "file_blocks",
     "corpus_revisions", "revision_sources", "provisions", "provision_spans",
-    "provision_references", "review_events", "processing_jobs", "job_attempts",
+    "provision_references", "revision_block_coverage", "review_events", "processing_jobs", "job_attempts",
 }
 
 
 def _migration_schema(monkeypatch):
-    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "20261005_05_haroon_legal_corpus.py"
-    spec = spec_from_file_location("haroon_corpus_migration", path)
-    assert spec is not None and spec.loader is not None
-    migration = module_from_spec(spec)
-    spec.loader.exec_module(migration)
-
     metadata = sa.MetaData()
     indexes = set()
     statements = []
@@ -43,8 +37,20 @@ def _migration_schema(monkeypatch):
     def create_index(name, table, columns):
         indexes.add((name, table, tuple(columns)))
 
-    monkeypatch.setattr(migration, "op", SimpleNamespace(create_table=create_table, create_index=create_index, execute=statements.append))
-    migration.upgrade()
+    def add_column(table, column):
+        metadata.tables[table].append_column(column)
+
+    for filename in ("20261005_05_haroon_legal_corpus.py", "20261006_06_structure_coverage.py"):
+        path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / filename
+        spec = spec_from_file_location(filename.removesuffix(".py"), path)
+        assert spec is not None and spec.loader is not None
+        migration = module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        monkeypatch.setattr(migration, "op", SimpleNamespace(
+            create_table=create_table, create_index=create_index,
+            add_column=add_column, execute=statements.append,
+        ))
+        migration.upgrade()
     return metadata, indexes, statements
 
 
@@ -101,6 +107,12 @@ def test_spans_cannot_mix_revisions_extractions_pages_or_blocks():
     assert (("provision_id", "revision_id"), ("provisions.id", "provisions.revision_id")) in foreign_keys
     assert (("revision_id", "extraction_id"), ("revision_sources.revision_id", "revision_sources.extraction_id")) in foreign_keys
     assert (("page_id", "extraction_id"), ("file_pages.id", "file_pages.extraction_id")) in foreign_keys
+    assert (("block_id", "page_id", "extraction_id"), ("file_blocks.id", "file_blocks.page_id", "file_blocks.extraction_id")) in foreign_keys
+
+
+def test_block_coverage_is_scoped_to_selected_revision_source():
+    foreign_keys = _foreign_keys(Base.metadata.tables["revision_block_coverage"])
+    assert (("revision_id", "extraction_id"), ("revision_sources.revision_id", "revision_sources.extraction_id")) in foreign_keys
     assert (("block_id", "page_id", "extraction_id"), ("file_blocks.id", "file_blocks.page_id", "file_blocks.extraction_id")) in foreign_keys
 
 

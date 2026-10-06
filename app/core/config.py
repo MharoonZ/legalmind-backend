@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     legal_upload_dir: str = "uploads/legal"
     legal_upload_max_size_bytes: int = 100 * 1024 * 1024
     legal_upload_max_pages: int = 2000
+    legal_ocr_tessdata_dir: str = "uploads/ocr/tessdata"
+    legal_ocr_languages: str = "eng"
+    legal_ocr_dpi: int = 200
 
     # ------------------------------------------------------------ Validators
     @field_validator("database_url")

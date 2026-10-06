@@ -1,23 +1,36 @@
-"""Loopback-only Act/Rules PDF registration; no extraction worker yet."""
+"""Loopback-only Act/Rules PDF registration and extraction inspection."""
 
 from __future__ import annotations
 
 import ipaddress
 import re
 from datetime import date
+from uuid import UUID
 from urllib.parse import urlsplit
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import LegalIngestionRepositoryDep, SettingsDep
+import fitz
+
+from app.api.deps import DatabaseDep, LegalIngestionRepositoryDep, SettingsDep
 from app.core.errors import (
     LegalUploadConflictError,
     LegalUploadStorageError,
     LegalUploadValidationError,
 )
 from app.repositories.legal_ingestion_repository import LegalRegistration
+from app.repositories.legal_extraction_repository import LegalExtractionRepository
+from app.repositories.legal_structure_repository import LegalStructureRepository, StructureConflict
+from app.schemas.legal_extraction import (
+    FileOverviewOut,
+    FilePageDetailOut,
+    FilePageSummaryOut,
+)
 from app.schemas.legal_ingestion import LegalUploadOut
+from app.schemas.legal_structure import StructureCreateIn
+from app.services.legal_extraction import SourcePdfError, resolve_source_pdf
 from app.services.legal_upload import store_legal_pdf
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -167,3 +180,119 @@ async def upload_legal_pdf(
 @router.get("/uploads", response_model=list[LegalUploadOut])
 async def recent_legal_uploads(repository: LegalIngestionRepositoryDep) -> list[LegalUploadOut]:
     return [LegalUploadOut.model_validate(record) for record in await repository.recent_uploads()]
+
+
+@router.get("/files/{file_id}/overview", response_model=FileOverviewOut)
+async def legal_file_overview(file_id: UUID, db: DatabaseDep) -> FileOverviewOut:
+    overview = await LegalExtractionRepository(db).overview(file_id)
+    if overview is None:
+        raise HTTPException(status_code=404, detail="Registered PDF not found")
+    return FileOverviewOut.model_validate(overview)
+
+
+@router.get("/extractions/{extraction_id}/pages", response_model=list[FilePageSummaryOut])
+async def extraction_pages(extraction_id: UUID, db: DatabaseDep) -> list[FilePageSummaryOut]:
+    pages = await LegalExtractionRepository(db).pages(extraction_id)
+    if pages is None:
+        raise HTTPException(status_code=404, detail="Extraction not found")
+    return [FilePageSummaryOut.model_validate(page) for page in pages]
+
+
+@router.get("/extractions/{extraction_id}/pages/{page_index}", response_model=FilePageDetailOut)
+async def extraction_page_detail(
+    extraction_id: UUID, page_index: int, db: DatabaseDep
+) -> FilePageDetailOut:
+    if page_index < 1:
+        raise HTTPException(status_code=404, detail="Page not found")
+    page = await LegalExtractionRepository(db).page_detail(extraction_id, page_index)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    return FilePageDetailOut.model_validate(page)
+
+
+def _render_pdf_page(path, page_index: int) -> bytes:
+    with fitz.open(path) as document:
+        page = document.load_page(page_index - 1)
+        zoom = min(1.5, 1400 / max(float(page.rect.width), float(page.rect.height)))
+        return page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False).tobytes("png")
+
+
+@router.get("/files/{file_id}/pages/{page_index}/preview")
+async def original_page_preview(
+    file_id: UUID, page_index: int, db: DatabaseDep, settings: SettingsDep
+) -> Response:
+    source = await LegalExtractionRepository(db).get_file(file_id)
+    if source is None or not 1 <= page_index <= source.page_count:
+        raise HTTPException(status_code=404, detail="Page not found")
+    try:
+        path = resolve_source_pdf(settings.legal_upload_dir, source.object_key, source.sha256)
+        png = await run_in_threadpool(_render_pdf_page, path, page_index)
+    except (SourcePdfError, fitz.FileDataError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return Response(png, media_type="image/png", headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/jobs/{job_id}/retry", status_code=202)
+async def retry_extraction(job_id: UUID, db: DatabaseDep) -> dict[str, bool]:
+    if not await LegalExtractionRepository(db).requeue(job_id):
+        raise HTTPException(status_code=409, detail="Only a completed or failed extraction can be retried")
+    return {"queued": True}
+
+
+@router.get("/versions/{version_id}/structure-sources")
+async def structure_source_options(version_id: UUID, db: DatabaseDep) -> list[dict]:
+    return await LegalStructureRepository(db).source_options(version_id)
+
+
+@router.post("/versions/{version_id}/revisions", status_code=201)
+async def create_structure_revision(
+    version_id: UUID, payload: StructureCreateIn, db: DatabaseDep
+) -> dict:
+    try:
+        return await LegalStructureRepository(db).create_revision(version_id, payload.extraction_ids)
+    except StructureConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/versions/{version_id}/revisions")
+async def list_structure_revisions(version_id: UUID, db: DatabaseDep) -> list[dict]:
+    return await LegalStructureRepository(db).list_revisions(version_id)
+
+
+@router.get("/revisions/{revision_id}")
+async def structure_revision_overview(revision_id: UUID, db: DatabaseDep) -> dict:
+    result = await LegalStructureRepository(db).overview(revision_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Draft revision not found")
+    return result
+
+
+@router.get("/revisions/{revision_id}/provisions/{provision_id}")
+async def structure_provision_detail(
+    revision_id: UUID, provision_id: UUID, db: DatabaseDep
+) -> dict:
+    result = await LegalStructureRepository(db).provision_detail(revision_id, provision_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Provision not found in this revision")
+    return result
+
+
+@router.get("/revisions/{revision_id}/coverage")
+async def structure_block_coverage(
+    revision_id: UUID, db: DatabaseDep,
+    status_filter: Literal["mapped", "partial", "ignored", "unmapped"] | None = Query(None, alias="status"),
+    limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
+) -> list[dict]:
+    result = await LegalStructureRepository(db).coverage(
+        revision_id, status=status_filter, limit=limit, offset=offset
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Draft revision not found")
+    return result
+
+
+@router.post("/revisions/{revision_id}/retry", status_code=202)
+async def retry_structure_revision(revision_id: UUID, db: DatabaseDep) -> dict[str, bool]:
+    if not await LegalStructureRepository(db).retry(revision_id):
+        raise HTTPException(status_code=409, detail="Only an unparsed failed draft can be retried")
+    return {"queued": True}
