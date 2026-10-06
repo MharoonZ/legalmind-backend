@@ -2,6 +2,12 @@
 
 FastAPI backend for grounded Q&A over the Contract Act, 1872 (sections 1–30).
 
+For Haroon's separate legal-corpus ingestion work, use the
+[PDF extraction worker and inspector guide](docs/LEGAL_PDF_EXTRACTION.md).
+It operates on the existing corpus schema and does not require another
+migration or change the active `/ask` corpus. Do not run the general database
+initialization commands below against the shared database for this task.
+
 `POST /ask` runs a full retrieval-augmented pipeline: hybrid search over the
 corpus, an evidence gate, a grounded OpenAI call, and citation validation
 against the passages that were actually retrieved.

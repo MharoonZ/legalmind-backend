@@ -109,6 +109,16 @@ class Settings(BaseSettings):
     legal_upload_dir: str = "uploads/legal"
     legal_upload_max_size_bytes: int = 100 * 1024 * 1024
     legal_upload_max_pages: int = 2000
+    legal_worker_lease_seconds: int = Field(default=120, ge=15, le=3600)
+    legal_worker_max_attempts: int = Field(default=3, ge=1, le=10)
+    legal_page_timeout: int = Field(default=90, ge=5, le=600)
+    legal_ocr_enabled: bool = True
+    legal_tesseract_path: str = "tesseract"
+    legal_tessdata_dir: str = ""
+    legal_ocr_languages: str = "eng"
+    legal_ocr_dpi: int = Field(default=200, ge=100, le=400)
+    legal_native_min_chars: int = Field(default=40, ge=1, le=1000)
+    legal_preview_dpi: int = Field(default=100, ge=36, le=150)
 
     # ------------------------------------------------------------ Validators
     @field_validator("database_url")

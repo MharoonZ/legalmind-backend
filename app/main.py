@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import ask, contracts, health, legal_ingestion
+from app.api.routes import ask, contracts, health, legal_ingestion, legal_inspection
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import Database
@@ -87,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(ask.router)
     app.include_router(contracts.router)
     app.include_router(legal_ingestion.router)
+    app.include_router(legal_inspection.router)
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:

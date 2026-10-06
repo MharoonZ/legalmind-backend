@@ -5,8 +5,11 @@ This migration is **additive**. It does not change the legacy 30-section
 mix private uploaded contracts into the authoritative legal corpus. It creates
 the database foundation for an admin upload, extraction inspector, structured
 Act/Rule parser, and review workflow. A local-only upload API and screen now
-register source PDFs and queue extraction jobs; no OCR worker, review UI, or
-publication switch is included yet.
+register source PDFs and queue extraction jobs. A separate extraction worker
+and local original-page/text inspector now reuse the existing extraction and
+job tables; see [worker setup and behavior](LEGAL_PDF_EXTRACTION.md). The worker
+supports native text and optional local Tesseract OCR. A human approval UI,
+legal-structure parser, and publication switch are still future work.
 
 ## Table ownership and meaning
 
