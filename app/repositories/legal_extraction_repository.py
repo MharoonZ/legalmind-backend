@@ -135,6 +135,7 @@ class LegalExtractionRepository:
                 text_sha256=sha256_text(page.normalized_text),
                 extraction_method=page.extraction_method, outcome=page.outcome,
                 ocr_confidence=page.ocr_confidence, warnings=page.warnings,
+                table_regions=page.table_regions or [],
             )
             session.add(record)
             await session.flush()
@@ -292,6 +293,7 @@ class LegalExtractionRepository:
                 "text_length": len(row.normalized_text),
                 "block_count": block_counts.get(row.id, 0),
                 "warnings": row.warnings,
+                "table_count": len(row.table_regions or []),
             } for row in rows]
 
     async def page_detail(self, extraction_id: UUID, page_index: int) -> dict | None:
@@ -319,6 +321,7 @@ class LegalExtractionRepository:
                 "outcome": row.outcome,
                 "ocr_confidence": float(row.ocr_confidence) if row.ocr_confidence is not None else None,
                 "warnings": row.warnings,
+                "table_regions": row.table_regions or [],
                 "blocks": [{
                     "id": block.id,
                     "ordinal": block.block_ordinal,

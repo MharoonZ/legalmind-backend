@@ -112,6 +112,7 @@ class LegalVersion(Base):
     __tablename__ = "legal_versions"
     __table_args__ = (
         UniqueConstraint("instrument_id", "edition_key", name="uq_legal_versions_instrument_edition"),
+        UniqueConstraint("id", "instrument_id", name="uq_legal_versions_id_instrument"),
         CheckConstraint("effective_to IS NULL OR effective_from IS NULL OR effective_to > effective_from", name="ck_legal_versions_effective_range"),
         CheckConstraint("applicability_status IN ('verified', 'unverified', 'unknown')", name="ck_legal_versions_applicability"),
     )
@@ -226,6 +227,7 @@ class FilePage(Base):
     exclusion_reason: Mapped[str | None] = mapped_column(Text)
     ocr_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     warnings: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    table_regions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -339,6 +341,7 @@ class ProvisionSpan(Base):
         ForeignKeyConstraint(["page_id", "extraction_id"], ["file_pages.id", "file_pages.extraction_id"], ondelete="RESTRICT"),
         ForeignKeyConstraint(["block_id", "page_id", "extraction_id"], ["file_blocks.id", "file_blocks.page_id", "file_blocks.extraction_id"], ondelete="RESTRICT"),
         UniqueConstraint("provision_id", "provision_char_start", "provision_char_end", "page_id", "block_id", name="uq_provision_spans_range_source"),
+        UniqueConstraint("id", "provision_id", "revision_id", name="uq_provision_spans_id_provision_revision"),
         CheckConstraint("provision_char_start >= 0 AND provision_char_end > provision_char_start", name="ck_provision_spans_provision_range"),
         CheckConstraint("(block_char_start IS NULL AND block_char_end IS NULL) OR (block_id IS NOT NULL AND block_char_start IS NOT NULL AND block_char_end IS NOT NULL AND block_char_start >= 0 AND block_char_end > block_char_start)", name="ck_provision_spans_block_range"),
         CheckConstraint("mapping_quality IN ('exact', 'approximate', 'page_only')", name="ck_provision_spans_quality"),
@@ -359,6 +362,33 @@ class ProvisionSpan(Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
 
+class SourceNoteMarkerLink(Base):
+    """Exact printed marker connecting a source/amendment note to operative text."""
+
+    __tablename__ = "source_note_marker_links"
+    __table_args__ = (
+        ForeignKeyConstraint(["note_provision_id", "revision_id"], ["provisions.id", "provisions.revision_id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["target_provision_id", "revision_id"], ["provisions.id", "provisions.revision_id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["revision_id", "extraction_id"], ["revision_sources.revision_id", "revision_sources.extraction_id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["block_id", "page_id", "extraction_id"], ["file_blocks.id", "file_blocks.page_id", "file_blocks.extraction_id"], ondelete="RESTRICT"),
+        UniqueConstraint("revision_id", "block_id", "block_char_start", "block_char_end", name="uq_source_note_marker_links_marker_source"),
+        CheckConstraint("block_char_start >= 0 AND block_char_end > block_char_start", name="ck_source_note_marker_links_block_range"),
+        CheckConstraint("marker_label ~ '^[0-9]+$'", name="ck_source_note_marker_links_numeric_label"),
+        CheckConstraint("target_provision_id IS NULL OR target_provision_id <> note_provision_id", name="ck_source_note_marker_links_distinct_nodes"),
+    )
+
+    id: Mapped[UUID] = _id_column()
+    revision_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    note_provision_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    target_provision_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    marker_label: Mapped[str] = mapped_column(String(20), nullable=False)
+    extraction_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    page_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    block_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    block_char_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    block_char_end: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class ProvisionReference(Base):
     __tablename__ = "provision_references"
     __table_args__ = (
@@ -374,6 +404,53 @@ class ProvisionReference(Base):
     target_reference_path: Mapped[str | None] = mapped_column(Text)
     resolution_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="unresolved")
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class InstrumentRelationCandidate(Base):
+    """Revision-scoped, source-backed proposal; never verified legal effect."""
+
+    __tablename__ = "instrument_relation_candidates"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["source_provision_id", "revision_id"],
+            ["provisions.id", "provisions.revision_id"], ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["evidence_span_id", "source_provision_id", "revision_id"],
+            ["provision_spans.id", "provision_spans.provision_id", "provision_spans.revision_id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["candidate_version_id", "candidate_instrument_id"],
+            ["legal_versions.id", "legal_versions.instrument_id"], ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "revision_id", "evidence_span_id", "source_char_start", "source_char_end", "relation_kind",
+            name="uq_instrument_relation_candidates_evidence",
+        ),
+        CheckConstraint("source_char_start >= 0 AND source_char_end > source_char_start", name="ck_instrument_relation_candidates_range"),
+        CheckConstraint("relation_kind IN ('cites', 'extends', 'amends', 'repeals')", name="ck_instrument_relation_candidates_kind"),
+        CheckConstraint("status IN ('proposed', 'unresolved')", name="ck_instrument_relation_candidates_status"),
+        CheckConstraint("link_basis IN ('explicit_title', 'nearby_reference', 'defined_short_citation')", name="ck_instrument_relation_candidates_basis"),
+        CheckConstraint("candidate_version_id IS NULL OR candidate_instrument_id IS NOT NULL", name="ck_instrument_relation_candidates_version_target"),
+        CheckConstraint("length(btrim(target_title)) > 0 AND length(evidence_text) > 0", name="ck_instrument_relation_candidates_text"),
+    )
+
+    id: Mapped[UUID] = _id_column()
+    revision_id: Mapped[UUID] = mapped_column(ForeignKey("corpus_revisions.id", ondelete="RESTRICT"), nullable=False)
+    source_provision_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    evidence_span_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    source_char_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_char_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    target_title: Mapped[str] = mapped_column(Text, nullable=False)
+    target_reference: Mapped[str | None] = mapped_column(Text)
+    candidate_instrument_id: Mapped[UUID | None] = mapped_column(ForeignKey("legal_instruments.id", ondelete="RESTRICT"))
+    candidate_version_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    relation_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    link_basis: Mapped[str] = mapped_column(String(30), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class RevisionBlockCoverage(Base):
@@ -497,7 +574,12 @@ Index("ix_revision_sources_extraction_id", RevisionSource.extraction_id)
 Index("ix_provisions_revision_parent", Provision.revision_id, Provision.parent_id)
 Index("ix_provision_spans_provision_id", ProvisionSpan.provision_id)
 Index("ix_provision_spans_page_id", ProvisionSpan.page_id)
+Index("ix_source_note_marker_links_page", SourceNoteMarkerLink.revision_id, SourceNoteMarkerLink.page_id)
+Index("ix_source_note_marker_links_note", SourceNoteMarkerLink.note_provision_id)
+Index("ix_source_note_marker_links_target", SourceNoteMarkerLink.target_provision_id)
 Index("ix_provision_references_source", ProvisionReference.source_provision_id)
+Index("ix_instrument_relation_candidates_revision", InstrumentRelationCandidate.revision_id)
+Index("ix_instrument_relation_candidates_target", InstrumentRelationCandidate.candidate_instrument_id)
 Index("ix_revision_block_coverage_revision_status", RevisionBlockCoverage.revision_id, RevisionBlockCoverage.status)
 Index("ix_instrument_relations_from", InstrumentRelation.from_instrument_id)
 Index("ix_instrument_relations_to", InstrumentRelation.to_instrument_id)

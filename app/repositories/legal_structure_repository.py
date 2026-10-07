@@ -10,9 +10,9 @@ from sqlalchemy import and_, case, func, insert, or_, select
 
 from app.db.legal_corpus_models import (
     CorpusRevision, FileBlock, FileExtraction, FilePage, JobAttempt,
-    LegalFile, LegalFileAssignment, LegalInstrument, LegalVersion,
+    InstrumentRelationCandidate, LegalFile, LegalFileAssignment, LegalInstrument, LegalVersion,
     ProcessingJob, Provision, ProvisionReference, ProvisionSpan,
-    RevisionBlockCoverage, RevisionSource,
+    RevisionBlockCoverage, RevisionSource, SourceNoteMarkerLink,
 )
 from app.db.session import Database
 from app.services.legal_structure import (
@@ -20,6 +20,8 @@ from app.services.legal_structure import (
     SourceDocument, SourcePage,
 )
 from app.services.legal_extraction import sha256_text
+from app.services.legal_audit import structure_findings
+from app.services.legal_relationships import extract_relation_candidates, normalize_title
 
 
 class StructureConflict(Exception):
@@ -300,6 +302,52 @@ class LegalStructureRepository:
                 if start < previous_end:
                     raise StructureConflict("Overlapping source spans would duplicate text.")
                 previous_end = end
+        note_source_extractions = {(span.provision_id, span.extraction_id) for span in parsed.spans}
+        marker_keys: set[tuple[UUID, int, int]] = set()
+        for link in parsed.note_links:
+            note, target = nodes.get(link.note_provision_id), nodes.get(link.target_provision_id)
+            block = source_blocks.get(link.block_id)
+            if (note is None or note.kind != "other" or note.label != link.marker_label
+                    or not (note.heading or "").startswith("Source note ")):
+                raise StructureConflict("A source-note marker has no matching note provision.")
+            if link.target_provision_id is not None and (target is None or target.id == note.id):
+                raise StructureConflict("A source-note marker targets a missing or identical provision.")
+            if (block is None or link.extraction_id != block.extraction_id
+                    or link.page_id != block.page_id):
+                raise StructureConflict("A source-note marker points outside its selected source.")
+            if (note.id, link.extraction_id) not in note_source_extractions:
+                raise StructureConflict("A source-note marker is not backed by note text from the same PDF.")
+            if (not link.marker_label.isascii() or not link.marker_label.isdecimal()
+                    or not (0 <= link.block_char_start < link.block_char_end <= len(block.text))
+                    or block.text[link.block_char_start:link.block_char_end] != link.marker_label):
+                raise StructureConflict("A source-note marker does not match exact saved source text.")
+            key = (block.id, link.block_char_start, link.block_char_end)
+            if key in marker_keys:
+                raise StructureConflict("A source-note marker link is duplicated.")
+            marker_keys.add(key)
+        span_ids = {span: uuid4() for span in parsed.spans}
+        if len(span_ids) != len(parsed.spans):
+            raise StructureConflict("A draft contains duplicate exact source spans.")
+        relation_candidates = extract_relation_candidates(
+            parsed, source_titles={document.title for document in documents},
+        )
+        for candidate in relation_candidates:
+            node = nodes.get(candidate.source_provision_id)
+            span = candidate.source_span
+            block = source_blocks.get(span.block_id)
+            if (node is None or span.provision_id != node.id or span not in span_ids
+                    or block is None):
+                raise StructureConflict("A proposed instrument relationship lacks a selected exact span.")
+            if not (span.provision_char_start <= candidate.source_char_start
+                    < candidate.source_char_end <= span.provision_char_end):
+                raise StructureConflict("A proposed instrument relationship exceeds its exact span.")
+            offset = candidate.source_char_start - span.provision_char_start
+            block_start = span.block_char_start + offset
+            block_end = block_start + len(candidate.evidence_text)
+            if (node.own_text[candidate.source_char_start:candidate.source_char_end]
+                    != candidate.evidence_text
+                    or block.text[block_start:block_end] != candidate.evidence_text):
+                raise StructureConflict("A proposed instrument relationship differs from stored PDF text.")
         now = datetime.now(UTC)
         async with self.db.session() as session, session.begin():
             job = (await session.execute(select(ProcessingJob)
@@ -320,7 +368,7 @@ class LegalStructureRepository:
                 } for n in batch]))
             for batch in _chunks(parsed.spans):
                 await session.execute(insert(ProvisionSpan).values([{
-                    "id": uuid4(), "revision_id": claim.revision_id,
+                    "id": span_ids[s], "revision_id": claim.revision_id,
                     "provision_id": s.provision_id, "extraction_id": s.extraction_id,
                     "page_id": s.page_id, "block_id": s.block_id,
                     "provision_char_start": s.provision_char_start,
@@ -328,6 +376,46 @@ class LegalStructureRepository:
                     "block_char_start": s.block_char_start, "block_char_end": s.block_char_end,
                     "mapping_quality": "exact",
                 } for s in batch]))
+            if relation_candidates:
+                source_version = await session.get(LegalVersion, revision.legal_version_id)
+                if source_version is None:
+                    raise StructureConflict("The draft legal edition disappeared.")
+                instruments = (await session.execute(
+                    select(LegalInstrument.id, LegalInstrument.canonical_title)
+                )).all()
+                by_title: dict[str, set[UUID]] = {}
+                for instrument_id, title in instruments:
+                    if instrument_id != source_version.instrument_id:
+                        by_title.setdefault(normalize_title(title), set()).add(instrument_id)
+                for batch in _chunks(relation_candidates):
+                    await session.execute(insert(InstrumentRelationCandidate).values([{
+                        "id": uuid4(), "revision_id": claim.revision_id,
+                        "source_provision_id": item.source_provision_id,
+                        "evidence_span_id": span_ids[item.source_span],
+                        "source_char_start": item.source_char_start,
+                        "source_char_end": item.source_char_end,
+                        "evidence_text": item.evidence_text,
+                        "target_title": item.target_title,
+                        "target_reference": item.target_reference,
+                        "candidate_instrument_id": next(iter(matches)) if len(matches) == 1 else None,
+                        "candidate_version_id": None,
+                        "relation_kind": item.relation_kind,
+                        "link_basis": item.link_basis,
+                        "status": "proposed" if len(matches) == 1 else "unresolved",
+                    } for item in batch
+                      for matches in (by_title.get(normalize_title(item.target_title), set()),)]))
+            for batch in _chunks(parsed.note_links):
+                await session.execute(insert(SourceNoteMarkerLink).values([{
+                    "id": uuid4(), "revision_id": claim.revision_id,
+                    "note_provision_id": link.note_provision_id,
+                    "target_provision_id": link.target_provision_id,
+                    "marker_label": link.marker_label,
+                    "extraction_id": link.extraction_id,
+                    "page_id": link.page_id,
+                    "block_id": link.block_id,
+                    "block_char_start": link.block_char_start,
+                    "block_char_end": link.block_char_end,
+                } for link in batch]))
             for batch in _chunks(parsed.references):
                 await session.execute(insert(ProvisionReference).values([{
                     "id": uuid4(), "source_provision_id": ref.provision_id,
@@ -432,6 +520,49 @@ class LegalStructureRepository:
                                 "span_count": counts.get(node.id, 0)} for node in nodes],
             }
 
+    async def relationship_candidates(self, revision_id: UUID) -> dict | None:
+        """Read-only proposals; IDs and relation words are not verified law."""
+        async with self.db.session() as session:
+            if await session.get(CorpusRevision, revision_id) is None:
+                return None
+            rows = (await session.execute(
+                select(InstrumentRelationCandidate, Provision, ProvisionSpan,
+                       FilePage, FileExtraction)
+                .join(Provision, Provision.id == InstrumentRelationCandidate.source_provision_id)
+                .join(ProvisionSpan, ProvisionSpan.id == InstrumentRelationCandidate.evidence_span_id)
+                .join(FilePage, FilePage.id == ProvisionSpan.page_id)
+                .join(FileExtraction, FileExtraction.id == ProvisionSpan.extraction_id)
+                .where(InstrumentRelationCandidate.revision_id == revision_id)
+                .order_by(Provision.ordinal, InstrumentRelationCandidate.source_char_start)
+            )).all()
+            candidates = []
+            for item, node, span, page, extraction in rows:
+                block_start = (span.block_char_start + item.source_char_start
+                               - span.provision_char_start)
+                candidates.append({
+                    "id": item.id, "relation_kind": item.relation_kind,
+                    "status": item.status, "link_basis": item.link_basis,
+                    "source_provision_id": node.id,
+                    "source_reference_path": node.reference_path,
+                    "evidence_span_id": span.id,
+                    "file_id": extraction.file_id, "page_index": page.page_index,
+                    "block_id": span.block_id,
+                    "source_char_start": item.source_char_start,
+                    "source_char_end": item.source_char_end,
+                    "block_char_start": block_start,
+                    "block_char_end": block_start + len(item.evidence_text),
+                    "evidence_text": item.evidence_text,
+                    "target_title": item.target_title,
+                    "target_reference": item.target_reference,
+                    "candidate_instrument_id": item.candidate_instrument_id,
+                    "candidate_version_id": item.candidate_version_id,
+                })
+            return {
+                "revision_id": revision_id,
+                "notice": "Automatically proposed from draft source text. Not verified legal effect, current applicability, or resolved target provisions.",
+                "candidates": candidates,
+            }
+
     async def provision_detail(self, revision_id: UUID, provision_id: UUID) -> dict | None:
         async with self.db.session() as session:
             node = (await session.execute(select(Provision).where(
@@ -447,6 +578,23 @@ class LegalStructureRepository:
                 .order_by(ProvisionSpan.provision_char_start))).all()
             references = (await session.execute(select(ProvisionReference)
                 .where(ProvisionReference.source_provision_id == provision_id))).scalars().all()
+            note_link_rows = (await session.execute(
+                select(SourceNoteMarkerLink, FileBlock, FilePage)
+                .join(FileBlock, FileBlock.id == SourceNoteMarkerLink.block_id)
+                .join(FilePage, FilePage.id == SourceNoteMarkerLink.page_id)
+                .where(SourceNoteMarkerLink.revision_id == revision_id,
+                       or_(SourceNoteMarkerLink.note_provision_id == provision_id,
+                           SourceNoteMarkerLink.target_provision_id == provision_id))
+                .order_by(FilePage.page_index, FileBlock.block_ordinal,
+                          SourceNoteMarkerLink.block_char_start)
+            )).all()
+            linked_ids = {linked_id for link, _, _ in note_link_rows
+                          for linked_id in (link.note_provision_id, link.target_provision_id)
+                          if linked_id is not None}
+            linked_nodes = {item.id: item for item in (await session.execute(
+                select(Provision).where(Provision.revision_id == revision_id,
+                                        Provision.id.in_(linked_ids))
+            )).scalars().all()} if linked_ids else {}
             return {
                 "id": node.id, "kind": node.kind, "label": node.label,
                 "reference_path": node.reference_path, "heading": node.heading,
@@ -465,6 +613,24 @@ class LegalStructureRepository:
                 "references": [{"raw_reference": ref.raw_reference,
                                 "resolution_status": ref.resolution_status}
                                for ref in references],
+                "note_links": [{
+                    "id": link.id, "marker_label": link.marker_label,
+                    "marker_text": block.normalized_text[link.block_char_start:link.block_char_end],
+                    "extraction_id": link.extraction_id, "page_index": page.page_index,
+                    "page_id": page.id, "block_id": block.id,
+                    "block_char_start": link.block_char_start,
+                    "block_char_end": link.block_char_end,
+                    "note_provision_id": link.note_provision_id,
+                    "note_reference_path": linked_nodes[link.note_provision_id].reference_path,
+                    "note_text": linked_nodes[link.note_provision_id].own_text,
+                    "target_provision_id": link.target_provision_id,
+                    "target_reference_path": linked_nodes[link.target_provision_id].reference_path
+                    if link.target_provision_id is not None else None,
+                    "target_kind": linked_nodes[link.target_provision_id].kind
+                    if link.target_provision_id is not None else None,
+                    "target_label": linked_nodes[link.target_provision_id].label
+                    if link.target_provision_id is not None else None,
+                } for link, block, page in note_link_rows],
             }
 
     async def coverage(self, revision_id: UUID, *, status: str | None = None,
@@ -487,3 +653,149 @@ class LegalStructureRepository:
                      "block_ordinal": block.block_ordinal, "status": decision.status,
                      "reason": decision.reason, "text_preview": block.normalized_text[:300]}
                     for decision, page, block, extraction in rows]
+
+    async def audit(self, revision_id: UUID) -> dict | None:
+        """Check persisted text and source mappings, never the parser's in-memory result."""
+        async with self.db.session() as session:
+            revision = await session.get(CorpusRevision, revision_id)
+            if revision is None:
+                return None
+            instrument_type = await session.scalar(
+                select(LegalInstrument.instrument_type)
+                .join(LegalVersion, LegalVersion.instrument_id == LegalInstrument.id)
+                .where(LegalVersion.id == revision.legal_version_id)
+            )
+            nodes = (await session.execute(select(Provision).where(
+                Provision.revision_id == revision_id).order_by(Provision.ordinal)
+            )).scalars().all()
+            span_rows = (await session.execute(
+                select(ProvisionSpan, FileBlock)
+                .join(FileBlock, FileBlock.id == ProvisionSpan.block_id)
+                .where(ProvisionSpan.revision_id == revision_id)
+            )).all()
+            sources = (await session.execute(select(RevisionSource).where(
+                RevisionSource.revision_id == revision_id
+            ))).scalars().all()
+            primary_ids = [source.extraction_id for source in sources
+                           if source.source_role == "primary"]
+            source_ids = primary_ids or [source.extraction_id for source in sources]
+            source_blocks = (await session.execute(
+                select(FileBlock.id, FileBlock.page_id, FileBlock.extraction_id,
+                       FileBlock.block_kind, FileBlock.normalized_text,
+                       FilePage.page_index)
+                .join(FilePage, FilePage.id == FileBlock.page_id)
+                .where(FileBlock.extraction_id.in_(source_ids))
+            )).all() if source_ids else []
+            counts = dict((await session.execute(
+                select(RevisionBlockCoverage.status, func.count(RevisionBlockCoverage.id))
+                .where(RevisionBlockCoverage.revision_id == revision_id)
+                .group_by(RevisionBlockCoverage.status)
+            )).all())
+            findings = structure_findings(
+                nodes, span_rows, source_blocks=source_blocks,
+                instrument_type=instrument_type,
+            )
+            uncovered = counts.get("unmapped", 0) + counts.get("partial", 0)
+            if uncovered:
+                findings.append({"code": "source_blocks_need_review", "severity": "warning",
+                                 "message": f"{uncovered} source blocks are partial or unmapped; inspect their full saved text.",
+                                 "provision_id": None, "reference_path": None})
+            return {"revision_id": revision_id, "provision_count": len(nodes),
+                    "span_count": len(span_rows), "coverage_counts": counts,
+                    "findings": findings}
+
+    async def page_audit(self, revision_id: UUID, extraction_id: UUID, page_index: int) -> dict | None:
+        """Show exactly which saved page blocks supplied which saved provisions."""
+        async with self.db.session() as session:
+            source = (await session.execute(select(RevisionSource).where(
+                RevisionSource.revision_id == revision_id,
+                RevisionSource.extraction_id == extraction_id,
+            ))).scalar_one_or_none()
+            if source is None:
+                return None
+            page = (await session.execute(select(FilePage).where(
+                FilePage.extraction_id == source.extraction_id,
+                FilePage.page_index == page_index,
+            ))).scalar_one_or_none()
+            if page is None:
+                return None
+            blocks = (await session.execute(select(FileBlock).where(
+                FileBlock.page_id == page.id).order_by(FileBlock.block_ordinal)
+            )).scalars().all()
+            coverage = {row.block_id: row for row in (await session.execute(
+                select(RevisionBlockCoverage).where(
+                    RevisionBlockCoverage.revision_id == revision_id,
+                    RevisionBlockCoverage.page_id == page.id,
+                )
+            )).scalars().all()}
+            spans_by_block: dict[UUID, list[dict]] = {}
+            rows = (await session.execute(
+                select(ProvisionSpan, Provision)
+                .join(Provision, Provision.id == ProvisionSpan.provision_id)
+                .where(ProvisionSpan.revision_id == revision_id,
+                       ProvisionSpan.page_id == page.id)
+                .order_by(Provision.ordinal, ProvisionSpan.provision_char_start)
+            )).all()
+            for span, node in rows:
+                spans_by_block.setdefault(span.block_id, []).append({
+                    "span_id": span.id, "provision_id": node.id,
+                    "reference_path": node.reference_path, "kind": node.kind,
+                    "label": node.label, "heading": node.heading,
+                    "own_text": node.own_text, "mapping_quality": span.mapping_quality,
+                    "provision_char_start": span.provision_char_start,
+                    "provision_char_end": span.provision_char_end,
+                    "block_char_start": span.block_char_start,
+                    "block_char_end": span.block_char_end,
+                })
+            note_rows = (await session.execute(
+                select(SourceNoteMarkerLink)
+                .where(SourceNoteMarkerLink.revision_id == revision_id,
+                       SourceNoteMarkerLink.page_id == page.id)
+                .order_by(SourceNoteMarkerLink.block_char_start)
+            )).scalars().all()
+            linked_ids = {linked_id for link in note_rows
+                          for linked_id in (link.note_provision_id, link.target_provision_id)
+                          if linked_id is not None}
+            linked_nodes = {item.id: item for item in (await session.execute(
+                select(Provision).where(Provision.revision_id == revision_id,
+                                        Provision.id.in_(linked_ids))
+            )).scalars().all()} if linked_ids else {}
+            blocks_by_id = {block.id: block for block in blocks}
+            note_links_by_block: dict[UUID, list[dict]] = {}
+            for link in note_rows:
+                note = linked_nodes[link.note_provision_id]
+                target = linked_nodes[link.target_provision_id] if link.target_provision_id else None
+                block = blocks_by_id[link.block_id]
+                note_links_by_block.setdefault(link.block_id, []).append({
+                    "id": link.id, "marker_label": link.marker_label,
+                    "marker_text": block.normalized_text[link.block_char_start:link.block_char_end],
+                    "block_char_start": link.block_char_start,
+                    "block_char_end": link.block_char_end,
+                    "note_provision_id": note.id,
+                    "note_reference_path": note.reference_path,
+                    "note_text": note.own_text,
+                    "target_provision_id": target.id if target else None,
+                    "target_reference_path": target.reference_path if target else None,
+                    "target_kind": target.kind if target else None,
+                    "target_label": target.label if target else None,
+                })
+            return {
+                "file_id": source.file_id, "extraction_id": source.extraction_id,
+                "page_id": page.id, "page_index": page.page_index,
+                "outcome": page.outcome, "extraction_method": page.extraction_method,
+                "ocr_confidence": float(page.ocr_confidence) if page.ocr_confidence is not None else None,
+                "raw_text": page.raw_text, "normalized_text": page.normalized_text,
+                "text_sha256": page.text_sha256, "warnings": page.warnings,
+                "blocks": [{
+                    "id": block.id, "ordinal": block.block_ordinal,
+                    "kind": block.block_kind, "raw_text": block.raw_text,
+                    "normalized_text": block.normalized_text,
+                    "page_char_start": block.page_char_start,
+                    "page_char_end": block.page_char_end,
+                    "bbox": block.bbox, "warnings": block.warnings,
+                    "coverage_status": coverage[block.id].status if block.id in coverage else None,
+                    "coverage_reason": coverage[block.id].reason if block.id in coverage else None,
+                    "spans": spans_by_block.get(block.id, []),
+                    "note_links": note_links_by_block.get(block.id, []),
+                } for block in blocks],
+            }

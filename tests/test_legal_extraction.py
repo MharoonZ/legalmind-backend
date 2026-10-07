@@ -47,6 +47,40 @@ def test_native_text_and_block_offsets():
     document.close()
 
 
+def test_table_rows_columns_and_cell_boxes_are_saved_as_review_candidates():
+    document = fitz.open()
+    page = document.new_page()
+    for x in (50, 200, 350):
+        page.draw_line((x, 100), (x, 180))
+    for y in (100, 140, 180):
+        page.draw_line((50, y), (350, y))
+    for x, y, value in ((60, 125, "Provision"), (210, 125, "Penalty"),
+                        (60, 165, "Section 498"), (210, 165, "Two years")):
+        page.insert_text((x, y), value)
+    result = extract_page(page, 1, ExtractionConfig())
+    assert result.outcome == "needs_review"
+    assert any(item["code"] == "table_layout_candidate" for item in result.warnings)
+    table = result.table_regions[0]
+    assert (table["row_count"], table["column_count"]) == (2, 2)
+    assert table["rows"][1][0]["text"] == "Section 498"
+    assert table["rows"][1][1]["text"] == "Two years"
+    assert table["rows"][1][0]["bbox"]["x1"] == 200
+    assert "Section 498" in result.normalized_text
+    document.close()
+
+
+def test_ambiguous_native_numbering_is_flagged_without_changing_raw_text():
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((50, 80), "1. Short title. (l) This Act may be called the Example Act.")
+    page.insert_text((50, 110), "(2) It extends to the province.")
+    result = extract_page(page, 1, ExtractionConfig())
+    assert result.outcome == "needs_review"
+    assert "(l)" in result.raw_text and "(l)" in result.normalized_text
+    assert any(item["code"] == "ambiguous_numbering_glyph" for item in result.warnings)
+    document.close()
+
+
 def test_textless_page_requires_review_not_automatic_blank():
     document = fitz.open()
     result = extract_page(document.new_page(), 1, ExtractionConfig(tessdata_dir="unused"))

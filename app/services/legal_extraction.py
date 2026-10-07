@@ -17,8 +17,12 @@ from typing import Any
 import fitz
 
 
-EXTRACTOR_VERSION = "legal-pages-v1"
+EXTRACTOR_VERSION = "legal-pages-v2"
 _OBJECT_KEY = re.compile(r"^[0-9a-f]{2}/[0-9a-f]{64}\.pdf$")
+_AMBIGUOUS_ONE = re.compile(
+    r"(?s)\b\d+(?:-[A-Za-z]+|[A-Za-z]*)\.[^\n]{0,200}\([lI]\)"
+    r".{0,400}?\n\s*\(2\)[ \t]"
+)
 
 
 class SourcePdfError(Exception):
@@ -72,6 +76,7 @@ class ExtractedPage:
     warnings: list[dict[str, str]]
     blocks: list[ExtractedBlock]
     ocr_confidence: None = None
+    table_regions: list[dict] | None = None
 
     def digest_payload(self) -> bytes:
         value = {
@@ -84,6 +89,7 @@ class ExtractedPage:
                 {"kind": block.kind, "text": block.normalized_text, "bbox": block.bbox}
                 for block in self.blocks
             ],
+            "table_regions": self.table_regions or [],
         }
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -170,6 +176,41 @@ def _build_blocks(items: list[tuple[Any, ...]]) -> tuple[str, str, list[Extracte
     return "\n".join(raw_parts), "\n".join(normalized_parts), blocks
 
 
+def _table_regions(page: fitz.Page) -> list[dict]:
+    """Keep table geometry separate from the exact native-text block stream.
+
+    A detected cell is a layout aid, not a corrected legal transcription. The
+    table finder may merge printed subrows, so every region requires review.
+    """
+    regions: list[dict] = []
+    for table in page.find_tables().tables:
+        if table.row_count < 2 or table.col_count < 2:
+            continue
+        extracted = table.extract()
+        rows = []
+        for row_index in range(table.row_count):
+            row = []
+            for column_index in range(table.col_count):
+                table_row = table.rows[row_index] if row_index < len(table.rows) else None
+                cell_bbox = (table_row.cells[column_index]
+                             if table_row is not None and column_index < len(table_row.cells)
+                             else None)
+                cell_text = (extracted[row_index][column_index]
+                             if row_index < len(extracted)
+                             and column_index < len(extracted[row_index]) else None)
+                row.append({
+                    "text": _normalize(cell_text) if cell_text is not None else None,
+                    "bbox": _bbox(cell_bbox) if cell_bbox is not None else None,
+                })
+            rows.append(row)
+        regions.append({
+            "bbox": _bbox(table.bbox), "row_count": table.row_count,
+            "column_count": table.col_count, "rows": rows,
+            "status": "candidate_requires_review",
+        })
+    return regions
+
+
 def _tessdata(config: ExtractionConfig) -> str:
     languages = [part for part in config.languages.split("+") if part]
     if not languages:
@@ -246,6 +287,21 @@ def extract_page(page: fitz.Page, page_index: int, config: ExtractionConfig) -> 
         warnings.append(warning("broken_text_encoding", "Native text contains many replacement characters."))
     if "\x00" in native_text:
         warnings.append(warning("nul_replaced", "NUL characters were replaced for database storage."))
+    if _AMBIGUOUS_ONE.search(native_text):
+        warnings.append(warning(
+            "ambiguous_numbering_glyph",
+            "Native text may read letter l/I where subsection (1) is printed; compare the PDF image.",
+        ))
+        outcome = "needs_review"
+
+    try:
+        table_regions = _table_regions(page)
+    except Exception as exc:
+        table_regions = []
+        warnings.append(warning("table_detection_failed", f"Table layout detection could not run: {exc}"))
+    if table_regions:
+        warnings.append(warning("table_layout_candidate", "Detected table rows and columns require visual review."))
+        outcome = "needs_review"
 
     raw_text, normalized_text, blocks = _build_blocks(items)
     if not normalized_text.strip() and outcome == "extracted":
@@ -263,4 +319,5 @@ def extract_page(page: fitz.Page, page_index: int, config: ExtractionConfig) -> 
         outcome=outcome,
         warnings=warnings,
         blocks=blocks,
+        table_regions=table_regions,
     )

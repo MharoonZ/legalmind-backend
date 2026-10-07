@@ -22,7 +22,9 @@ HAROON_TABLES = {
     "instrument_categories", "instrument_relations", "legal_versions",
     "legal_files", "legal_file_assignments", "file_extractions", "file_pages", "file_blocks",
     "corpus_revisions", "revision_sources", "provisions", "provision_spans",
-    "provision_references", "revision_block_coverage", "review_events", "processing_jobs", "job_attempts",
+    "provision_references", "source_note_marker_links", "instrument_relation_candidates",
+    "revision_block_coverage",
+    "review_events", "processing_jobs", "job_attempts",
 }
 
 
@@ -40,7 +42,16 @@ def _migration_schema(monkeypatch):
     def add_column(table, column):
         metadata.tables[table].append_column(column)
 
-    for filename in ("20261005_05_haroon_legal_corpus.py", "20261006_06_structure_coverage.py"):
+    def create_unique_constraint(name, table, columns):
+        metadata.tables[table].append_constraint(sa.UniqueConstraint(*columns, name=name))
+
+    for filename in (
+        "20261005_05_haroon_legal_corpus.py",
+        "20261006_06_structure_coverage.py",
+        "20261007_07_source_note_marker_links.py",
+        "20261007_08_relation_candidates.py",
+        "20261008_09_page_table_regions.py",
+    ):
         path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / filename
         spec = spec_from_file_location(filename.removesuffix(".py"), path)
         assert spec is not None and spec.loader is not None
@@ -48,7 +59,8 @@ def _migration_schema(monkeypatch):
         spec.loader.exec_module(migration)
         monkeypatch.setattr(migration, "op", SimpleNamespace(
             create_table=create_table, create_index=create_index,
-            add_column=add_column, execute=statements.append,
+            add_column=add_column, create_unique_constraint=create_unique_constraint,
+            execute=statements.append,
         ))
         migration.upgrade()
     return metadata, indexes, statements
@@ -110,8 +122,27 @@ def test_spans_cannot_mix_revisions_extractions_pages_or_blocks():
     assert (("block_id", "page_id", "extraction_id"), ("file_blocks.id", "file_blocks.page_id", "file_blocks.extraction_id")) in foreign_keys
 
 
+def test_relation_candidates_are_revision_scoped_and_cannot_claim_review():
+    table = Base.metadata.tables["instrument_relation_candidates"]
+    foreign_keys = _foreign_keys(table)
+    assert (("source_provision_id", "revision_id"),
+            ("provisions.id", "provisions.revision_id")) in foreign_keys
+    assert (("evidence_span_id", "source_provision_id", "revision_id"),
+            ("provision_spans.id", "provision_spans.provision_id",
+             "provision_spans.revision_id")) in foreign_keys
+    assert "'proposed', 'unresolved'" in _check_constraints(table)["ck_instrument_relation_candidates_status"]
+
+
 def test_block_coverage_is_scoped_to_selected_revision_source():
     foreign_keys = _foreign_keys(Base.metadata.tables["revision_block_coverage"])
+    assert (("revision_id", "extraction_id"), ("revision_sources.revision_id", "revision_sources.extraction_id")) in foreign_keys
+    assert (("block_id", "page_id", "extraction_id"), ("file_blocks.id", "file_blocks.page_id", "file_blocks.extraction_id")) in foreign_keys
+
+
+def test_source_note_markers_cannot_cross_revisions_or_source_blocks():
+    foreign_keys = _foreign_keys(Base.metadata.tables["source_note_marker_links"])
+    assert (("note_provision_id", "revision_id"), ("provisions.id", "provisions.revision_id")) in foreign_keys
+    assert (("target_provision_id", "revision_id"), ("provisions.id", "provisions.revision_id")) in foreign_keys
     assert (("revision_id", "extraction_id"), ("revision_sources.revision_id", "revision_sources.extraction_id")) in foreign_keys
     assert (("block_id", "page_id", "extraction_id"), ("file_blocks.id", "file_blocks.page_id", "file_blocks.extraction_id")) in foreign_keys
 

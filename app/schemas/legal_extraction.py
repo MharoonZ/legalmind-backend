@@ -50,6 +50,7 @@ class FilePageSummaryOut(BaseModel):
     extraction_method: str
     text_length: int
     block_count: int
+    table_count: int = 0
     warnings: list[ExtractionWarningOut]
 
 
@@ -77,4 +78,5 @@ class FilePageDetailOut(BaseModel):
     outcome: str
     ocr_confidence: float | None
     warnings: list[ExtractionWarningOut]
+    table_regions: list[dict] = []
     blocks: list[FileBlockOut]

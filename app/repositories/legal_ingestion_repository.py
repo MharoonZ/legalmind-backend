@@ -227,7 +227,7 @@ previously registered Act or legal edition.
                 created_at=legal_file.created_at,
             )
 
-    async def recent_uploads(self, *, limit: int = 25) -> list[LegalUploadRecord]:
+    async def recent_uploads(self, *, limit: int = 25, offset: int = 0) -> list[LegalUploadRecord]:
         """List recent assignments, including a file's extraction job state."""
         statement = (
             select(LegalFileAssignment, LegalFile, LegalVersion, LegalInstrument, ProcessingJob)
@@ -241,6 +241,7 @@ previously registered Act or legal edition.
             ))
             .order_by(LegalFileAssignment.created_at.desc())
             .limit(limit)
+            .offset(offset)
         )
         rows = (await self.session.execute(statement)).all()
         return [LegalUploadRecord(

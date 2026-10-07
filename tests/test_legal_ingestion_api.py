@@ -35,8 +35,8 @@ class FakeIngestionRepository:
         self.records.append(record)
         return record
 
-    async def recent_uploads(self, *, limit=25):
-        return self.records[:limit]
+    async def recent_uploads(self, *, limit=25, offset=0):
+        return self.records[offset:offset + limit]
 
 
 def _form():
@@ -89,6 +89,21 @@ async def test_upload_registers_file_edition_and_job(tmp_path):
         listed = await client.get("/local-admin/legal/uploads")
         assert listed.status_code == 200
         assert len(listed.json()) == 1
+        assert (await client.get("/local-admin/legal/uploads?limit=1&offset=1")).json() == []
+        assert (await client.get("/local-admin/legal/uploads?limit=101")).status_code == 422
+
+
+@pytest.mark.anyio
+async def test_upload_registers_ordinance_as_ordinance(tmp_path):
+    client, repo = await _client(tmp_path)
+    form = {**_form(), "instrument_type": "ordinance", "canonical_title": "Test Ordinance"}
+    async with client:
+        response = await client.post(
+            "/local-admin/legal/uploads", data=form,
+            files={"file": ("ordinance.pdf", _pdf_bytes(), "application/pdf")},
+        )
+    assert response.status_code == 201
+    assert repo.metadata.instrument_type == "ordinance"
 
 
 @pytest.mark.anyio

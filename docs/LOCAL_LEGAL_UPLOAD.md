@@ -1,6 +1,6 @@
-# Local Act/Rules PDF upload and page extraction (Haroon, steps 1-2)
+# Local legal-PDF upload and page extraction (Haroon, steps 1-2)
 
-The backend now supports registering many Acts/Rules PDFs, one upload at a
+The backend now supports registering many Acts, Rules, and Ordinance PDFs, one upload at a
 time. It validates the original PDF, stores it under a SHA-256-derived path,
 records jurisdiction/category/instrument/edition/file assignment, and creates
 one queued extraction job per unique PDF. A separate worker now extracts every
@@ -36,6 +36,14 @@ physical page. The uploaded Act is **not** searchable in `/ask` yet.
    `http://localhost:3000/admin/ingest/<file_id>`. The screen is unavailable
    in production builds.
 
+The upload page also lists saved PDFs with a **Review saved data** button.
+That simpler page compares one original PDF page with the extracted page text
+and structured records read back from PostgreSQL. It flags possible gaps and
+other database-integrity findings. It is view-only: it does not mark pages
+reviewed, approve a draft, or prove legal accuracy. The technical extraction
+and draft inspectors remain available for block IDs, offsets, and warnings.
+The upload list loads older documents in pages of 25.
+
 The backend route is disabled by default and also requires loopback client and
 Host addresses; browser requests must originate from the configured local
 frontend origin. This is a **development control**, not a replacement for
@@ -50,10 +58,17 @@ by Git.
   where available; image-heavy, scanned, or suspiciously encoded pages are
   routed through OCR. `file_blocks` saves positioned text/image regions.
 - The inspector displays the original rendered PDF page beside the saved
-  extracted text, warnings, and block overlays. A page with no detectable
-  content is a `blank_candidate` needing human review, not an automatically
-  verified blank page. OCR results also need review. Page extraction does not
-  classify legal headings, sections, tables, or schedules yet.
+  extracted text, warnings, and block overlays. It also exposes the saved raw
+  text, normalized text, full block text, IDs, offsets, and coordinates. The
+  draft-structure inspector has a database-audit view joining each saved page
+  and block to its saved provision spans. Read-only checks flag possible
+  numbered-section gaps, duplicate labels, missing spans, span-text mismatches,
+  and partial/unmapped blocks. These are review aids, not legal verification.
+  A page with no detectable content is a `blank_candidate` needing human
+  review, not an automatically verified blank page. OCR results also need
+  review. Page extraction stores candidate table rows and columns separately
+  from exact page text; it does not verify table cells or parse legal headings,
+  sections, or schedules. The later structure job drafts those legal nodes.
 - `legal_files.sha256` identifies identical bytes. Re-uploading identical
   bytes reuses the stored blob and extract job; another legal edition can
   assign the same file independently.

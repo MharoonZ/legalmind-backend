@@ -1,4 +1,4 @@
-"""Loopback-only Act/Rules PDF registration and extraction inspection."""
+"""Loopback-only legal-PDF registration and extraction inspection."""
 
 from __future__ import annotations
 
@@ -135,12 +135,12 @@ async def upload_legal_pdf(
     response: Response,
     settings: SettingsDep,
     repository: LegalIngestionRepositoryDep,
-    file: Annotated[UploadFile, File(description="An original Act or Rules PDF")],
+    file: Annotated[UploadFile, File(description="An original Act, Rules, or Ordinance PDF")],
     jurisdiction_code: Annotated[str, Form(max_length=50)],
     jurisdiction_name: Annotated[str, Form(max_length=200)],
     category_slug: Annotated[str, Form(max_length=100)],
     category_name: Annotated[str, Form(max_length=200)],
-    instrument_type: Annotated[Literal["act", "rule"], Form()],
+    instrument_type: Annotated[Literal["act", "rule", "ordinance"], Form()],
     canonical_title: Annotated[str, Form(max_length=500)],
     citation_key: Annotated[str, Form(max_length=160)],
     edition_key: Annotated[str, Form(max_length=160)],
@@ -178,8 +178,13 @@ async def upload_legal_pdf(
 
 
 @router.get("/uploads", response_model=list[LegalUploadOut])
-async def recent_legal_uploads(repository: LegalIngestionRepositoryDep) -> list[LegalUploadOut]:
-    return [LegalUploadOut.model_validate(record) for record in await repository.recent_uploads()]
+async def recent_legal_uploads(
+    repository: LegalIngestionRepositoryDep,
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> list[LegalUploadOut]:
+    return [LegalUploadOut.model_validate(record)
+            for record in await repository.recent_uploads(limit=limit, offset=offset)]
 
 
 @router.get("/files/{file_id}/overview", response_model=FileOverviewOut)
@@ -267,6 +272,14 @@ async def structure_revision_overview(revision_id: UUID, db: DatabaseDep) -> dic
     return result
 
 
+@router.get("/revisions/{revision_id}/relationships")
+async def proposed_instrument_relationships(revision_id: UUID, db: DatabaseDep) -> dict:
+    result = await LegalStructureRepository(db).relationship_candidates(revision_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Draft revision not found")
+    return result
+
+
 @router.get("/revisions/{revision_id}/provisions/{provision_id}")
 async def structure_provision_detail(
     revision_id: UUID, provision_id: UUID, db: DatabaseDep
@@ -288,6 +301,26 @@ async def structure_block_coverage(
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Draft revision not found")
+    return result
+
+
+@router.get("/revisions/{revision_id}/audit")
+async def structure_revision_audit(revision_id: UUID, db: DatabaseDep) -> dict:
+    result = await LegalStructureRepository(db).audit(revision_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Draft revision not found")
+    return result
+
+
+@router.get("/revisions/{revision_id}/extractions/{extraction_id}/pages/{page_index}/audit")
+async def structure_page_audit(
+    revision_id: UUID, extraction_id: UUID, page_index: int, db: DatabaseDep,
+) -> dict:
+    if page_index < 1:
+        raise HTTPException(status_code=404, detail="Page not found in this revision")
+    result = await LegalStructureRepository(db).page_audit(revision_id, extraction_id, page_index)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Page not found in this revision")
     return result
 
 
