@@ -1,7 +1,6 @@
-"""Haroon's additive legal-PDF ingestion and reviewed-structure schema.
+"""Legal-PDF ingestion and reviewed-structure schema.
 
-These tables coexist with the legacy 30-section corpus. No user-facing search
-switches to them until a later, explicit indexing/publication migration.
+Question-answering indexes and publication tables are a later phase.
 """
 
 from __future__ import annotations

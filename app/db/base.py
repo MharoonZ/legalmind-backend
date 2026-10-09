@@ -1,4 +1,4 @@
-"""Shared SQLAlchemy metadata for legacy and new corpus tables."""
+"""Shared SQLAlchemy metadata for current legal-corpus and contract tables."""
 
 from sqlalchemy.orm import DeclarativeBase
 

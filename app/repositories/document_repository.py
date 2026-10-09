@@ -1,8 +1,4 @@
-"""Database access for uploaded contracts.
-
-Kept separate from `LawRepository` on purpose (Sprint 2 shared rule 6): a
-user's contract is never mixed with the law_* corpus tables that back /ask.
-"""
+"""Database access for uploaded contracts, separate from legal-corpus PDFs."""
 
 from __future__ import annotations
 

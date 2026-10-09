@@ -4,18 +4,10 @@ pydantic-settings>=2.4,<3.0
 SQLAlchemy[asyncio]>=2.0.30,<2.1
 asyncpg>=0.29,<1.0
 alembic>=1.16,<2.0
-pgvector>=0.4,<1.0
-# Legal text extraction must reproduce the checked-in corpus byte for byte.
-# Also used (lightly - page count / encryption / text presence only) to
-# validate uploaded contracts in POST /contracts.
+pgvector>=0.4,<1.0  # Needed to replay historical Alembic migrations.
+# Legal PDF extraction and uploaded-contract PDF validation.
 PyMuPDF==1.26.3
 # FastAPI needs this to parse multipart/form-data (POST /contracts file upload).
 python-multipart>=0.0.9,<1.0
 # Structured contract extraction (headings, tables, reading order, provenance).
-# OCR is explicitly disabled for Sprint 2; selectable-text PDFs only.
 docling==2.130.0
-# Question and passage embeddings for vector search. Pulls in torch, so the
-# first install is large (~2 GB) and the first run downloads the model (~90 MB).
-sentence-transformers>=3.0,<6.0
-# Gemini is called over plain HTTP; no vendor SDK to keep in sync.
-httpx>=0.27

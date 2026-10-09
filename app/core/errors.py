@@ -1,25 +1,8 @@
-"""Errors the /ask pipeline can raise.
-
-Each one maps to a specific HTTP response in `app.api.routes.ask`, so the
-frontend can tell "the Act does not cover this" (a normal 200 answer with
-`supported: false`) apart from "our service is broken" (503).
-"""
+"""Expected errors for legal-PDF ingestion and contract uploads."""
 
 
 class LegalMindError(Exception):
     """Base class for expected, handled failures."""
-
-
-class RetrievalError(LegalMindError):
-    """The corpus could not be searched (database down, bad SQL, timeout)."""
-
-
-class EmbeddingError(LegalMindError):
-    """The sentence-transformers model is missing or failed to encode."""
-
-
-class LLMError(LegalMindError):
-    """OpenAI was unreachable, timed out, or returned unusable output."""
 
 
 class DocumentValidationError(LegalMindError):

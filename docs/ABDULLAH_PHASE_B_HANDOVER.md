@@ -4,7 +4,7 @@
 
 ## 1. Executive summary and status legend
 
-**Phase B tables and pipeline have not been built in the current legal corpus.** Haroon's pipeline registers Acts/Rules PDFs, saves per-page extraction and blocks, parses legal trees with exact source spans, and offers local inspectors and read-only audits. A new local-only approval action records Phase B handoff decisions. The **23 latest revisions** are now `approved`; 64 historical revisions remain `draft`. These approvals explicitly acknowledge unresolved audit/page findings and are **not** certification of legal accuracy, current applicability, or production publication readiness. The six Phase B tables named in the proposed architecture do not exist. The previous 30-section `/ask` corpus/tables were retired by migration `20261009_12`; its source files and settings are historical, not an implemented Phase B shortcut. [Sources: `app/main.py`, `app/db/legal_corpus_models.py`, `app/repositories/legal_structure_repository.py::approval_check/approve`, `alembic/versions/20261009_12_retire_legacy_law_search.py`; live DB inspection.]
+**Phase B tables and pipeline have not been built in the current legal corpus.** Haroon's pipeline registers Acts/Rules PDFs, saves per-page extraction and blocks, parses legal trees with exact source spans, and offers local inspectors and read-only audits. A local-only approval action records Phase B handoff decisions. The **23 latest revisions** were approved in the development database with unresolved findings explicitly acknowledged; 64 historical revisions remained drafts at the time of this snapshot. These approvals are **not** certification of legal accuracy, current applicability, or production publication readiness. The proposed Phase B tables do not exist. The 30-section `/ask` application code was removed; historical migrations remain for upgrade compatibility.
 
 | Label | Meaning here |
 |---|---|
@@ -206,7 +206,7 @@ For every table in this section, the producer is Haroon's upload/worker/review w
 
 ### Tables that **do not exist** in the current database
 
-`chunk_sets`, `legal_chunks`, `embedding_profiles`, `chunk_embeddings`, `corpus_publications`, and `publication_items` are names from the proposed architecture, **not** migration-backed or live tables. No current `legal_chunks.search_text`, `tsvector`, GIN lexical index, pgvector legal embedding column, HNSW legal index, publication manifest, active-publication pointer, or Phase B processing jobs exist. The installed `vector` PostgreSQL extension alone does not change this. The old `law_sources/law_sections/law_passages` tables were removed by `20261009_12`; old source-code files and model defaults are not the current searchable corpus. [Sources: `app/db/legal_corpus_models.py`, `alembic/versions/20261009_12_retire_legacy_law_search.py`, `app/main.py`, live `pg_tables`/`pg_indexes`.] 
+`chunk_sets`, `legal_chunks`, `embedding_profiles`, `chunk_embeddings`, `corpus_publications`, and `publication_items` are proposed Phase B tables, **not** migration-backed or live tables. The installed `vector` extension alone does not provide legal-corpus chunks or vectors. Migration `20261009_12` removed the old `law_sources/law_sections/law_passages` tables; their old application code has also been removed. Historical Alembic files remain only to preserve the migration chain.
 
 ## 5. Read-only SQL cookbook for the **implemented** schema
 
@@ -447,7 +447,7 @@ All legal-corpus HTTP routes below are under `/local-admin/legal` and use `app/a
 | `GET /revisions/{revision_id}/extractions/{extraction_id}/pages/{page_index}/audit` | IDs, 1-based page → page-level structure audit | `structure_page_audit` |
 | `POST /revisions/{revision_id}/retry` | UUID → `{"queued":true}`, 202 | `retry_structure_revision`; Phase A mutation |
 
-Response fields for typed upload/extraction routes are in `app/schemas/legal_ingestion.py` and `app/schemas/legal_extraction.py`; structure routes currently return repository-built dictionaries from `app/repositories/legal_structure_repository.py` rather than a versioned public Phase B schema. None of these routes fetches `legal_chunks`, embeddings, publications, or ranked candidates because those do not exist. The mounted `/health` route is a basic health check; `/contracts` is a separate user-document workflow and must not be treated as law-corpus input. Old `/ask` source remains in the repository but is **not mounted** in `app/main.py` after migration `20261009_12`. [Sources: named files and `app/main.py`.] 
+Response fields for typed upload/extraction routes are in `app/schemas/legal_ingestion.py` and `app/schemas/legal_extraction.py`; structure routes currently return repository-built dictionaries from `app/repositories/legal_structure_repository.py` rather than a versioned public Phase B schema. None of these routes fetches chunks, embeddings, publications, or ranked candidates because those do not exist. The mounted `/health` route is a basic health check; `/contracts` is a separate user-document workflow. The old `/ask` route and implementation have been removed.
 
 ### Phase A code entry points and lifecycle
 
@@ -478,7 +478,7 @@ Boundary policy to benchmark with representative Acts **and Rules**:
 | Omitted/repealed/deleted | Preserve identifier and status for exact lookup, but do not embed deleted/historical wording as if currently operative. Define a separate policy for whether a status-only record is searchable and how it is labelled. |
 | `other`, source notes, contents, amendment history | Exclude from operative chunks by default; expose as separately typed reviewable context if product requirements require historical questions. Never mix historical wording into a current-law chunk. |
 
-Validation must account for every **eligible operative** node (including deliberate exclusions with reason), compare chunk source slices back to approved provisions/spans, enforce tokenizer-measured model limits, and detect lost/duplicated text and cross-law joins. Record measured tokens, tokenizer identifier, chunker version/config, overlap, and source revision hash. Do not assume a fixed token budget; model choice, prompt/context overhead, and retrieval evaluation determine it. A mere PDF page count or 100% block-coverage figure is not chunk completeness. For reconstruction of post-list parent continuation, use source span order; don't trust `own_text + children` string order. The current repo contains historical `app/services/embeddings.py`/old retrieval code for the retired corpus; it does **not** create legal-corpus chunks. [Sources: `app/main.py`, retired migration, `app/db/legal_corpus_models.py`.] 
+Validation must account for every **eligible operative** node (including deliberate exclusions with reason), compare chunk source slices back to approved provisions/spans, enforce tokenizer-measured model limits, and detect lost/duplicated text and cross-law joins. Record measured tokens, tokenizer identifier, chunker version/config, overlap, and source revision hash. Do not assume a fixed token budget; model choice, prompt/context overhead, and retrieval evaluation determine it. A PDF page count or 100% block-coverage figure is not chunk completeness. For reconstruction of post-list parent continuation, use source span order; do not trust `own_text + children` string order. No Phase B chunking implementation exists yet.
 
 ### 7.2 Keyword and exact-reference indexing
 
@@ -486,7 +486,7 @@ Validation must account for every **eligible operative** node (including deliber
 
 ### 7.3 Embeddings and vector search
 
-**Not implemented for new corpus.** `app/core/config.py` still contains historical `sentence-transformers/all-MiniLM-L6-v2`, `embedding_dim=384`, and RRF defaults; these are *not* proof that MiniLM is Abdullah's chosen profile or that any legal-corpus vector exists. The live `vector` extension is installed, but there are no current Phase B vector rows/indexes. [Sources: `app/core/config.py`, `app/main.py`, live schema.] 
+**Not implemented for the new corpus.** The only remaining `embedding_dim=384` setting exists for historical Alembic migration compatibility; it is not Abdullah's model choice or a current embedding profile. The `vector` extension may be installed, but there are no Phase B vector rows or indexes.
 
 Choose an embedding model with Abdullah/Haroon/Shimza using legal-query retrieval evaluation, operational cost, license/deployment constraints, language coverage and input length. Lock exact model ID/**revision**, dimension, tokenizer ID/version, normalization/recipe, text prefixing and max tokens in an `embedding_profile` (proposed). Define a `vector(N)` dimension to match that profile; PostgreSQL/pgvector column or partition design must support model migration without mixing dimensions or comparing incompatible vectors. Batch work asynchronously, persist per-chunk completion/failure/retry state, enforce token limits before inference, hash the input recipe, deduplicate idempotently by `(chunk_id,profile_id,input_hash)` as appropriate, and verify returned vector length/finite values. Build ANN (e.g. HNSW) only after measuring exact-search quality/recall and corpus scale; test index parameters and publication filtering. A revision change requires a **new** chunk set and re-embedding for the new set, never an in-place mutation of old citations. Separate Phase B workers/queues are needed; Phase A `processing_jobs.task_type` does not include chunk/embed/index.
 
@@ -498,7 +498,7 @@ When Haroon uploads an amendment/replacement PDF, he assigns it to an appropriat
 
 ### 7.5 First-stage retrieval handoff to Shimza
 
-**Not implemented for the new corpus.** Planned request sequence: (1) parse exact legal reference with jurisdiction/instrument/edition ambiguity handled explicitly; (2) search publication-scoped PostgreSQL lexical index; (3) embed question using the **same compatible profile** as publication vectors and run publication-scoped vector search; (4) deduplicate by chunk ID and fuse ranks, initially with a tested RRF `1/(k+rank)` policy; (5) return scored candidate chunks and provenance. The legacy `app/services/fusion.py` contains RRF logic, but its types import the retired `law_repository.PassageHit`; it is **not** wired to new-corpus retrieval and cannot be dropped in unchanged. Its default `k=60` is historical configuration, not a measured legal-corpus choice. Exact-reference hits may need explicit priority/boosting rather than being buried by fusion. Benchmark top-k, lexical/vector weights, deduplication, latency and recall on real questions. [Sources: `app/services/fusion.py`, `app/core/config.py`, `app/main.py`.]
+**Not implemented for the new corpus.** Planned request sequence: (1) parse exact legal references with jurisdiction/instrument/edition ambiguity handled explicitly; (2) search a publication-scoped lexical index; (3) embed the question with the same compatible profile as publication vectors and run publication-scoped vector search; (4) deduplicate by chunk ID and fuse ranks using an evaluated policy; (5) return scored candidates with provenance. The retired RRF helper was removed with the old pipeline; build and measure new retrieval against the approved full-PDF corpus. Exact-reference hits may need explicit priority rather than being buried by fusion.
 
 **PROPOSED response contract** (field names/version to agree with Shimza; no endpoint serves this today):
 
@@ -558,7 +558,7 @@ Shimza needs stable `publication_id`/`revision_id`/`chunk_id` for reproducibilit
 
 ## 9. Development, inspection and acceptance
 
-Commands below are for **PowerShell from `legalmind-backend/`**. They were checked against existing modules/scripts and `.env.example`. The backend README still contains a prominently labelled **historical** `/ask`/Contract Act import sequence; do not run `scripts/ingest_contract_act_corpus.py` or `scripts/build_embeddings.py` for this new corpus. Set `DATABASE_URL` in an uncommitted `.env` without sharing it. [Sources: `README.md`, `app/main.py`, worker modules, scripts named below.]
+Commands below are for **PowerShell from `legalmind-backend/`**. Set `DATABASE_URL` in an uncommitted `.env` without sharing it. The old Contract Act import and embedding commands were removed; use the full-PDF workers described in the backend README.
 
 ```powershell
 python -m venv .venv
@@ -605,9 +605,9 @@ $env:PYTHONPATH = '.'
 | 1. Learn approved corpus | **IMPLEMENTED:** identity, edition, hierarchy/spans, local approval API and 23 latest approved revision IDs; **PARTIAL:** authenticated legal sign-off | Loader accepts pinned approved development revisions, rejects 64 older drafts, and preserves exception records. Agree with Haroon on production review/source rules. |
 | 2. Legal-aware chunking | No new-corpus chunk tables/code | Migration + deterministic chunker + provenance/completeness tests across Sections, Rules, schedules, tables, notes, long/cross-page provisions. |
 | 3. Keyword and exact lookup | Phase A labels/paths/aliases exist; no corpus FTS index | `search_text`/`tsvector`/GIN and instrument-scoped exact-reference resolver; test suffixes and ambiguous Acts. |
-| 4. Embeddings/vector | Historical MiniLM defaults and `vector` extension only | Agreed profile, batched worker/retry/idempotency, dimension/token tests, vector storage and measured ANN index. |
+| 4. Embeddings/vector | Not implemented; only the historical migration's `vector` dependency remains | Agreed profile, batched worker/retry/idempotency, dimension/token tests, vector storage and measured ANN index. |
 | 5. Publication | No manifest or active pointer | Approved-only immutable manifest, build validation, atomic activation/rollback, historical retention, no partial index exposure. |
-| 6. First-stage retrieval | Historical RRF helper only; `/ask` retired | Versioned API/service: exact + keyword + vector + fusion, publication pinned for each query, scored candidates with full citations. |
+| 6. First-stage retrieval | Not implemented; old `/ask` code removed | Versioned API/service: exact + keyword + vector + fusion, publication pinned for each query, scored candidates with full citations. |
 | 7. Shimza handoff | No current contract | Agree JSON/schema, context expansion access, benchmark question set, latency/recall targets and citation-verification failure modes with Shimza. |
 
 ## 11. Open decisions and blockers to agree jointly
@@ -633,7 +633,7 @@ $env:PYTHONPATH = '.'
 | `app/services/legal_audit.py`, `scripts/audit_corpus_persistence_readonly.py`, `scripts/audit_latest_legal_revisions.py`, `scripts/show_revision_audit_readonly.py` | Verification before any future publication. |
 | `scripts/approve_latest_legal_revisions.py`, `tests/test_legal_approval_api.py` | Read-only approval preflight by default; explicit local write mode; route security/decision tests. |
 | `legalmind-frontend/src/app/admin/ingest/approval-panel.tsx`, `legalmind-frontend/src/app/admin/ingest/versions/[versionId]/review/simple-review.tsx` | Visible local approval action and persistent display of unresolved exceptions. |
-| `app/core/config.py`, `app/services/fusion.py` | Historical model/RRF defaults and generic fusion helper; **not** a new-corpus integration. |
+| `app/core/config.py` | Retains only a legacy vector width setting for historical Alembic migrations; no live retrieval configuration. |
 | `app/db/models.py`, `app/api/routes/contracts.py` | Separate private contract data; never mix with authoritative law chunks. |
 | `docs/CORPUS_WIDE_LEGAL_PDF_AUDIT_2026-10-09_V11.md`, `docs/HAROON_TO_ABDULLAH_HANDOFF.md` | Prior audit/handoff context only; live revisions and current v12 code take precedence. |
 

@@ -12,11 +12,10 @@ Keep this file if historical restoration might be required. Downgrading the
 migration recreates the schema only; it does not automatically reload rows.
 
 The old `/ask` and `/health/retrieval` routes are no longer registered.
-The home page no longer invites users to call the retired endpoint. The old
-search implementation files remain as historical code, but are not mounted and
-their ORM models are excluded from current Alembic metadata. Do not run old
-`ingest_contract_act_corpus.py`, `build_embeddings.py`, or `approve_source.py`
-against this schema.
+The old search, 30-section importer, embedding implementation, sample data,
+and frontend question-form tests were subsequently removed from the current
+source tree. Historical Alembic migrations remain so the migration chain
+continues to work. The old ORM models are absent from current metadata.
 
 Post-migration checks found 29 public tables and no legacy trio. The new
 legal-PDF corpus still had 23 `legal_files`, 28 `file_extractions`, 241
