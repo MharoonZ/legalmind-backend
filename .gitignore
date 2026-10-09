@@ -15,7 +15,8 @@ scripts/node_modules/
 tmp/
 .tmp_pdf_review/
 
-# Uploaded contracts are private (Sprint 2 shared rule 7) - never commit them.
+# Ignore uploads by default. Pilot legal source PDFs are force-added explicitly
+# for private team review; never commit contracts, backups, or credentials.
 /uploads/
 
 # OS / editor

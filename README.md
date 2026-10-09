@@ -12,6 +12,8 @@ This repository implements full-PDF legal corpus ingestion and review, plus a se
 
 Each PDF has a durable job and extraction record. A structure revision pins specific completed extraction IDs; reprocessing does not silently change historical revisions. Approved revisions are Phase B inputs, not an already searchable corpus.
 
+The 23 pilot legal source PDFs under `uploads/legal/` are committed to the private `haroon` branch so teammates can render original pages locally. Their content-hash paths must remain unchanged because database records refer to them. Future uploads remain Git-ignored by default; do not commit private contracts, database backups, or credentials.
+
 The local admin UI is at `http://localhost:3000/admin/ingest` in the sibling frontend repository. It is development-only and has no production login. Do not expose it publicly.
 
 ## Local setup
