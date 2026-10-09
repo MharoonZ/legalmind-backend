@@ -52,6 +52,7 @@ class FilePageSummaryOut(BaseModel):
     block_count: int
     table_count: int = 0
     warnings: list[ExtractionWarningOut]
+    review_decision: str | None = None
 
 
 class FileBlockOut(BaseModel):
@@ -79,4 +80,6 @@ class FilePageDetailOut(BaseModel):
     ocr_confidence: float | None
     warnings: list[ExtractionWarningOut]
     table_regions: list[dict] = []
+    review_decision: str | None = None
+    review_reason: str | None = None
     blocks: list[FileBlockOut]

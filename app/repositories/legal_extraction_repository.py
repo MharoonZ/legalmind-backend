@@ -8,8 +8,10 @@ from uuid import UUID, uuid4
 
 import fitz
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 
 from app.db.legal_corpus_models import (
+    AppUser,
     FileBlock,
     FileExtraction,
     FilePage,
@@ -19,6 +21,7 @@ from app.db.legal_corpus_models import (
     LegalInstrument,
     LegalVersion,
     ProcessingJob,
+    ReviewEvent,
 )
 from app.db.session import Database
 from app.services.legal_extraction import ExtractedPage, ExtractionConfig, sha256_text
@@ -43,14 +46,58 @@ class LegalExtractionRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
 
+    async def mark_blank(self, extraction_id: UUID, page_index: int, reason: str) -> bool:
+        """Append a local visual decision without changing immutable extraction output."""
+        reason = reason.strip()
+        if not reason or len(reason) > 2000:
+            raise ValueError("A short visual-review reason is required.")
+        async with self.db.session() as session, session.begin():
+            page = (await session.execute(select(FilePage).where(
+                FilePage.extraction_id == extraction_id,
+                FilePage.page_index == page_index,
+            ).with_for_update())).scalar_one_or_none()
+            if page is None:
+                return False
+            if (page.outcome != "needs_review" or page.normalized_text.strip()
+                    or not any(item.get("code") == "blank_candidate" for item in (page.warnings or []))):
+                raise ValueError("Only a textless blank candidate can be marked blank.")
+            last = (await session.execute(select(ReviewEvent).where(
+                ReviewEvent.file_extraction_id == extraction_id,
+                ReviewEvent.page_id == page.id,
+            ).order_by(ReviewEvent.created_at.desc(), ReviewEvent.id.desc()).limit(1))).scalar_one_or_none()
+            if last is not None and last.decision == "mark_blank":
+                return True
+            await session.execute(insert(AppUser).values(
+                id=uuid4(), auth_provider="local_development",
+                auth_subject="unauthenticated_visual_review",
+                display_name="Local visual reviewer (identity not verified)",
+                role="user",
+            ).on_conflict_do_nothing(index_elements=["auth_provider", "auth_subject"]))
+            actor = (await session.execute(select(AppUser).where(
+                AppUser.auth_provider == "local_development",
+                AppUser.auth_subject == "unauthenticated_visual_review",
+            ))).scalar_one()
+            session.add(ReviewEvent(
+                id=uuid4(), actor_id=actor.id,
+                file_extraction_id=extraction_id, page_id=page.id,
+                decision="mark_blank", reason=reason,
+            ))
+            return True
+
     async def claim_next(
-        self, *, worker_id: str, config: ExtractionConfig, lease_seconds: int = 3600
+        self, *, worker_id: str, config: ExtractionConfig, lease_seconds: int = 3600,
+        expected_sha256: str | None = None,
     ) -> ExtractionClaim | None:
         """Lock one queued or expired job, creating an auditable new attempt."""
         now = datetime.now(UTC)
         async with self.db.session() as session, session.begin():
+            query = select(ProcessingJob)
+            if expected_sha256 is not None:
+                query = query.join(LegalFile, ProcessingJob.target_file_id == LegalFile.id).where(
+                    LegalFile.sha256 == expected_sha256
+                )
             job = (await session.execute(
-                select(ProcessingJob).where(
+                query.where(
                     ProcessingJob.task_type == "extract",
                     or_(
                         ProcessingJob.status == "queued",
@@ -281,6 +328,13 @@ class LegalExtractionRepository:
                 select(FilePage).where(FilePage.extraction_id == extraction_id)
                 .order_by(FilePage.page_index)
             )).scalars().all()
+            review_rows = (await session.execute(select(ReviewEvent).where(
+                ReviewEvent.file_extraction_id == extraction_id,
+                ReviewEvent.page_id.is_not(None),
+            ).order_by(ReviewEvent.created_at.desc(), ReviewEvent.id.desc()))).scalars().all()
+            latest_review = {}
+            for event in review_rows:
+                latest_review.setdefault(event.page_id, event)
             block_counts = dict((await session.execute(
                 select(FileBlock.page_id, func.count(FileBlock.id))
                 .where(FileBlock.extraction_id == extraction_id)
@@ -294,6 +348,7 @@ class LegalExtractionRepository:
                 "block_count": block_counts.get(row.id, 0),
                 "warnings": row.warnings,
                 "table_count": len(row.table_regions or []),
+                "review_decision": latest_review[row.id].decision if row.id in latest_review else None,
             } for row in rows]
 
     async def page_detail(self, extraction_id: UUID, page_index: int) -> dict | None:
@@ -309,6 +364,10 @@ class LegalExtractionRepository:
                 select(FileBlock).where(FileBlock.page_id == row.id)
                 .order_by(FileBlock.block_ordinal)
             )).scalars().all()
+            review = (await session.execute(select(ReviewEvent).where(
+                ReviewEvent.file_extraction_id == extraction_id,
+                ReviewEvent.page_id == row.id,
+            ).order_by(ReviewEvent.created_at.desc(), ReviewEvent.id.desc()).limit(1))).scalar_one_or_none()
             return {
                 "page_index": row.page_index,
                 "width_pt": float(row.width_pt) if row.width_pt is not None else None,
@@ -322,6 +381,8 @@ class LegalExtractionRepository:
                 "ocr_confidence": float(row.ocr_confidence) if row.ocr_confidence is not None else None,
                 "warnings": row.warnings,
                 "table_regions": row.table_regions or [],
+                "review_decision": review.decision if review else None,
+                "review_reason": review.reason if review else None,
                 "blocks": [{
                     "id": block.id,
                     "ordinal": block.block_ordinal,

@@ -9,7 +9,7 @@ from uuid import UUID
 from urllib.parse import urlsplit
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 import fitz
@@ -29,7 +29,7 @@ from app.schemas.legal_extraction import (
     FilePageSummaryOut,
 )
 from app.schemas.legal_ingestion import LegalUploadOut
-from app.schemas.legal_structure import StructureCreateIn
+from app.schemas.legal_structure import ApprovalDecisionIn, StructureCreateIn
 from app.services.legal_extraction import SourcePdfError, resolve_source_pdf
 from app.services.legal_upload import store_legal_pdf
 
@@ -215,6 +215,22 @@ async def extraction_page_detail(
     return FilePageDetailOut.model_validate(page)
 
 
+@router.post("/extractions/{extraction_id}/pages/{page_index}/mark-blank")
+async def mark_blank_page(
+    extraction_id: UUID, page_index: int, db: DatabaseDep,
+    reason: Annotated[str, Body(embed=True, min_length=5, max_length=2000)],
+) -> dict[str, bool]:
+    if page_index < 1:
+        raise HTTPException(status_code=404, detail="Page not found")
+    try:
+        found = await LegalExtractionRepository(db).mark_blank(extraction_id, page_index, reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not found:
+        raise HTTPException(status_code=404, detail="Page not found")
+    return {"recorded": True}
+
+
 def _render_pdf_page(path, page_index: int) -> bytes:
     with fitz.open(path) as document:
         page = document.load_page(page_index - 1)
@@ -309,6 +325,30 @@ async def structure_revision_audit(revision_id: UUID, db: DatabaseDep) -> dict:
     result = await LegalStructureRepository(db).audit(revision_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Draft revision not found")
+    return result
+
+
+@router.get("/revisions/{revision_id}/approval-check")
+async def structure_approval_check(revision_id: UUID, db: DatabaseDep) -> dict:
+    result = await LegalStructureRepository(db).approval_check(revision_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
+    return result
+
+
+@router.post("/revisions/{revision_id}/approve")
+async def approve_structure_revision(
+    revision_id: UUID, payload: ApprovalDecisionIn, db: DatabaseDep
+) -> dict:
+    try:
+        result = await LegalStructureRepository(db).approve(
+            revision_id, expected_content_sha256=payload.expected_content_sha256,
+            reason=payload.reason, acknowledge_findings=payload.acknowledge_findings,
+        )
+    except StructureConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Revision not found")
     return result
 
 

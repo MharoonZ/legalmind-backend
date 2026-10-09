@@ -7,12 +7,13 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, case, func, insert, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db.legal_corpus_models import (
-    CorpusRevision, FileBlock, FileExtraction, FilePage, JobAttempt,
+    AppUser, CorpusRevision, FileBlock, FileExtraction, FilePage, JobAttempt,
     InstrumentRelationCandidate, LegalFile, LegalFileAssignment, LegalInstrument, LegalVersion,
     ProcessingJob, Provision, ProvisionReference, ProvisionSpan,
-    RevisionBlockCoverage, RevisionSource, SourceNoteMarkerLink,
+    ReviewEvent, RevisionBlockCoverage, RevisionSource, SourceNoteMarkerLink,
 )
 from app.db.session import Database
 from app.services.legal_structure import (
@@ -20,7 +21,7 @@ from app.services.legal_structure import (
     SourceDocument, SourcePage,
 )
 from app.services.legal_extraction import sha256_text
-from app.services.legal_audit import structure_findings
+from app.services.legal_audit import source_page_review_findings, structure_findings
 from app.services.legal_relationships import extract_relation_candidates, normalize_title
 
 
@@ -43,6 +44,143 @@ def _chunks(items: list, size: int = 250):
 class LegalStructureRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    async def approval_check(self, revision_id: UUID) -> dict | None:
+        """Inspect the *persisted* revision before a local Phase B handoff decision."""
+        audit = await self.audit(revision_id)
+        if audit is None:
+            return None
+        async with self.db.session() as session:
+            revision = await session.get(CorpusRevision, revision_id)
+            latest_number = await session.scalar(select(func.max(CorpusRevision.revision_number)).where(
+                CorpusRevision.legal_version_id == revision.legal_version_id
+            ))
+            job = (await session.execute(select(ProcessingJob).where(
+                ProcessingJob.task_type == "structure",
+                ProcessingJob.target_revision_id == revision_id,
+            ))).scalar_one_or_none()
+            sources = (await session.execute(select(RevisionSource).where(
+                RevisionSource.revision_id == revision_id
+            ))).scalars().all()
+            pages = (await session.execute(select(FilePage, LegalFile.original_filename)
+                .join(FileExtraction, FileExtraction.id == FilePage.extraction_id)
+                .join(LegalFile, LegalFile.id == FileExtraction.file_id)
+                .where(FilePage.extraction_id.in_([source.extraction_id for source in sources]))
+                .order_by(LegalFile.original_filename, FilePage.page_index)
+            )).all() if sources else []
+            events = (await session.execute(select(ReviewEvent).where(
+                ReviewEvent.file_extraction_id.in_([source.extraction_id for source in sources]),
+                ReviewEvent.page_id.is_not(None),
+            ).order_by(ReviewEvent.created_at.desc(), ReviewEvent.id.desc()))).scalars().all() if sources else []
+            latest_page_decisions = {}
+            for event in events:
+                latest_page_decisions.setdefault(event.page_id, event.decision)
+            page_review = [{
+                "filename": filename, "page_index": page.page_index,
+                "outcome": page.outcome, "decision": latest_page_decisions.get(page.id),
+            } for page, filename in pages if page.outcome in {"needs_review", "failed"}]
+            blockers = []
+            if revision.review_state not in {"draft", "approved"}:
+                blockers.append(f"Revision is {revision.review_state}, not a draft.")
+            if revision.revision_number != latest_number:
+                blockers.append("A newer persisted revision exists; approve the latest instead.")
+            if job is None or job.status != "completed":
+                blockers.append("Structure job is not completed.")
+            if not revision.content_sha256:
+                blockers.append("Revision has no completed content hash.")
+            if not sources:
+                blockers.append("Revision has no selected source extraction.")
+            if not audit["provision_count"] or not audit["span_count"]:
+                blockers.append("Revision has no structured provisions or source spans.")
+            expected_pages = (await session.execute(select(RevisionSource.extraction_id, LegalFile.page_count)
+                .join(LegalFile, LegalFile.id == RevisionSource.file_id)
+                .where(RevisionSource.revision_id == revision_id))).all()
+            page_counts = {}
+            for page, _ in pages:
+                page_counts[page.extraction_id] = page_counts.get(page.extraction_id, 0) + 1
+            for extraction_id, expected in expected_pages:
+                if page_counts.get(extraction_id, 0) != expected:
+                    blockers.append("A selected extraction is missing physical page rows.")
+                    break
+            integrity_codes = {"missing_source_span", "span_text_mismatch", "uncovered_provision_text"}
+            if any(item["code"] in integrity_codes for item in audit["findings"]):
+                blockers.append("Exact source-text provenance failed the persisted audit.")
+            if (audit["coverage_counts"].get("partial", 0)
+                    or audit["coverage_counts"].get("unmapped", 0)):
+                blockers.append("Some saved source blocks are partial or unmapped.")
+            return {
+                "revision_id": revision.id, "legal_version_id": revision.legal_version_id,
+                "revision_number": revision.revision_number,
+                "review_state": revision.review_state,
+                "content_sha256": revision.content_sha256,
+                "job_status": job.status if job else None,
+                "is_latest": revision.revision_number == latest_number,
+                "source_count": len(sources), "provision_count": audit["provision_count"],
+                "span_count": audit["span_count"], "page_review": page_review,
+                "findings": audit["findings"],
+                "error_count": sum(item["severity"] == "error" for item in audit["findings"]),
+                "warning_count": sum(item["severity"] != "error" for item in audit["findings"]),
+                "hard_blockers": blockers, "can_approve": not blockers,
+            }
+
+    async def approve(self, revision_id: UUID, *, expected_content_sha256: str,
+                      reason: str, acknowledge_findings: bool) -> dict | None:
+        """Record an explicit local indexing decision; retain all audit exceptions."""
+        reason = reason.strip()
+        if len(reason) < 10 or len(reason) > 2000:
+            raise StructureConflict("Give a review reason of 10–2000 characters.")
+        check = await self.approval_check(revision_id)
+        if check is None:
+            return None
+        if check["review_state"] == "approved":
+            return {"revision_id": revision_id, "review_state": "approved", "already_approved": True}
+        if check["hard_blockers"]:
+            raise StructureConflict("Approval blocked: " + " ".join(check["hard_blockers"]))
+        if expected_content_sha256 != check["content_sha256"]:
+            raise StructureConflict("Revision changed; refresh the approval check.")
+        if (check["findings"] or check["page_review"]) and not acknowledge_findings:
+            raise StructureConflict("Acknowledge the displayed audit and page-review exceptions first.")
+        now = datetime.now(UTC)
+        async with self.db.session() as session, session.begin():
+            await session.execute(select(LegalVersion).where(
+                LegalVersion.id == check["legal_version_id"]
+            ).with_for_update())
+            revision = (await session.execute(select(CorpusRevision).where(
+                CorpusRevision.id == revision_id
+            ).with_for_update())).scalar_one()
+            if revision.review_state == "approved":
+                return {"revision_id": revision_id, "review_state": "approved", "already_approved": True}
+            latest_number = await session.scalar(select(func.max(CorpusRevision.revision_number)).where(
+                CorpusRevision.legal_version_id == revision.legal_version_id
+            ))
+            if (revision.review_state != "draft" or revision.revision_number != latest_number
+                    or revision.content_sha256 != expected_content_sha256):
+                raise StructureConflict("Draft changed or a newer revision exists; refresh first.")
+            await session.execute(pg_insert(AppUser).values(
+                id=uuid4(), auth_provider="local_development",
+                auth_subject="unauthenticated_corpus_approval",
+                display_name="Local corpus approver (identity not verified)", role="user",
+            ).on_conflict_do_nothing(index_elements=["auth_provider", "auth_subject"]))
+            actor = (await session.execute(select(AppUser).where(
+                AppUser.auth_provider == "local_development",
+                AppUser.auth_subject == "unauthenticated_corpus_approval",
+            ))).scalar_one()
+            exceptions = sorted({item["code"] for item in check["findings"]})
+            decision_reason = (f"Local Phase B indexing approval; reviewer identity not verified. "
+                               f"Reason: {reason} Exceptions acknowledged: "
+                               f"{', '.join(exceptions) or 'none'}; "
+                               f"pages needing review: {len(check['page_review'])}.")
+            revision.review_state = "approved"
+            revision.approved_by = actor.id
+            revision.approved_at = now
+            session.add(ReviewEvent(
+                id=uuid4(), actor_id=actor.id, corpus_revision_id=revision_id,
+                decision="approve", reason=decision_reason,
+            ))
+        return {"revision_id": revision_id, "review_state": "approved",
+                "already_approved": False, "acknowledged_error_count": check["error_count"],
+                "acknowledged_warning_count": check["warning_count"],
+                "acknowledged_page_count": len(check["page_review"])}
 
     async def source_options(self, version_id: UUID) -> list[dict]:
         async with self.db.session() as session:
@@ -138,13 +276,22 @@ class LegalStructureRepository:
                     blockers.append(f"Assigned PDF {source.original_filename} was omitted from this draft.")
             for _, source, extraction in chosen:
                 pages = (await session.execute(
-                    select(FilePage.page_index, FilePage.outcome)
+                    select(FilePage.id, FilePage.page_index, FilePage.outcome)
                     .where(FilePage.extraction_id == extraction.id)
                     .order_by(FilePage.page_index)
                 )).all()
-                if [index for index, _ in pages] != list(range(1, source.page_count + 1)):
+                if [index for _, index, _ in pages] != list(range(1, source.page_count + 1)):
                     raise StructureConflict(f"Extraction {extraction.id} is missing physical pages.")
-                for index, outcome in pages:
+                events = (await session.execute(select(ReviewEvent).where(
+                    ReviewEvent.file_extraction_id == extraction.id,
+                    ReviewEvent.page_id.is_not(None),
+                ).order_by(ReviewEvent.created_at.desc(), ReviewEvent.id.desc()))).scalars().all()
+                latest_decision = {}
+                for event in events:
+                    latest_decision.setdefault(event.page_id, event.decision)
+                for page_id, index, outcome in pages:
+                    if outcome == "needs_review" and latest_decision.get(page_id) == "mark_blank":
+                        continue
                     if outcome in {"failed", "needs_review", "excluded_with_reason"}:
                         blockers.append(f"{source.original_filename} page {index}: {outcome}")
             revision_number = (await session.scalar(
@@ -242,6 +389,13 @@ class LegalStructureRepository:
                 select(FilePage).where(FilePage.extraction_id.in_(extraction_ids))
                 .order_by(FilePage.extraction_id, FilePage.page_index)
             )).scalars().all()
+            review_events = (await session.execute(select(ReviewEvent).where(
+                ReviewEvent.file_extraction_id.in_(extraction_ids),
+                ReviewEvent.page_id.is_not(None),
+            ).order_by(ReviewEvent.created_at.desc(), ReviewEvent.id.desc()))).scalars().all()
+            latest_review = {}
+            for event in review_events:
+                latest_review.setdefault(event.page_id, event)
             blocks = (await session.execute(
                 select(FileBlock).where(FileBlock.extraction_id.in_(extraction_ids))
                 .order_by(FileBlock.extraction_id, FileBlock.page_id, FileBlock.block_ordinal)
@@ -256,6 +410,10 @@ class LegalStructureRepository:
             for source, file, instrument in sources:
                 source_pages = []
                 for page in pages_by_extraction.get(source.extraction_id, []):
+                    blank_reviewed = (page.id in latest_review
+                                      and latest_review[page.id].decision == "mark_blank"
+                                      and any(item.get("code") == "blank_candidate"
+                                              for item in page.warnings or []))
                     source_blocks = tuple(SourceBlock(
                         id=block.id, page_id=page.id, extraction_id=source.extraction_id,
                         file_id=file.id, page_index=page.page_index,
@@ -265,8 +423,11 @@ class LegalStructureRepository:
                     ) for block in blocks_by_page.get(page.id, []))
                     source_pages.append(SourcePage(
                         id=page.id, extraction_id=source.extraction_id, file_id=file.id,
-                        page_index=page.page_index, outcome=page.outcome,
-                        warnings=page.warnings, height_pt=float(page.height_pt) if page.height_pt else None,
+                        page_index=page.page_index,
+                        outcome="verified_blank" if blank_reviewed else page.outcome,
+                        warnings=[item for item in page.warnings
+                                  if not (blank_reviewed and item.get("code") == "blank_candidate")],
+                        height_pt=float(page.height_pt) if page.height_pt else None,
                         blocks=source_blocks,
                     ))
                 documents.append(SourceDocument(
@@ -364,6 +525,7 @@ class LegalStructureRepository:
                     "id": n.id, "revision_id": claim.revision_id, "parent_id": n.parent_id,
                     "kind": n.kind, "label": n.label, "reference_path": n.reference_path,
                     "ordinal": n.ordinal, "heading": n.heading, "own_text": n.own_text,
+                    "source_status": n.source_status,
                     "text_sha256": sha256_text(n.own_text),
                 } for n in batch]))
             for batch in _chunks(parsed.spans):
@@ -516,6 +678,7 @@ class LegalStructureRepository:
                                 "kind": node.kind, "label": node.label,
                                 "reference_path": node.reference_path,
                                 "ordinal": node.ordinal, "heading": node.heading,
+                                "source_status": node.source_status,
                                 "text_length": len(node.own_text),
                                 "span_count": counts.get(node.id, 0)} for node in nodes],
             }
@@ -599,6 +762,7 @@ class LegalStructureRepository:
                 "id": node.id, "kind": node.kind, "label": node.label,
                 "reference_path": node.reference_path, "heading": node.heading,
                 "own_text": node.own_text,
+                "source_status": node.source_status,
                 "spans": [{"file_id": extraction.file_id, "extraction_id": span.extraction_id,
                            "page_index": page.page_index, "page_id": page.id,
                            "block_id": block.id, "block_ordinal": block.block_ordinal,
@@ -686,6 +850,24 @@ class LegalStructureRepository:
                 .join(FilePage, FilePage.id == FileBlock.page_id)
                 .where(FileBlock.extraction_id.in_(source_ids))
             )).all() if source_ids else []
+            source_pages = (await session.execute(
+                select(FilePage.id, LegalFile.original_filename, FilePage.page_index,
+                       FilePage.outcome, FilePage.warnings,
+                       FilePage.table_regions)
+                .join(FileExtraction, FileExtraction.id == FilePage.extraction_id)
+                .join(LegalFile, LegalFile.id == FileExtraction.file_id)
+                .where(FilePage.extraction_id.in_(source_ids))
+            )).all() if source_ids else []
+            review_events = (await session.execute(select(ReviewEvent).where(
+                ReviewEvent.file_extraction_id.in_(source_ids),
+                ReviewEvent.page_id.is_not(None),
+            ).order_by(ReviewEvent.created_at.desc(), ReviewEvent.id.desc()))).scalars().all() if source_ids else []
+            latest_review = {}
+            for event in review_events:
+                latest_review.setdefault(event.page_id, event)
+            note_links = (await session.execute(select(SourceNoteMarkerLink).where(
+                SourceNoteMarkerLink.revision_id == revision_id,
+            ))).scalars().all()
             counts = dict((await session.execute(
                 select(RevisionBlockCoverage.status, func.count(RevisionBlockCoverage.id))
                 .where(RevisionBlockCoverage.revision_id == revision_id)
@@ -693,8 +875,9 @@ class LegalStructureRepository:
             )).all())
             findings = structure_findings(
                 nodes, span_rows, source_blocks=source_blocks,
-                instrument_type=instrument_type,
+                instrument_type=instrument_type, note_links=note_links,
             )
+            findings.extend(source_page_review_findings(source_pages, latest_review))
             uncovered = counts.get("unmapped", 0) + counts.get("partial", 0)
             if uncovered:
                 findings.append({"code": "source_blocks_need_review", "severity": "warning",
@@ -719,6 +902,10 @@ class LegalStructureRepository:
             ))).scalar_one_or_none()
             if page is None:
                 return None
+            review = (await session.execute(select(ReviewEvent).where(
+                ReviewEvent.file_extraction_id == source.extraction_id,
+                ReviewEvent.page_id == page.id,
+            ).order_by(ReviewEvent.created_at.desc(), ReviewEvent.id.desc()).limit(1))).scalar_one_or_none()
             blocks = (await session.execute(select(FileBlock).where(
                 FileBlock.page_id == page.id).order_by(FileBlock.block_ordinal)
             )).scalars().all()
@@ -741,6 +928,7 @@ class LegalStructureRepository:
                     "span_id": span.id, "provision_id": node.id,
                     "reference_path": node.reference_path, "kind": node.kind,
                     "label": node.label, "heading": node.heading,
+                    "source_status": node.source_status,
                     "own_text": node.own_text, "mapping_quality": span.mapping_quality,
                     "provision_char_start": span.provision_char_start,
                     "provision_char_end": span.provision_char_end,
@@ -786,6 +974,9 @@ class LegalStructureRepository:
                 "ocr_confidence": float(page.ocr_confidence) if page.ocr_confidence is not None else None,
                 "raw_text": page.raw_text, "normalized_text": page.normalized_text,
                 "text_sha256": page.text_sha256, "warnings": page.warnings,
+                "table_regions": page.table_regions or [],
+                "review_decision": review.decision if review else None,
+                "review_reason": review.reason if review else None,
                 "blocks": [{
                     "id": block.id, "ordinal": block.block_ordinal,
                     "kind": block.block_kind, "raw_text": block.raw_text,

@@ -1,4 +1,4 @@
-"""Legacy 30-section corpus and private contract tables.
+"""Private uploaded-contract tables and retired legacy model definitions.
 
 These classes describe the database shape for application code.  Alembic owns
 the actual schema changes; importing this module does not create tables. The
@@ -28,7 +28,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 
 from app.core.config import get_settings
 from app.db.base import Base
@@ -39,8 +39,13 @@ EMBEDDING_DIM = get_settings().embedding_dim
 # or fewer. Above that the column still works, but every search is an exact scan.
 HNSW_MAX_DIM = 2000
 
+# These old models are retained only for historical importer/tests. They are
+# deliberately excluded from the application's Base.metadata after migration
+# 20261009_12 dropped their physical tables. Do not reuse them for new QA.
+LegacyBase = declarative_base()
 
-class LawSource(Base):
+
+class LawSource(LegacyBase):
     """A frozen transcription of a particular source PDF.
 
     A correction produces a new corpus hash and thus a new row.  Approval is a
@@ -79,7 +84,7 @@ class LawSource(Base):
     sections: Mapped[list[LawSection]] = relationship(back_populates="source")
 
 
-class LawSection(Base):
+class LawSection(LegacyBase):
     """Complete section text, including its illustrations and page range."""
 
     __tablename__ = "law_sections"
@@ -133,7 +138,7 @@ def _passage_table_args() -> tuple:
     return tuple(args)
 
 
-class LawPassage(Base):
+class LawPassage(LegacyBase):
     """One section fragment on one PDF page; its ID is the citation key."""
 
     __tablename__ = "law_passages"
@@ -163,9 +168,9 @@ class LawPassage(Base):
 
 # --------------------------------------------------------------------------
 # Uploaded contracts (Sprint 2). Kept in their own tables, never joined with
-# law_sources/law_sections/law_passages above (Sprint 2 shared rule 6): a
+# retired law_sources/law_sections/law_passages (Sprint 2 shared rule 6): a
 # user's uploaded contract is evidence to check against the law, never text
-# the law-corpus search endpoint should ever be able to return.
+# that the future legal-corpus search endpoint should return.
 #
 # This is the *upload* stage only (Abdullah, Week 1). Haroon's clause
 # extraction and the Week 2 AI summary are separate, later pieces of work;

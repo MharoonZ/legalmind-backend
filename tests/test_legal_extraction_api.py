@@ -78,3 +78,36 @@ async def test_inspector_overview_and_pdf_preview_are_local_only(tmp_path, monke
     app.dependency_overrides[get_settings] = lambda: settings.model_copy(update={"environment": "production"})
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
         assert (await client.get(f"/local-admin/legal/files/{file_id}/overview")).status_code == 404
+
+
+@pytest.mark.anyio
+async def test_blank_review_is_local_only_and_requires_a_reason(monkeypatch):
+    extraction_id = uuid4()
+    calls = []
+
+    class FakeRepository:
+        def __init__(self, _db):
+            pass
+
+        async def mark_blank(self, requested_id, page_index, reason):
+            calls.append((requested_id, page_index, reason))
+            return page_index == 2
+
+    monkeypatch.setattr(legal_ingestion, "LegalExtractionRepository", FakeRepository)
+    app = create_app()
+    settings = get_settings().model_copy(update={
+        "legal_ingest_enabled": True, "environment": "development",
+    })
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_database] = lambda: object()
+    transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 42000))
+    url = f"/local-admin/legal/extractions/{extraction_id}/pages/2/mark-blank"
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        assert (await client.post(url, json={"reason": " "})).status_code == 422
+        response = await client.post(url, json={"reason": "Visually blank page."})
+        assert response.status_code == 200
+        assert response.json() == {"recorded": True}
+        assert calls == [(extraction_id, 2, "Visually blank page.")]
+    app.dependency_overrides[get_settings] = lambda: settings.model_copy(update={"environment": "production"})
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        assert (await client.post(url, json={"reason": "Visually blank page."})).status_code == 404

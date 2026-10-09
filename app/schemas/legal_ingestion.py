@@ -22,3 +22,6 @@ class LegalUploadOut(BaseModel):
     job_status: str
     already_registered: bool
     created_at: datetime
+    latest_revision_id: UUID | None = None
+    latest_revision_number: int | None = None
+    latest_revision_review_state: str | None = None

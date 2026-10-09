@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace as Row
 
-from app.services.legal_audit import structure_findings
+from app.services.legal_audit import source_page_review_findings, structure_findings
 
 
 def node(identity: str, label: str, text: str = "") -> Row:
@@ -50,6 +50,25 @@ def test_whitespace_between_spans_is_not_a_false_gap():
                  block_char_start=0, block_char_end=3, mapping_quality="exact"),
              Row(normalized_text="Two"))]
     assert structure_findings(nodes, rows) == []
+
+
+def test_audit_flags_explicit_and_linked_nonoperative_status_missing():
+    direct = Row(id="s25", kind="section", label="25",
+                 own_text="25. [Former text]. Deleted by the Amendment Act.",
+                 source_status=None, parent_id=None, reference_path="s:25")
+    child = Row(id="sub3", kind="subsection", label="3",
+                own_text="3[(3) * * *]", source_status=None,
+                parent_id="s25", reference_path="s:25/sub:3")
+    note = Row(id="note", kind="other", label="3",
+               own_text="3 Sub-section (3) omitted by the Amendment Act.",
+               source_status=None, parent_id=None, reference_path="note:3")
+    findings = structure_findings(
+        [direct, child, note], [],
+        note_links=[Row(note_provision_id="note", target_provision_id="sub3")],
+    )
+    assert {item["code"] for item in findings} >= {
+        "explicit_source_status_missing", "linked_note_source_status_missing",
+    }
 
 
 def test_critical_finding_when_numbered_act_body_is_saved_as_contents():
@@ -138,3 +157,93 @@ def test_small_or_unproven_duplicate_cohort_is_not_critical():
                                       instrument_type="act")
         assert not any(item["code"] == "contents_entries_as_provisions"
                        for item in findings)
+
+
+def test_source_audit_blocks_tables_and_glyph_ambiguity_but_honors_blank_review():
+    pages = [
+        ("blank", "act.pdf", 2, "needs_review", [{"code": "blank_candidate"}], []),
+        ("table", "act.pdf", 11, "needs_review", [{"code": "table_layout_candidate"}], [{}]),
+        ("glyph", "act.pdf", 3, "needs_review", [{"code": "ambiguous_numbering_glyph"}], []),
+    ]
+    initial = source_page_review_findings(pages, {})
+    assert [(item["code"], item["severity"]) for item in initial] == [
+        ("source_page_needs_review", "error"),
+        ("table_cells_need_review", "error"),
+        ("source_page_needs_review", "error"),
+    ]
+    reviewed = source_page_review_findings(pages, {"blank": Row(decision="mark_blank")})
+    assert len(reviewed) == 2
+    assert any("page 11" in item["message"] for item in reviewed)
+    assert any("page 3" in item["message"] for item in reviewed)
+    rows = [
+        [{"text": "Year"}, {"text": "No."}, {"text": "Title"}, {"text": "Extent"}],
+        [{"text": "1"}, {"text": "2"}, {"text": "3"}, {"text": "4"}],
+        [{"text": "1959"}, {"text": "IV"}, {"text": "Act"}, {"text": "The whole."}],
+    ]
+    tables_reviewed = [pages[0],
+                       ("table", "act.pdf", 11, "extracted", [], [{
+                           "status": "visually_reviewed_rows", "reviewed_by": "Visual reviewer",
+                           "review_note": "Compared with PDF", "column_count": 4, "rows": rows,
+                           "atomic_rows": [
+                               {"source_row_index": index,
+                                "cells": [cell["text"] for cell in row]}
+                               for index, row in enumerate(rows)
+                           ],
+                       }])]
+    assert source_page_review_findings(tables_reviewed, {"blank": Row(decision="mark_blank")}) == []
+
+
+def test_short_contents_then_body_cannot_pass_with_zero_sections():
+    saved = [Row(id="contents", parent_id=None, kind="other", label=None,
+                 heading="Contents continuation", reference_path="other:contents",
+                 own_text="THE EXAMPLE ACT\nPreamble. WHEREAS needed.\n"
+                          "1. Short title. Full text.\n2. Application. Full text.")]
+    findings = structure_findings(
+        saved, [], source_blocks=[block("CONTENTS\n1. Short title\n2. Application"),
+                                  block(saved[0].own_text)], instrument_type="act",
+    )
+    codes = {item["code"] for item in findings}
+    assert {"no_operative_structure", "contents_mode_into_body"} <= codes
+
+
+def test_auditor_detects_missing_first_child_false_headings_and_wrong_parents():
+    rows = [
+        Row(id="s1", parent_id=None, kind="section", label="1", reference_path="s:1",
+            own_text="1. Short title. (1)This Act applies."),
+        Row(id="sub2", parent_id="s1", kind="subsection", label="2",
+            reference_path="s:1/sub:2", own_text="(2) Later text."),
+        Row(id="s6", parent_id=None, kind="section", label="6", reference_path="s:6",
+            own_text="6. Real section. Body."),
+        Row(id="fake6", parent_id=None, kind="section", label="6", reference_path="s:6/duplicate:2",
+            own_text="section 6. "),
+        Row(id="fakechapter", parent_id=None, kind="chapter", label="XVI",
+            heading="of the Pakistan Penal Code", reference_path="ch:XVI",
+            own_text="Chapter XVI of the Pakistan Penal Code"),
+        Row(id="s21", parent_id="fakechapter", kind="section", label="21",
+            reference_path="ch:XVI/s:21", own_text="21. Later section."),
+        Row(id="suborphan", parent_id="fakechapter", kind="subsection", label="3",
+            reference_path="ch:XVI/sub:3", own_text="(3) Orphan."),
+    ]
+    codes = {item["code"] for item in structure_findings(rows, [])}
+    assert {"missing_first_subsection", "inline_reference_as_section",
+            "sentence_reference_as_division", "late_division_reparenting",
+            "invalid_subsection_parent"} <= codes
+
+
+def test_auditor_detects_list_continuation_and_proviso_hierarchy():
+    rows = [
+        Row(id="s", parent_id=None, kind="section", label="8", reference_path="s:8", own_text="8. Procedure."),
+        Row(id="sub", parent_id="s", kind="subsection", label="1", reference_path="s:8/sub:1",
+            own_text="(1) The officer may"),
+        Row(id="a", parent_id="sub", kind="paragraph", label="a", reference_path="s:8/sub:1/p:a",
+            own_text="(a) inspect;"),
+        Row(id="c", parent_id="a", kind="paragraph", label="b", reference_path="s:8/sub:1/p:a/p:b",
+            own_text="(b) seize documents,\nshall be punishable."),
+        Row(id="proviso", parent_id="sub", kind="other", label=None, heading="Proviso",
+            reference_path="s:8/sub:1/other:1", own_text="Provided that a warrant is required."),
+        Row(id="next", parent_id="proviso", kind="paragraph", label="b",
+            reference_path="s:8/sub:1/other:1/p:b", own_text="(b) demand records."),
+    ]
+    codes = {item["code"] for item in structure_findings(rows, [])}
+    assert {"sequential_sibling_nested", "post_list_continuation_in_child",
+            "sibling_beneath_proviso"} <= codes

@@ -6,13 +6,14 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import String, and_, cast, literal, select
+from sqlalchemy import String, and_, cast, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import LegalUploadConflictError
 from app.db.legal_corpus_models import (
     Category,
+    CorpusRevision,
     InstrumentCategory,
     Jurisdiction,
     LegalFile,
@@ -58,6 +59,9 @@ class LegalUploadRecord:
     job_status: str
     already_registered: bool
     created_at: datetime
+    latest_revision_id: UUID | None = None
+    latest_revision_number: int | None = None
+    latest_revision_review_state: str | None = None
 
 
 def _same_text(left: str, right: str) -> bool:
@@ -229,11 +233,20 @@ previously registered Act or legal edition.
 
     async def recent_uploads(self, *, limit: int = 25, offset: int = 0) -> list[LegalUploadRecord]:
         """List recent assignments, including a file's extraction job state."""
+        latest = (select(CorpusRevision.legal_version_id,
+                         func.max(CorpusRevision.revision_number).label("number"))
+                  .group_by(CorpusRevision.legal_version_id).subquery())
         statement = (
-            select(LegalFileAssignment, LegalFile, LegalVersion, LegalInstrument, ProcessingJob)
+            select(LegalFileAssignment, LegalFile, LegalVersion, LegalInstrument,
+                   ProcessingJob, CorpusRevision)
             .join(LegalFile, LegalFile.id == LegalFileAssignment.file_id)
             .join(LegalVersion, LegalVersion.id == LegalFileAssignment.legal_version_id)
             .join(LegalInstrument, LegalInstrument.id == LegalVersion.instrument_id)
+            .outerjoin(latest, latest.c.legal_version_id == LegalVersion.id)
+            .outerjoin(CorpusRevision, and_(
+                CorpusRevision.legal_version_id == LegalVersion.id,
+                CorpusRevision.revision_number == latest.c.number,
+            ))
             .join(ProcessingJob, and_(
                 ProcessingJob.target_file_id == LegalFile.id,
                 ProcessingJob.task_type == "extract",
@@ -258,4 +271,7 @@ previously registered Act or legal edition.
             job_status=job.status,
             already_registered=True,
             created_at=legal_file.created_at,
-        ) for _, legal_file, version, instrument, job in rows]
+            latest_revision_id=revision.id if revision else None,
+            latest_revision_number=revision.revision_number if revision else None,
+            latest_revision_review_state=revision.review_state if revision else None,
+        ) for _, legal_file, version, instrument, job, revision in rows]

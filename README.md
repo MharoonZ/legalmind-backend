@@ -1,5 +1,12 @@
 # LegalMind AI — Backend
 
+> **Current development state (9 October 2026):** The old 30-section
+> `law_sources` / `law_sections` / `law_passages` tables and `/ask` endpoint
+> have been retired. The search-pipeline and import instructions below describe
+> the historical prototype and must not be run against the current database.
+> Use the full-PDF ingestion workflow; new question answering is pending.
+> See `LEGACY_LAW_SEARCH_RETIREMENT_2026-10-09.md`.
+
 FastAPI backend for grounded Q&A over the Contract Act, 1872 (sections 1–30).
 
 `POST /ask` runs a full retrieval-augmented pipeline: hybrid search over the

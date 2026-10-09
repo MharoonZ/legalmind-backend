@@ -316,6 +316,7 @@ class Provision(Base):
         CheckConstraint("ordinal > 0", name="ck_provisions_ordinal"),
         CheckConstraint("parent_id IS NULL OR parent_id <> id", name="ck_provisions_no_self_parent"),
         CheckConstraint("kind IN ('preamble', 'part', 'chapter', 'section', 'subsection', 'paragraph', 'rule', 'schedule', 'article', 'other')", name="ck_provisions_kind"),
+        CheckConstraint("source_status IS NULL OR source_status IN ('omitted', 'repealed', 'deleted')", name="ck_provisions_source_status"),
     )
 
     id: Mapped[UUID] = _id_column()
@@ -327,6 +328,7 @@ class Provision(Base):
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     heading: Mapped[str | None] = mapped_column(Text)
     own_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    source_status: Mapped[str | None] = mapped_column(String(20))
     text_sha256: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

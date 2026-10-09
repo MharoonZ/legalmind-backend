@@ -45,12 +45,23 @@ def _migration_schema(monkeypatch):
     def create_unique_constraint(name, table, columns):
         metadata.tables[table].append_constraint(sa.UniqueConstraint(*columns, name=name))
 
+    def create_check_constraint(name, table, condition):
+        metadata.tables[table].append_constraint(sa.CheckConstraint(condition, name=name))
+
+    def drop_constraint(name, table, type_):
+        assert type_ == "check"
+        target = next(constraint for constraint in metadata.tables[table].constraints
+                      if constraint.name == name)
+        metadata.tables[table].constraints.remove(target)
+
     for filename in (
         "20261005_05_haroon_legal_corpus.py",
         "20261006_06_structure_coverage.py",
         "20261007_07_source_note_marker_links.py",
         "20261007_08_relation_candidates.py",
         "20261008_09_page_table_regions.py",
+        "20261008_10_provision_source_status.py",
+        "20261008_11_deleted_source_status.py",
     ):
         path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / filename
         spec = spec_from_file_location(filename.removesuffix(".py"), path)
@@ -60,6 +71,8 @@ def _migration_schema(monkeypatch):
         monkeypatch.setattr(migration, "op", SimpleNamespace(
             create_table=create_table, create_index=create_index,
             add_column=add_column, create_unique_constraint=create_unique_constraint,
+            create_check_constraint=create_check_constraint,
+            drop_constraint=drop_constraint,
             execute=statements.append,
         ))
         migration.upgrade()

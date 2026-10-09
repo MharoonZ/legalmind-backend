@@ -10,19 +10,23 @@ import hashlib
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import fitz
 
+from app.services.legal_tables import atomize_table_region, reviewed_region_is_lossless
 
-EXTRACTOR_VERSION = "legal-pages-v2"
+
+EXTRACTOR_VERSION = "legal-pages-v4"
 _OBJECT_KEY = re.compile(r"^[0-9a-f]{2}/[0-9a-f]{64}\.pdf$")
-_AMBIGUOUS_ONE = re.compile(
-    r"(?s)\b\d+(?:-[A-Za-z]+|[A-Za-z]*)\.[^\n]{0,200}\([lI]\)"
-    r".{0,400}?\n\s*\(2\)[ \t]"
-)
+_AMBIGUOUS_MARKER = re.compile(r"\([lI]\)[ \t]+")
+_NUMBERED_HEADING = re.compile(r"(?m)^[ \t]*\d+(?:-[A-Za-z]+|[A-Za-z]*)\.[ \t]+")
+_SECOND_SUBSECTION = re.compile(r"\(2\)[ \t]+")
+_PREVIOUS_LETTER_ITEM = re.compile(r"\([a-k]\)[ \t]+", re.I)
+_NEXT_LETTER_ITEM = re.compile(r"\([m-z]\)[ \t]+", re.I)
 
 
 class SourcePdfError(Exception):
@@ -36,6 +40,7 @@ class ExtractionConfig:
     dpi: int = 200
     min_native_chars: int = 20
     mixed_image_area_ratio: float = 0.20
+    review_manifest: dict | None = None
 
     def digest(self) -> str:
         # The tessdata location is deployment-specific; its contents/version
@@ -47,6 +52,7 @@ class ExtractionConfig:
             "ocr_dpi": self.dpi,
             "min_native_chars": self.min_native_chars,
             "mixed_image_area_ratio": self.mixed_image_area_ratio,
+            "review_manifest": self.review_manifest,
         }
         return sha256_text(json.dumps(payload, sort_keys=True, separators=(",", ":")))
 
@@ -100,6 +106,20 @@ def sha256_text(value: str) -> str:
 
 def warning(code: str, message: str, severity: str = "warning") -> dict[str, str]:
     return {"code": code, "message": message, "severity": severity}
+
+
+def ambiguous_one_candidates(value: str) -> list[int]:
+    """Flag likely text-layer l/I versus printed 1; never auto-correct law."""
+    positions = []
+    for marker in _AMBIGUOUS_MARKER.finditer(value):
+        before = value[max(0, marker.start() - 800):marker.start()]
+        after = value[marker.end():marker.end() + 800]
+        # An alphabetic list that reaches (l) is not a subsection (1).
+        if _PREVIOUS_LETTER_ITEM.search(before) and _NEXT_LETTER_ITEM.search(after):
+            continue
+        if _NUMBERED_HEADING.search(before) or _SECOND_SUBSECTION.search(after):
+            positions.append(marker.start())
+    return positions
 
 
 def resolve_source_pdf(upload_dir: str, object_key: str, expected_sha256: str) -> Path:
@@ -203,12 +223,115 @@ def _table_regions(page: fitz.Page) -> list[dict]:
                     "bbox": _bbox(cell_bbox) if cell_bbox is not None else None,
                 })
             rows.append(row)
-        regions.append({
+        region = {
             "bbox": _bbox(table.bbox), "row_count": table.row_count,
             "column_count": table.col_count, "rows": rows,
             "status": "candidate_requires_review",
-        })
+        }
+        try:
+            region["atomic_rows"], _ = atomize_table_region(region)
+        except ValueError as exc:
+            region["atomic_rows"] = []
+            region["atomization_error"] = str(exc)
+        regions.append(region)
     return regions
+
+
+def apply_reviewed_edits(page: ExtractedPage, edits: dict, *, reviewer: str) -> ExtractedPage:
+    """Build a new extraction result; preserve raw text and earlier attempts."""
+    if not reviewer.strip():
+        raise ValueError("Reviewed extraction must identify its reviewer.")
+    if page.outcome == "failed":
+        raise ValueError("A failed page cannot be accepted by a correction manifest.")
+    blocks = list(page.blocks)
+    warnings = list(page.warnings)
+    regions = deepcopy(page.table_regions or [])
+    for edit in edits.get("text_replacements", []):
+        ordinal = edit["block_ordinal"]
+        expected = edit["original"]
+        replacement = edit["replacement"]
+        if not expected or len(expected) != len(replacement):
+            raise ValueError("Reviewed glyph replacement must be nonempty and length-preserving.")
+        if not 1 <= ordinal <= len(blocks):
+            raise ValueError("Reviewed correction targets a missing source block.")
+        source = blocks[ordinal - 1]
+        if source.kind != "paragraph" or source.normalized_text.count(expected) != 1:
+            raise ValueError("Reviewed correction must match one exact text-layer occurrence.")
+        blocks[ordinal - 1] = replace(
+            source, normalized_text=source.normalized_text.replace(expected, replacement, 1),
+            warnings=[*source.warnings, warning(
+                "visually_corrected_glyph",
+                f"{reviewer}: text layer {expected!r} was visually confirmed as {replacement!r}.",
+                "info",
+            )],
+        )
+        warnings.append(warning(
+            "visually_corrected_glyph",
+            f"Block {ordinal}: text-layer {expected!r} was corrected to visually printed {replacement!r} by {reviewer}; raw text is retained.",
+            "info",
+        ))
+    for review in edits.get("review_tables", []):
+        index = review["table_index"]
+        if not 0 <= index < len(regions):
+            raise ValueError("Reviewed table index is not present on this PDF page.")
+        region = regions[index]
+        atomic_rows, _ = atomize_table_region(
+            region, inherited_enactment=review.get("inherited_enactment"),
+        )
+        if not atomic_rows or not any(row["row_type"] == "entry" for row in atomic_rows):
+            raise ValueError("Reviewed table has no atomic entry rows.")
+        region["atomic_rows"] = atomic_rows
+        region.pop("atomization_error", None)
+        region["status"] = "visually_reviewed_rows"
+        region["reviewed_by"] = reviewer
+        region["review_note"] = review.get("reason", "Compared every row with the original PDF.")
+        if not reviewed_region_is_lossless(region):
+            raise ValueError("Reviewed table rows do not cover the saved source cells exactly.")
+    if regions and all(region["status"] == "visually_reviewed_rows" for region in regions):
+        warnings = [item for item in warnings if item["code"] != "table_layout_candidate"]
+        warnings.append(warning(
+            "table_rows_visually_reviewed",
+            f"All detected table row groups and atomic entries were visually reviewed by {reviewer}.",
+            "info",
+        ))
+    normalized_text = "\n".join(
+        block.normalized_text for block in blocks if block.kind == "paragraph"
+    )
+    candidates = ambiguous_one_candidates(normalized_text)
+    candidate_block_by_position = {
+        position: next((block.ordinal for block in blocks
+                        if block.page_char_start is not None
+                        and block.page_char_start <= position < block.page_char_end), None)
+        for position in candidates
+    }
+    candidate_blocks = set(candidate_block_by_position.values()) - {None}
+    confirmed_blocks = set(edits.get("confirm_numbering_glyph_blocks", []))
+    if (any(not isinstance(ordinal, int) for ordinal in confirmed_blocks)
+            or not confirmed_blocks.issubset(candidate_blocks)):
+        raise ValueError("A confirmed numbering-glyph block must contain a current ambiguous candidate.")
+    if confirmed_blocks:
+        warnings.append(warning(
+            "numbering_glyph_confirmed_as_printed",
+            f"{reviewer} visually confirmed the text layer in blocks {sorted(confirmed_blocks)}.",
+            "info",
+        ))
+    if not candidates or (None not in candidate_block_by_position.values()
+                          and candidate_blocks == confirmed_blocks):
+        warnings = [item for item in warnings if item["code"] != "ambiguous_numbering_glyph"]
+    elif not any(item["code"] == "ambiguous_numbering_glyph" for item in warnings):
+        warnings.append(warning("ambiguous_numbering_glyph",
+                                "A possible subsection (1) still needs visual confirmation."))
+    if len(normalized_text) != len(page.normalized_text):
+        raise ValueError("Reviewed correction changed page offsets; rebuild is unsafe.")
+    for block in blocks:
+        if block.page_char_start is not None and normalized_text[
+            block.page_char_start:block.page_char_end
+        ] != block.normalized_text:
+            raise ValueError("Reviewed correction broke the page-to-block source offsets.")
+    unresolved = any(item.get("severity") != "info" for item in warnings)
+    outcome = "needs_review" if unresolved else "extracted"
+    return replace(page, normalized_text=normalized_text, blocks=blocks,
+                   table_regions=regions, warnings=warnings, outcome=outcome)
 
 
 def _tessdata(config: ExtractionConfig) -> str:
@@ -287,10 +410,10 @@ def extract_page(page: fitz.Page, page_index: int, config: ExtractionConfig) -> 
         warnings.append(warning("broken_text_encoding", "Native text contains many replacement characters."))
     if "\x00" in native_text:
         warnings.append(warning("nul_replaced", "NUL characters were replaced for database storage."))
-    if _AMBIGUOUS_ONE.search(native_text):
+    if ambiguous_one_candidates(native_text):
         warnings.append(warning(
             "ambiguous_numbering_glyph",
-            "Native text may read letter l/I where subsection (1) is printed; compare the PDF image.",
+            "Native text may read letter l/I where subsection (1) is printed; compare the PDF image. Never auto-correct a legal reference.",
         ))
         outcome = "needs_review"
 

@@ -194,10 +194,14 @@ def test_sections_eight_and_nine_keep_their_own_provisos():
     ])
     parsed = parse_structure([doc])
     eight, nine = node(parsed, "/s:8"), node(parsed, "/s:9")
-    assert "successor magistrate" in eight.own_text
-    assert "first offender" not in eight.own_text
-    assert "first offender" in nine.own_text
-    assert "successor magistrate" not in nine.own_text
+    eight_proviso = next(item for item in parsed.nodes
+                         if item.parent_id == eight.id and item.heading == "Proviso")
+    nine_proviso = next(item for item in parsed.nodes
+                        if item.parent_id == nine.id and item.heading == "Proviso")
+    assert "successor magistrate" in eight_proviso.own_text
+    assert "first offender" not in eight_proviso.own_text
+    assert "first offender" in nine_proviso.own_text
+    assert "successor magistrate" not in nine_proviso.own_text
     assert "first offender" not in node(parsed, "/s:11").own_text
     assert_exact_source_spans(parsed, doc)
 

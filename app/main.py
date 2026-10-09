@@ -14,12 +14,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import ask, contracts, health, legal_ingestion
+from app.api.routes import contracts, health, legal_ingestion
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import Database
-from app.services.embeddings import EmbeddingService
-from app.services.llm.factory import build_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -34,33 +32,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db = db
     await db.connect()
 
-    # One embedding model and one HTTP client for the whole process. Loading
-    # the model per request would cost seconds and gigabytes.
-    embeddings = EmbeddingService(
-        settings.embedding_model,
-        dimension=settings.embedding_dim,
-        device=settings.embedding_device,
-        batch_size=settings.embedding_batch_size,
-        enabled=settings.embeddings_enabled,
-    )
-    app.state.embeddings = embeddings
-    if settings.embeddings_enabled and settings.embedding_warmup:
-        await embeddings.warmup()
-
-    app.state.llm = build_llm_client(settings)
-    if settings.llm_configured:
-        logger.info("LLM: %s (%s)", settings.llm_provider, settings.llm_model)
-    else:
-        logger.warning(
-            "%s is not set; /ask will return 503 on real questions", settings.llm_api_key_name
-        )
-
     logger.info(
         "%s v%s started (%s)", settings.app_name, settings.app_version, settings.environment
     )
     yield
 
-    await app.state.llm.aclose()
     await db.dispose()
 
 
@@ -70,7 +46,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
-        description="Grounded Q&A over the Contract Act, 1872 (sections 1-30).",
+        description="Legal PDF ingestion and private contract APIs. Question answering is being rebuilt.",
         debug=settings.debug,
         lifespan=lifespan,
     )
@@ -84,7 +60,6 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
-    app.include_router(ask.router)
     app.include_router(contracts.router)
     app.include_router(legal_ingestion.router)
 

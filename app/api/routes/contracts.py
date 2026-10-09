@@ -5,11 +5,8 @@ document + document_version records. Nothing here reads clause text or
 produces a summary - see LegalMind_Sprint2_Work_Division for what Haroon's
 extraction and the Week 2 AI step still need to do with `version_id`.
 
-`POST /ask` (app.api.routes.ask) is unchanged by this file: a text-only
-question keeps working exactly as it did in Sprint 1. Attaching a PDF needs
-multipart/form-data, which is a different request shape than /ask's plain
-JSON body, so it lives on its own route instead of risking Sprint 1
-compatibility for Shimza's frontend.
+The old Sprint 1 `/ask` endpoint has been retired. Contract uploads remain
+separate from the new legal-PDF corpus and future question-answering API.
 """
 
 import logging

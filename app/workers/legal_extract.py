@@ -9,9 +9,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import json
 import logging
 import os
+import re
 import socket
+from pathlib import Path
 
 import fitz
 
@@ -21,6 +24,7 @@ from app.repositories.legal_extraction_repository import LegalExtractionReposito
 from app.services.legal_extraction import (
     ExtractedPage,
     ExtractionConfig,
+    apply_reviewed_edits,
     extract_page,
     resolve_source_pdf,
     verify_source_pdf,
@@ -32,8 +36,14 @@ logger = logging.getLogger(__name__)
 
 async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, config: ExtractionConfig) -> bool:
     """Return False when there was no queued/expired job to claim."""
+    manifest = config.review_manifest or {}
+    target_hash = manifest.get("source_sha256") if manifest else None
+    if manifest and (not isinstance(target_hash, str)
+                     or re.fullmatch(r"[0-9a-f]{64}", target_hash) is None):
+        raise ValueError("A review manifest must identify one registered PDF SHA-256.")
     claim = await repo.claim_next(
-        worker_id=f"{socket.gethostname()}:{os.getpid()}", config=config
+        worker_id=f"{socket.gethostname()}:{os.getpid()}", config=config,
+        expected_sha256=target_hash,
     )
     if claim is None:
         return False
@@ -42,9 +52,15 @@ async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, confi
     try:
         path = resolve_source_pdf(upload_dir, claim.object_key, claim.sha256)
         verify_source_pdf(path, claim.sha256)
+        if manifest and manifest.get("source_sha256") != claim.sha256:
+            raise ValueError("The reviewed extraction manifest targets a different PDF hash.")
         with fitz.open(path) as document:
             if document.page_count != claim.page_count:
                 raise ValueError("The registered page count differs from the stored PDF.")
+            edits_by_page = manifest.get("pages", {})
+            if any(not str(index).isdigit() or not 1 <= int(index) <= claim.page_count
+                   for index in edits_by_page):
+                raise ValueError("Reviewed extraction manifest names a page outside the PDF.")
             for index in range(claim.page_count):
                 try:
                     page = document.load_page(index)
@@ -56,6 +72,11 @@ async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, confi
                         extraction_method="none", outcome="failed",
                         warnings=[warning("page_failed", f"Page extraction failed: {exc}", "error")],
                         blocks=[],
+                    )
+                edits = edits_by_page.get(str(index + 1))
+                if edits is not None:
+                    result = apply_reviewed_edits(
+                        result, edits, reviewer=manifest.get("reviewer", ""),
                     )
                 await repo.save_page(claim, result)
                 page_digest = result.digest_payload()
@@ -73,17 +94,19 @@ async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, confi
     return True
 
 
-async def _run(*, watch: bool, poll_seconds: float) -> None:
+async def _run(*, watch: bool, poll_seconds: float, review_manifest_path: str | None) -> None:
     settings = get_settings()
     db = Database(settings)
     try:
         if not await db.connect():
             raise RuntimeError("Cannot run extraction while the database is unavailable.")
         repo = LegalExtractionRepository(db)
+        manifest = json.loads(Path(review_manifest_path).read_text(encoding="utf-8")) if review_manifest_path else None
         config = ExtractionConfig(
             tessdata_dir=settings.legal_ocr_tessdata_dir,
             languages=settings.legal_ocr_languages,
             dpi=settings.legal_ocr_dpi,
+            review_manifest=manifest,
         )
         while True:
             worked = await process_one(repo, upload_dir=settings.legal_upload_dir, config=config)
@@ -101,9 +124,11 @@ def main() -> None:
     mode.add_argument("--once", action="store_true", help="Process at most one job (default)")
     mode.add_argument("--watch", action="store_true", help="Keep polling for queued jobs")
     parser.add_argument("--poll-seconds", type=float, default=5.0)
+    parser.add_argument("--review-manifest", help="JSON source-hash-bound visual corrections for one PDF")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    asyncio.run(_run(watch=args.watch, poll_seconds=max(args.poll_seconds, 0.5)))
+    asyncio.run(_run(watch=args.watch, poll_seconds=max(args.poll_seconds, 0.5),
+                     review_manifest_path=args.review_manifest))
 
 
 if __name__ == "__main__":
