@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 
 from app.db.legal_corpus_models import (
     ChunkSet, CorpusRevision, LegalChunk, LegalChunkProvision, LegalInstrument,
@@ -127,6 +127,7 @@ class LegalChunkRepository:
                     "root_total_chunks": chunk.root_total_chunks, "prefix": chunk.prefix,
                     "chunk_text": chunk.chunk_text, "char_count": chunk.char_count,
                     "chunk_text_sha256": chunk.chunk_text_sha256,
+                    "search_text": chunk.search_text,
                 } for chunk in batch]))
 
             link_rows = [{
@@ -192,3 +193,57 @@ class LegalChunkRepository:
                     "provision_ids": provisions_by_chunk.get(chunk.id, []),
                 } for chunk in chunks],
             }
+
+    @staticmethod
+    def _chunk_summary(chunk: LegalChunk) -> dict:
+        return {
+            "id": chunk.id, "chunk_set_id": chunk.chunk_set_id, "ordinal": chunk.ordinal,
+            "kind": chunk.kind, "label": chunk.label, "heading": chunk.heading,
+            "reference_path": chunk.reference_path, "chunk_key": chunk.chunk_key,
+            "sequence_in_root": chunk.sequence_in_root,
+            "root_total_chunks": chunk.root_total_chunks,
+            "prefix": chunk.prefix, "chunk_text": chunk.chunk_text,
+            "char_count": chunk.char_count,
+        }
+
+    async def find_by_label(self, chunk_set_id: UUID, label: str) -> list[dict]:
+        """Exact, unstemmed lookup by printed label (e.g. "19A") within one
+        chunk set.
+
+        A plain equality match, never a prefix or substring match: looking
+        up ``"19"`` never also returns ``"19A"`` (and vice versa), because
+        those are different ``label`` values entirely. Uses
+        ``ix_legal_chunks_chunk_set_label``.
+        """
+        async with self.db.session() as session:
+            chunks = (await session.execute(
+                select(LegalChunk).where(
+                    LegalChunk.chunk_set_id == chunk_set_id,
+                    LegalChunk.label == label,
+                ).order_by(LegalChunk.sequence_in_root)
+            )).scalars().all()
+            return [self._chunk_summary(chunk) for chunk in chunks]
+
+    async def keyword_search(self, chunk_set_id: UUID, query: str, *, limit: int = 20) -> list[dict]:
+        """Rank one chunk set's chunks by PostgreSQL full-text search over
+        ``search_vector`` (the GIN-indexed ``tsvector`` generated from
+        ``search_text``: Act title, section label, heading and body).
+
+        ``plainto_tsquery`` treats a plain question like "what does section
+        19A say" as an AND of its words rather than requiring ``tsquery``
+        syntax from the caller. This is lexical search only; it does not
+        replace an exact-reference lookup (``find_by_label``) for a query
+        that names a precise section number.
+        """
+        if limit < 1:
+            raise ValueError("limit must be positive.")
+        tsquery = func.plainto_tsquery("english", query)
+        rank = func.ts_rank(LegalChunk.search_vector, tsquery).label("rank")
+        async with self.db.session() as session:
+            rows = (await session.execute(
+                select(LegalChunk, rank).where(
+                    LegalChunk.chunk_set_id == chunk_set_id,
+                    LegalChunk.search_vector.op("@@")(tsquery),
+                ).order_by(rank.desc()).limit(limit)
+            )).all()
+            return [{**self._chunk_summary(chunk), "rank": float(score)} for chunk, score in rows]

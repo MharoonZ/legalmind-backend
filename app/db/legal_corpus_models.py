@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     CheckConstraint,
+    Computed,
     Date,
     DateTime,
     ForeignKey,
@@ -25,7 +26,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -620,6 +621,7 @@ class LegalChunk(Base):
         CheckConstraint("length(btrim(chunk_text)) > 0", name="ck_legal_chunks_text_nonempty"),
         CheckConstraint("length(btrim(chunk_key)) > 0", name="ck_legal_chunks_key_nonempty"),
         CheckConstraint("length(btrim(chunk_text_sha256)) = 64", name="ck_legal_chunks_text_hash"),
+        CheckConstraint("length(btrim(search_text)) > 0", name="ck_legal_chunks_search_text_nonempty"),
     )
 
     id: Mapped[UUID] = _id_column()
@@ -638,6 +640,16 @@ class LegalChunk(Base):
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Denormalized "Act title + section label + heading + text" used for
+    # keyword search (see app.services.legal_chunking.build_search_text).
+    search_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Database-maintained GIN-indexed tsvector, generated from search_text;
+    # never written by the application (see the matching Alembic migration).
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english'::regconfig, search_text)", persisted=True),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -688,4 +700,9 @@ Index("ix_job_attempts_job_id", JobAttempt.job_id)
 Index("ix_chunk_sets_revision_id", ChunkSet.revision_id)
 Index("ix_legal_chunks_chunk_set_id", LegalChunk.chunk_set_id)
 Index("ix_legal_chunks_root_provision_id", LegalChunk.root_provision_id)
+Index("ix_legal_chunks_search_vector", LegalChunk.search_vector, postgresql_using="gin")
+# Exact (non-stemmed) lookup by printed label, e.g. "19A", scoped to one
+# chunk set/revision build so "Section 19" and "Section 19A" of different
+# builds never collide.
+Index("ix_legal_chunks_chunk_set_label", LegalChunk.chunk_set_id, LegalChunk.label)
 Index("ix_legal_chunk_provisions_provision_id", LegalChunkProvision.provision_id)

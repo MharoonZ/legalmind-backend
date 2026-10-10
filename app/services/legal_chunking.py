@@ -119,6 +119,7 @@ class DraftChunk:
     char_count: int
     chunk_text_sha256: str
     provision_ids: tuple[UUID, ...]
+    search_text: str
 
 
 @dataclass(slots=True)
@@ -143,6 +144,39 @@ def build_prefix(instrument_title: str, root: ProvisionNode) -> str:
     if heading:
         parts.append(heading)
     return " — ".join(parts)
+
+
+def _root_label_part(root: ProvisionNode) -> str:
+    """The bare "Section 19A" / "Rule 5" / "Preamble" part, no title or heading."""
+    if root.kind == "preamble":
+        return "Preamble"
+    word = _KIND_WORD[root.kind]
+    return f"{word} {root.label}" if root.label else word
+
+
+def build_search_text(instrument_title: str, root: ProvisionNode, body: str) -> str:
+    """Denormalized keyword-search text for one chunk: Act title, the root's
+    own section/rule/article/schedule label, its heading, then the chunk's
+    own body text — one per line so a GIN ``tsvector`` built from this field
+    covers both exact statutory identifiers (e.g. ``19A``) and ordinary
+    English content. This is deliberately independent of ``build_prefix``'s
+    em-dash display formatting (and never carries a "(part X of Y)" suffix),
+    so two different chunks of the same root (e.g. a long Section split in
+    two) still each index the same stable "Section 19A" identifier rather
+    than a continuation label that would blur exact lookups.
+
+    A different label always produces different search text: ``label`` is
+    inserted verbatim and unstemmed, so "Section 19" and "Section 19A" are
+    never conflated by the tokenizer upstream of PostgreSQL's own lexer.
+    """
+    title = instrument_title.strip()
+    label_part = _root_label_part(root)
+    heading = (root.heading or "").strip()
+    parts = [title, label_part]
+    if heading:
+        parts.append(heading)
+    parts.append(body)
+    return "\n".join(part for part in parts if part)
 
 
 def _is_excluded(node: ProvisionNode) -> bool:
@@ -273,13 +307,14 @@ def build_chunks(instrument_title: str, provisions: list[ProvisionNode],
             ordinal_counter += 1
             provision_ids = tuple(node.id for node in group_nodes)
             included_provision_ids.update(provision_ids)
+            search_text = build_search_text(instrument_title, root, body)
             result.chunks.append(DraftChunk(
                 ordinal=ordinal_counter, root_provision_id=root.id, kind=root.kind,
                 label=root.label, heading=root.heading, reference_path=root.reference_path,
                 chunk_key=chunk_key, sequence_in_root=sequence, root_total_chunks=total,
                 prefix=display_prefix, chunk_text=chunk_text, char_count=char_count,
                 chunk_text_sha256=hashlib.sha256(chunk_text.encode("utf-8")).hexdigest(),
-                provision_ids=provision_ids,
+                provision_ids=provision_ids, search_text=search_text,
             ))
 
     result.report = {

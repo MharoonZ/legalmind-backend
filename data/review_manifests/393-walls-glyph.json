@@ -1,0 +1,15 @@
+{
+  "source_sha256": "a1000e4b0c37866770fcae1a1aeca99dd6364ba8b899b3a092ee0e72fb4c5e4e",
+  "reviewer": "Codex visual source audit, 2026-10-08",
+  "pages": {
+    "3": {
+      "text_replacements": [
+        {
+          "block_ordinal": 5,
+          "original": "(l) This Act may be called",
+          "replacement": "(1) This Act may be called"
+        }
+      ]
+    }
+  }
+}

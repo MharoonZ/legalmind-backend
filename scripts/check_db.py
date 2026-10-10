@@ -101,7 +101,7 @@ async def main(timeout: float, use_ssl: bool) -> int:
 
         tables = await conn.fetch(
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
-            "AND tablename IN ('law_sources','law_sections','law_passages','alembic_version')"
+            "AND tablename IN ('legal_files','file_pages','corpus_revisions','provisions','alembic_version')"
         )
         found = sorted(row["tablename"] for row in tables)
         print(f"legalmind tables present: {found or 'none (clean database)'}")

@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 
 from app.services.legal_chunking import (
-    ChunkConfig, ProvisionNode, build_chunks, build_prefix,
+    ChunkConfig, ProvisionNode, build_chunks, build_prefix, build_search_text,
 )
 
 TITLE = "The Example Act, 2026"
@@ -72,6 +72,82 @@ def test_prefix_for_rule_article_schedule_and_preamble():
     assert build_prefix(TITLE, article) == "The Example Act, 2026 — Article 3 — Fundamental rights"
     assert build_prefix(TITLE, schedule) == "The Example Act, 2026 — Schedule First — Forms"
     assert build_prefix(TITLE, preamble) == "The Example Act, 2026 — Preamble"
+
+
+# ------------------------------------------------------------------- search_text
+
+
+def test_search_text_contains_act_title_label_heading_and_body():
+    section = _node("section", "19A", "Penalty for false statements",
+                     "19A. Penalty for false statements.— Whoever knowingly makes a false "
+                     "statement shall be punished.", ordinal=1)
+    result = build_chunks(TITLE, [section])
+    chunk = result.chunks[0]
+
+    assert chunk.search_text == build_search_text(TITLE, section, section.own_text)
+    assert TITLE in chunk.search_text
+    assert "Section 19A" in chunk.search_text
+    assert "Penalty for false statements" in chunk.search_text
+    assert section.own_text in chunk.search_text
+
+
+def test_search_text_omits_heading_when_absent():
+    section = _node("section", "7", None, "7. Something.", ordinal=1)
+    text = build_search_text(TITLE, section, section.own_text)
+    assert text == f"{TITLE}\nSection 7\n{section.own_text}"
+
+
+def test_search_text_for_rule_article_schedule_and_preamble_labels():
+    rule = _node("rule", "5", "Form of application", "5. Form.", ordinal=1)
+    article = _node("article", "3", "Fundamental rights", "3. Rights.", ordinal=1)
+    schedule = _node("schedule", "First", "Forms", "FIRST SCHEDULE", ordinal=1)
+    preamble = _node("preamble", None, "Preamble", "WHEREAS it is expedient...", ordinal=1)
+
+    assert "Rule 5" in build_search_text(TITLE, rule, rule.own_text)
+    assert "Article 3" in build_search_text(TITLE, article, article.own_text)
+    assert "Schedule First" in build_search_text(TITLE, schedule, schedule.own_text)
+    assert "Preamble" in build_search_text(TITLE, preamble, preamble.own_text)
+
+
+def test_section_19_and_19a_produce_distinct_labels_and_search_text():
+    """The literal case the keyword search exists for: "section 19A" must
+    never be confused with "section 19" of the same Act."""
+    s19 = _node("section", "19", "General offences", "19. General offences.", ordinal=1)
+    s19a = _node("section", "19A", "Penalty for false statements",
+                 "19A. Penalty for false statements.", ordinal=2)
+    result = build_chunks(TITLE, [s19, s19a])
+
+    assert len(result.chunks) == 2
+    chunk_19, chunk_19a = result.chunks
+
+    # Distinct stored labels, never conflated by prefix/suffix matching.
+    assert chunk_19.label == "19"
+    assert chunk_19a.label == "19A"
+    assert chunk_19.label != chunk_19a.label
+
+    # Distinct exact-lookup keys and distinct search_text content.
+    assert chunk_19.chunk_key != chunk_19a.chunk_key
+    assert chunk_19.search_text != chunk_19a.search_text
+    assert "Section 19A" in chunk_19a.search_text
+    assert "Section 19A" not in chunk_19.search_text
+    # The reverse: looking for plain "Section 19" text should not find it
+    # as a token boundary inside "Section 19A" in the other chunk either.
+    assert "Section 19\n" in chunk_19.search_text
+    assert "Section 19\n" not in chunk_19a.search_text
+
+
+def test_search_text_is_independent_of_part_x_of_y_continuation_suffix():
+    """A long Section split into multiple chunks still indexes the same bare
+    "Section 10" label in every part, so exact lookup by label finds every
+    part of that section rather than only the first."""
+    section, nodes = _long_section_with_subsections(n_subsections=8, body_len=40)
+    result = build_chunks(TITLE, nodes, ChunkConfig(max_chars=100))
+
+    assert len(result.chunks) > 1
+    for chunk in result.chunks:
+        assert "(part" not in chunk.search_text
+        assert "Section 10" in chunk.search_text
+        assert chunk.label == "10"
 
 
 # ------------------------------------------------------------- splitting long sections

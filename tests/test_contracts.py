@@ -94,9 +94,7 @@ def test_openapi_lists_contracts_routes(contracts_api):
     assert "/contracts/{document_id}" in paths
 
 
-def test_ask_is_unaffected_by_the_contracts_router(contracts_api):
-    """/ask keeps returning JSON errors normally; nothing here shadows it."""
+def test_retired_ask_route_is_not_exposed_by_contracts_router(contracts_api):
+    """The contract router must not accidentally restore the old /ask route."""
     res = contracts_api.post("/ask", json={"question": "hi"})
-    # No fake AskService is wired into this fixture, so this just proves the
-    # route still exists and still speaks JSON - not that it can answer.
-    assert res.status_code in (422, 503)
+    assert res.status_code == 404

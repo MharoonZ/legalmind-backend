@@ -1,0 +1,27 @@
+{
+  "source_sha256": "f2d382c7f7daa80515c041870cc876870ed48129726722c1f39550fd84ac1407",
+  "reviewer": "Codex visual source audit, 2026-10-08",
+  "pages": {
+    "11": {
+      "review_tables": [
+        {
+          "table_index": 0,
+          "reason": "Compared the First Schedule row groups and numbered section/punishment pairs against the printed table."
+        }
+      ]
+    },
+    "12": {
+      "review_tables": [
+        {
+          "table_index": 0,
+          "inherited_enactment": "Chapter XI, Pakistan Penal Code.",
+          "reason": "Compared the continued First Schedule and every numbered section/punishment pair against the printed table."
+        },
+        {
+          "table_index": 1,
+          "reason": "Compared all four Second Schedule columns and four data rows against the printed table, including the last Extent of repeal cell."
+        }
+      ]
+    }
+  }
+}
