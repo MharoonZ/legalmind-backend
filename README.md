@@ -1,6 +1,10 @@
 # LegalMind AI — Backend
 
+<<<<<<< Updated upstream
 FastAPI backend for grounded Q&A over the Contract Act, 1872 (sections 1–30).
+=======
+This repository implements full-PDF legal corpus ingestion and review, legal-aware chunking of approved revisions, plus a separate uploaded-contract API. The earlier 30-section Contract Act search and `/ask` prototype are retired. The new corpus does not yet have embeddings, indexing, or a question-answering endpoint.
+>>>>>>> Stashed changes
 
 `POST /ask` runs a full retrieval-augmented pipeline: hybrid search over the
 corpus, an evidence gate, a grounded OpenAI call, and citation validation
@@ -10,6 +14,7 @@ against the passages that were actually retrieved.
 
 ## The `/ask` pipeline
 
+<<<<<<< Updated upstream
 ```
 question
   ↓  validate (FastAPI + Pydantic)
@@ -26,6 +31,25 @@ question
   ↓  no citation survives → "unsupported"
   ↓  AskResponse
 ```
+=======
+## Chunking (Stage 6)
+
+`scripts/build_legal_chunks.py` builds legal-aware chunks from approved revisions, following the boundary policy in [the Phase B handover](docs/ABDULLAH_PHASE_B_HANDOVER.md#71-legal-aware-chunks):
+
+- One chunk per Section/Rule/Article/Schedule/Preamble by default; a long one is split only at a boundary between its direct children (e.g. between subsections), never mid-provision.
+- Every chunk is prefixed with `Act title — label — heading`.
+- `other` provisions (source notes, contents, running headers) and any provision explicitly marked `omitted`, `repealed`, or `deleted` are excluded, along with their descendants.
+- A chunk set is pinned to `(revision_id, content_sha256, chunker_version, config)`; rerunning with the same inputs is a no-op, and only an `approved` revision can be chunked. Changing the chunker version or config produces a new, additional chunk set rather than overwriting the old one.
+
+```powershell
+.\.venv\Scripts\python scripts/build_legal_chunks.py --dry-run   # report only
+.\.venv\Scripts\python scripts/build_legal_chunks.py             # build every approved revision
+```
+
+See `app/services/legal_chunking.py` (pure chunking logic) and `app/repositories/legal_chunk_repository.py` (loading/idempotent persistence into `chunk_sets`, `legal_chunks`, `legal_chunk_provisions`).
+
+The 23 pilot legal source PDFs under `uploads/legal/` are committed to the private `haroon` branch so teammates can render original pages locally. Their content-hash paths must remain unchanged because database records refer to them. Future uploads remain Git-ignored by default; do not commit private contracts, database backups, or credentials.
+>>>>>>> Stashed changes
 
 Two gates matter as much as the model itself. The **evidence gate** means an
 unanswerable question costs zero tokens and never reaches a model that might
