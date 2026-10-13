@@ -1,5 +1,9 @@
 """Deterministic, legal-aware chunking of an approved corpus revision.
 
+The policy described below applies to the retained V1 builder. The
+repository now calls ``build_chunks_from_spans`` (V2), which uses exact
+source order to preserve parent text after child lists.
+
 This module only reorganizes text that Phase A already parsed and stored in
 ``provisions``; it never rewrites or re-derives wording. A chunk's text is an
 exact concatenation of one or more ``provisions.own_text`` values, in the
@@ -31,7 +35,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import UUID
 
-CHUNKER_VERSION = "legal-chunk-v1"
+CHUNKER_VERSION = "legal-chunk-v2-source-order"
 
 # A provision is never chunked as operative law if its kind is in this set,
 # or if it carries one of these explicit source statuses (and neither are
@@ -120,6 +124,30 @@ class DraftChunk:
     chunk_text_sha256: str
     provision_ids: tuple[UUID, ...]
     search_text: str
+    segments: tuple[DraftSegment, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ProvisionSourceSpan:
+    id: UUID
+    provision_id: UUID
+    extraction_id: UUID
+    page_index: int
+    block_ordinal: int
+    block_char_start: int
+    provision_char_start: int
+    provision_char_end: int
+    mapping_quality: str
+
+
+@dataclass(frozen=True, slots=True)
+class DraftSegment:
+    source_span_id: UUID
+    provision_id: UUID
+    provision_char_start: int
+    provision_char_end: int
+    chunk_char_start: int
+    chunk_char_end: int
 
 
 @dataclass(slots=True)
@@ -323,6 +351,186 @@ def build_chunks(instrument_title: str, provisions: list[ProvisionNode],
         "root_count": len(roots),
         "chunk_count": len(result.chunks),
         "included_provisions": len(included_provision_ids),
+        "warnings": warnings,
+    }
+    return result
+
+
+@dataclass(frozen=True, slots=True)
+class _Fragment:
+    span: ProvisionSourceSpan
+    node: ProvisionNode
+    start: int
+    end: int
+
+    @property
+    def text(self) -> str:
+        return self.node.own_text[self.start:self.end]
+
+
+def build_chunks_from_spans(
+    instrument_title: str,
+    provisions: list[ProvisionNode],
+    spans: list[ProvisionSourceSpan],
+    config: ChunkConfig | None = None,
+) -> ChunkBuildResult:
+    """Build lossless chunks in *physical source order*, not parent-first order.
+
+    Parent continuation after a child list is represented by a later source
+    fragment of the same provision. Every fragment is tied to one exact Phase A
+    span and stores its offsets in both the source provision and chunk text.
+    Refuse missing/ambiguous provenance instead of silently publishing text in
+    a guessed order. No Phase A row is modified.
+    """
+    config = config or ChunkConfig()
+    nodes = {node.id: node for node in provisions}
+    if len(nodes) != len(provisions):
+        raise ValueError("Duplicate provision IDs in chunking input")
+    excluded: set[UUID] = set()
+    visiting: set[UUID] = set()
+
+    def is_excluded(node: ProvisionNode) -> bool:
+        if node.id in excluded:
+            return True
+        if node.id in visiting:
+            raise ValueError("Cycle in provision parent hierarchy")
+        visiting.add(node.id)
+        parent = nodes.get(node.parent_id)
+        value = _is_excluded(node) or (is_excluded(parent) if parent else False)
+        visiting.remove(node.id)
+        if value:
+            excluded.add(node.id)
+        return value
+
+    for node in provisions:
+        is_excluded(node)
+
+    roots = {node.id: node for node in provisions
+             if node.kind in ROOT_KINDS and node.id not in excluded}
+
+    def root_for(node: ProvisionNode) -> UUID | None:
+        seen = set()
+        while node.id not in roots:
+            if node.id in seen:
+                raise ValueError("Cycle in provision parent hierarchy")
+            seen.add(node.id)
+            node = nodes.get(node.parent_id)
+            if node is None:
+                return None
+        return node.id
+
+    by_provision: dict[UUID, list[ProvisionSourceSpan]] = defaultdict(list)
+    for span in spans:
+        if span.provision_id in nodes:
+            by_provision[span.provision_id].append(span)
+
+    fragments_by_root: dict[UUID, list[_Fragment]] = defaultdict(list)
+    included: set[UUID] = set()
+    source_rank: dict[UUID, int] = {}
+    for span in spans:
+        node = nodes.get(span.provision_id)
+        if node is not None:
+            source_rank[span.extraction_id] = min(
+                node.ordinal, source_rank.get(span.extraction_id, node.ordinal))
+
+    for node in sorted(provisions, key=lambda item: item.ordinal):
+        if node.id in excluded or node.kind in {"part", "chapter"} or not node.own_text.strip():
+            continue
+        root_id = root_for(node)
+        if root_id is None:
+            raise ValueError(f"Operative provision {node.reference_path} has no Section/Rule/Schedule root")
+        ordered = sorted(by_provision[node.id], key=lambda item: item.provision_char_start)
+        if not ordered:
+            raise ValueError(f"No source spans for operative provision {node.reference_path}")
+        previous_end = 0
+        for index, span in enumerate(ordered):
+            if span.mapping_quality != "exact" or span.block_ordinal < 1:
+                raise ValueError(f"Non-exact source span for {node.reference_path}")
+            if not 0 <= previous_end <= span.provision_char_start < span.provision_char_end <= len(node.own_text):
+                raise ValueError(f"Overlapping/out-of-range source spans for {node.reference_path}")
+            if node.own_text[previous_end:span.provision_char_start].strip():
+                raise ValueError(f"Non-whitespace provision text has no source span: {node.reference_path}")
+            end = span.provision_char_end
+            if index == len(ordered) - 1:
+                if node.own_text[end:].strip():
+                    raise ValueError(f"Trailing provision text has no source span: {node.reference_path}")
+                end = len(node.own_text)
+            fragments_by_root[root_id].append(_Fragment(span, node, previous_end, end))
+            previous_end = span.provision_char_end
+        included.add(node.id)
+
+    result = ChunkBuildResult()
+    warnings: list[dict] = []
+    ordinal = 0
+    for root in sorted(roots.values(), key=lambda item: item.ordinal):
+        extractions = {fragment.span.extraction_id for fragment in fragments_by_root[root.id]}
+        ranks = [source_rank[extraction] for extraction in extractions]
+        if len(ranks) != len(set(ranks)):
+            raise ValueError(
+                f"Ambiguous order of multiple PDF sources within {root.reference_path}; "
+                "review source assignments before chunking")
+        fragments = sorted(
+            fragments_by_root[root.id],
+            key=lambda f: (source_rank[f.span.extraction_id], str(f.span.extraction_id),
+                           f.span.page_index, f.span.block_ordinal,
+                           f.span.block_char_start, f.node.ordinal),
+        )
+        if not fragments:
+            warnings.append({"code": "empty_root_skipped", "reference_path": root.reference_path})
+            continue
+        prefix = build_prefix(instrument_title, root)
+        groups: list[list[_Fragment]] = []
+        current: list[_Fragment] = []
+        for fragment in fragments:
+            projected = len(prefix) + 2 + sum(len(f.text) + 2 for f in current) + len(fragment.text)
+            if current and projected > config.max_chars:
+                groups.append(current)
+                current = []
+            current.append(fragment)
+        if current:
+            groups.append(current)
+        total = len(groups)
+        for sequence, group in enumerate(groups, start=1):
+            display_prefix = prefix if total == 1 else f"{prefix} (part {sequence} of {total})"
+            body_parts: list[str] = []
+            segment_offsets: list[tuple[_Fragment, int, int]] = []
+            cursor = len(display_prefix) + 2
+            last: _Fragment | None = None
+            for fragment in group:
+                separator = "" if last and last.node.id == fragment.node.id and last.end == fragment.start else ("\n\n" if last else "")
+                body_parts.append(separator)
+                cursor += len(separator)
+                body_parts.append(fragment.text)
+                segment_offsets.append((fragment, cursor, cursor + len(fragment.text)))
+                cursor += len(fragment.text)
+                last = fragment
+            body = "".join(body_parts)
+            chunk_text = f"{display_prefix}\n\n{body}"
+            if len(chunk_text) > config.max_chars:
+                warnings.append({"code": "oversized_source_fragment", "reference_path": root.reference_path,
+                                 "char_count": len(chunk_text)})
+            ordinal += 1
+            ids = tuple(dict.fromkeys(fragment.node.id for fragment in group))
+            result.chunks.append(DraftChunk(
+                ordinal=ordinal, root_provision_id=root.id, kind=root.kind,
+                label=root.label, heading=root.heading, reference_path=root.reference_path,
+                chunk_key=root.reference_path if total == 1 else f"{root.reference_path}/chunk:{sequence}",
+                sequence_in_root=sequence, root_total_chunks=total,
+                prefix=display_prefix, chunk_text=chunk_text, char_count=len(chunk_text),
+                chunk_text_sha256=hashlib.sha256(chunk_text.encode("utf-8")).hexdigest(),
+                provision_ids=ids, search_text=build_search_text(instrument_title, root, body),
+                segments=tuple(DraftSegment(
+                    source_span_id=f.span.id, provision_id=f.node.id,
+                    provision_char_start=f.start, provision_char_end=f.end,
+                    chunk_char_start=start, chunk_char_end=end,
+                ) for f, start, end in segment_offsets),
+            ))
+    result.report = {
+        "format": "source_fragments_v2", "total_provisions": len(provisions),
+        "excluded_provisions": len(excluded), "root_count": len(roots),
+        "chunk_count": len(result.chunks), "included_provisions": len(included),
+        "source_fragments": sum(len(chunk.segments) for chunk in result.chunks),
+        "size_unit": "characters", "tokenizer": None,
         "warnings": warnings,
     }
     return result

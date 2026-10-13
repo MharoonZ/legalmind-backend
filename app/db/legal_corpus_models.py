@@ -597,12 +597,10 @@ class ChunkSet(Base):
 
 
 class LegalChunk(Base):
-    """One legal-aware chunk: one Section/Rule/Article/Schedule/Preamble, or
-    one reproducible piece of it split at a direct-child boundary.
+    """One legal-aware chunk for a pinned approved revision.
 
-    ``chunk_text`` is the exact concatenation of its constituent provisions'
-    ``own_text`` (see ``legal_chunk_provisions``), prefixed with the display
-    citation; it never contains invented or rewritten wording.
+    V1 rows remain for history. V2 orders exact source fragments through
+    ``legal_chunk_provisions``; its display prefix is not operative law.
     """
 
     __tablename__ = "legal_chunks"
@@ -654,7 +652,7 @@ class LegalChunk(Base):
 
 
 class LegalChunkProvision(Base):
-    """Exact, ordered membership of a provision inside a chunk.
+    """Ordered fragment membership (or historical V1 provision membership).
 
     This is the traceability join: a chunk's provenance (pages, blocks,
     character offsets) is never duplicated here — it is reached by following
@@ -663,17 +661,33 @@ class LegalChunkProvision(Base):
 
     __tablename__ = "legal_chunk_provisions"
     __table_args__ = (
-        PrimaryKeyConstraint("chunk_id", "provision_id"),
+        PrimaryKeyConstraint("chunk_id", "ordinal"),
         ForeignKeyConstraint(["chunk_id", "revision_id"], ["legal_chunks.id", "legal_chunks.revision_id"], ondelete="CASCADE"),
         ForeignKeyConstraint(["provision_id", "revision_id"], ["provisions.id", "provisions.revision_id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["source_span_id", "provision_id", "revision_id"],
+                             ["provision_spans.id", "provision_spans.provision_id", "provision_spans.revision_id"],
+                             name="fk_legal_chunk_provisions_source_span", ondelete="RESTRICT"),
         UniqueConstraint("chunk_id", "ordinal", name="uq_legal_chunk_provisions_chunk_ordinal"),
         CheckConstraint("ordinal > 0", name="ck_legal_chunk_provisions_ordinal"),
+        CheckConstraint(
+            "(source_span_id IS NULL AND provision_char_start IS NULL AND provision_char_end IS NULL "
+            "AND chunk_char_start IS NULL AND chunk_char_end IS NULL) OR "
+            "(source_span_id IS NOT NULL AND provision_char_start >= 0 "
+            "AND provision_char_end > provision_char_start AND chunk_char_start >= 0 "
+            "AND chunk_char_end > chunk_char_start)",
+            name="ck_legal_chunk_provisions_fragment",
+        ),
     )
 
     chunk_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     revision_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     provision_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_span_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    provision_char_start: Mapped[int | None] = mapped_column(Integer)
+    provision_char_end: Mapped[int | None] = mapped_column(Integer)
+    chunk_char_start: Mapped[int | None] = mapped_column(Integer)
+    chunk_char_end: Mapped[int | None] = mapped_column(Integer)
 
 
 Index("ix_legal_versions_instrument_id", LegalVersion.instrument_id)
@@ -683,6 +697,7 @@ Index("ix_file_blocks_page_id", FileBlock.page_id)
 Index("ix_revision_sources_extraction_id", RevisionSource.extraction_id)
 Index("ix_provisions_revision_parent", Provision.revision_id, Provision.parent_id)
 Index("ix_provision_spans_provision_id", ProvisionSpan.provision_id)
+Index("ix_legal_chunk_provisions_source_span_id", LegalChunkProvision.source_span_id)
 Index("ix_provision_spans_page_id", ProvisionSpan.page_id)
 Index("ix_source_note_marker_links_page", SourceNoteMarkerLink.revision_id, SourceNoteMarkerLink.page_id)
 Index("ix_source_note_marker_links_note", SourceNoteMarkerLink.note_provision_id)

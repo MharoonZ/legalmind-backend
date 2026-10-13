@@ -18,6 +18,7 @@ tmp/
 # Ignore uploads by default. Pilot legal source PDFs are force-added explicitly
 # for private team review; never commit contracts, backups, or credentials.
 /uploads/
+/backups/
 
 # OS / editor
 .DS_Store

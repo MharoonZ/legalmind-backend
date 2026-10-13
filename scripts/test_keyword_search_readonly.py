@@ -27,15 +27,22 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.db.legal_corpus_models import ChunkSet
+from app.db.legal_corpus_models import ChunkSet, CorpusRevision
 from app.db.session import Database
 from app.repositories.legal_chunk_repository import LegalChunkRepository
+from app.services.legal_chunking import ChunkConfig
 
 
 async def _latest_chunk_set_id(db: Database) -> UUID | None:
     async with db.session() as session:
         row = (await session.execute(
-            select(ChunkSet.id).order_by(ChunkSet.created_at.desc()).limit(1)
+            select(ChunkSet.id)
+            .join(CorpusRevision, CorpusRevision.id == ChunkSet.revision_id)
+            .where(ChunkSet.chunker_version == ChunkConfig().chunker_version,
+                   ChunkSet.config_sha256 == ChunkConfig().config_sha256,
+                   CorpusRevision.review_state == "approved",
+                   ChunkSet.content_sha256 == CorpusRevision.content_sha256)
+            .order_by(ChunkSet.created_at.desc(), ChunkSet.id.desc()).limit(1)
         )).scalar_one_or_none()
         return row
 
