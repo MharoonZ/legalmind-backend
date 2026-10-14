@@ -4,10 +4,14 @@ pydantic-settings>=2.4,<3.0
 SQLAlchemy[asyncio]>=2.0.30,<2.1
 asyncpg>=0.29,<1.0
 alembic>=1.16,<2.0
-pgvector>=0.4,<1.0  # Needed to replay historical Alembic migrations.
+pgvector>=0.4,<1.0  # pgvector ORM type + historical Alembic migrations.
 # Legal PDF extraction and uploaded-contract PDF validation.
 PyMuPDF==1.26.3
 # FastAPI needs this to parse multipart/form-data (POST /contracts file upload).
 python-multipart>=0.0.9,<1.0
 # Structured contract extraction (headings, tables, reading order, provenance).
 docling==2.130.0
+# Dense embeddings: BAAI/bge-m3 via sentence-transformers.
+# torch is a transitive dependency; it is installed automatically.
+# On a CPU-only server use: pip install torch --index-url https://download.pytorch.org/whl/cpu
+sentence-transformers>=3.0,<4.0

@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db import legal_corpus_models  # noqa: F401 - register Haroon's tables
 from app.db import models  # noqa: F401 - register existing tables
+from app.embeddings import models as embedding_models  # noqa: F401 - register embedding tables
 
 config = context.config
 target_metadata = Base.metadata
