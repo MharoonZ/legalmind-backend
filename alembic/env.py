@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
 from app.db.base import Base
+from app.db.session import prepared_statement_name
 from app.db import legal_corpus_models  # noqa: F401 - register Haroon's tables
 from app.db import models  # noqa: F401 - register existing tables
+from app.db import publication_models  # noqa: F401 - register publication tables
 from app.embeddings import models as embedding_models  # noqa: F401 - register embedding tables
 
 config = context.config
@@ -44,6 +46,9 @@ async def run_migrations_online() -> None:
     connect_args = {
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
+        "prepared_statement_name_func": prepared_statement_name,
+        "timeout": settings.db_connect_timeout,
+        "command_timeout": settings.db_command_timeout,
     }
     if settings.db_ssl:
         connect_args["ssl"] = "require"

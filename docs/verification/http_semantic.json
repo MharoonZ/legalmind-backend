@@ -1,0 +1,18 @@
+[
+  {
+    "label": "19",
+    "source_count": 5,
+    "warnings": [],
+    "result_count": 3,
+    "status": "ok",
+    "query": "The shopkeeper refused to give me proof of purchase. Must a seller provide a bill?"
+  },
+  {
+    "label": null,
+    "source_count": 0,
+    "warnings": [],
+    "result_count": 0,
+    "status": "no_results",
+    "query": "How far away is the Andromeda galaxy in light years?"
+  }
+]

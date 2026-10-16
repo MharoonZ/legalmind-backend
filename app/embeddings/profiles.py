@@ -45,16 +45,15 @@ class EmbeddingProfile:
     # Output vector length.  Must match the ``vector(N)`` column in Postgres.
     dimension: int
 
-    # Maximum sub-word tokens the model accepts.  Inputs are pre-truncated to
-    # this budget so no text is silently dropped inside the model.
+    # Maximum tokens including special tokens. Oversized inputs are rejected.
     max_tokens: int
 
     # Short description of how ``chunk_text`` is formatted before encoding.
     # Changing this recipe produces incomparable vectors → increment name.
     input_recipe: str
 
-    # Whether to L2-normalise the output vectors (required for cosine search
-    # with pgvector's ``<=>`` operator without a separate normalisation step).
+    # Whether to L2-normalise output vectors. Cosine itself also supports
+    # non-normalized nonzero vectors; this is our pinned encoding policy.
     normalize: bool = True
 
 
@@ -79,4 +78,13 @@ BGE_M3 = EmbeddingProfile(
 # ---------------------------------------------------------------------------
 
 ACTIVE_PROFILE: EmbeddingProfile = BGE_M3
+
+
+def assert_profile_matches(stored, profile: EmbeddingProfile) -> None:
+    """A reused name must match every persisted encoding parameter."""
+    fields = ("name", "model_id", "dimension", "max_tokens", "input_recipe", "normalize")
+    different = [field for field in fields if getattr(stored, field) != getattr(profile, field)]
+    if different:
+        raise ValueError(f"Embedding profile {profile.name!r} differs in {', '.join(different)}; "
+                         "use a new profile name for a changed configuration")
 

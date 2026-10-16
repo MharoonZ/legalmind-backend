@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     db_pool_timeout: int = 30  # seconds to wait for a free connection
     db_pool_recycle: int = 1800  # replace connections older than 30 min
     db_connect_timeout: int = 20  # seconds for one connection attempt (TLS + login)
+    db_command_timeout: int = Field(default=120, ge=1)  # bound stalled network/query waits
     db_connect_retries: int = 3  # startup attempts before running without DB
     db_connect_retry_delay: float = 2.0  # seconds between startup attempts
     db_ssl: bool = True  # Supabase requires SSL
@@ -66,6 +67,14 @@ class Settings(BaseSettings):
     legal_ocr_tessdata_dir: str = "uploads/ocr/tessdata"
     legal_ocr_languages: str = "eng"
     legal_ocr_dpi: int = 200
+
+    # Search exposes evidence candidates from the active publication only.
+    # The encoder is loaded lazily; existing API startup remains lightweight.
+    legal_search_enabled: bool = False
+    legal_search_candidate_pool: int = Field(default=50, ge=10, le=100)
+    legal_search_min_similarity: float = Field(default=0.48, ge=0, le=1)
+    legal_search_rrf_k: int = Field(default=60, ge=1, le=1000)
+    legal_search_hnsw_ef_search: int = Field(default=200, ge=40, le=1000)
 
     # ------------------------------------------------------------ Validators
     @field_validator("database_url")

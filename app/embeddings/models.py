@@ -30,6 +30,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKeyConstraint,
     Integer,
+    Index,
     String,
     Text,
     UniqueConstraint,
@@ -119,4 +120,13 @@ class LegalChunkEmbedding(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+# These indexes already exist in migration 20261014_16. Register them in ORM
+# metadata as well, so autogenerate does not propose dropping working indexes.
+Index("ix_lce_profile_id", LegalChunkEmbedding.profile_id)
+Index("ix_lce_chunk_id", LegalChunkEmbedding.chunk_id)
+Index("ix_lce_embedding_hnsw", LegalChunkEmbedding.embedding, postgresql_using="hnsw",
+      postgresql_ops={"embedding": "vector_cosine_ops"},
+      postgresql_with={"m": 16, "ef_construction": 64})
 

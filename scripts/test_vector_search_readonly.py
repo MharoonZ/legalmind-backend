@@ -1,5 +1,8 @@
 """Test vector search against the embedded legal corpus (read-only).
 
+Internal development diagnostic: may inspect approved unpublished chunks.
+For publication-scoped Stage 10 search use ``python -m scripts.search_legal``.
+
 Encodes a query string with the active profile and returns the top-k most
 similar chunks from all approved revisions.
 
@@ -31,7 +34,9 @@ async def run(query: str, top_k: int) -> None:
         repo = EmbeddingRepository(db)
 
         # Resolve profile_id
-        profile_id = await repo.ensure_profile(profile)
+        profile_id = await repo.get_profile_id(profile)
+        if profile_id is None:
+            raise RuntimeError("The active embedding profile has not been built; this read-only command will not create it.")
 
         # Embed the query (single text, batch_size=1)
         vectors = encode_texts([query], profile, batch_size=1)

@@ -13,6 +13,7 @@ Why this stays stable:
 
 import asyncio
 import logging
+from uuid import uuid4
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -29,15 +30,22 @@ from app.core.config import Settings
 logger = logging.getLogger(__name__)
 
 
+def prepared_statement_name() -> str:
+    """Never reuse the unnamed statement slot across pooler/type introspection calls."""
+    return f"__legalmind_{uuid4().hex}__"
+
+
 class Database:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
         connect_args: dict = {
             "timeout": settings.db_connect_timeout,
+            "command_timeout": settings.db_command_timeout,
             # Needed for Supabase pooler (pgbouncer style). Safe on a direct connection too.
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
+            "prepared_statement_name_func": prepared_statement_name,
         }
         if settings.db_ssl:
             connect_args["ssl"] = "require"

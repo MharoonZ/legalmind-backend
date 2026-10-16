@@ -293,7 +293,9 @@ class LegalChunkRepository:
             select(LegalChunkProvision, ProvisionSpan.page_id, ProvisionSpan.block_id,
                    FilePage.page_index, ProvisionSpan.extraction_id,
                    Provision.text_sha256, FileBlock.text_sha256, LegalFile.id,
-                   LegalFile.sha256)
+                   LegalFile.sha256, LegalFile.original_filename, LegalFile.source_url,
+                   LegalFile.publisher, Provision.reference_path, Provision.kind,
+                   Provision.label, ProvisionSpan.mapping_quality)
             .outerjoin(ProvisionSpan, ProvisionSpan.id == LegalChunkProvision.source_span_id)
             .outerjoin(FilePage, FilePage.id == ProvisionSpan.page_id)
             .join(Provision, Provision.id == LegalChunkProvision.provision_id)
@@ -305,13 +307,21 @@ class LegalChunkRepository:
         )).all()
         result: dict[UUID, list[dict]] = {}
         for (link, page_id, block_id, page_index, extraction_id,
-             provision_hash, block_hash, file_id, file_hash) in rows:
+             provision_hash, block_hash, file_id, file_hash, filename, source_url,
+             publisher, provision_path, provision_kind, provision_label, mapping_quality) in rows:
             result.setdefault(link.chunk_id, []).append({
                 "provision_id": link.provision_id,
                 "source_span_id": link.source_span_id,
                 "extraction_id": extraction_id,
                 "file_id": file_id,
                 "file_sha256": file_hash,
+                "filename": filename,
+                "source_url": source_url,
+                "publisher": publisher,
+                "reference_path": provision_path,
+                "kind": provision_kind,
+                "label": provision_label,
+                "mapping_quality": mapping_quality,
                 "page_id": page_id,
                 "page_index": page_index,
                 "block_id": block_id,

@@ -1,0 +1,35 @@
+{
+  "passed": 20,
+  "checks": [
+    "additive migration executes on real PostgreSQL",
+    "stale vector repair touches only the stale row and leaves valid rows unchanged",
+    "missing vectors block publication and can be repaired independently",
+    "invalid normalization is detected even when the input hash still matches",
+    "publication creation is idempotent",
+    "publication sealing still permits new independent chunk-set builds",
+    "exact 19 does not match 19A and retains source provenance",
+    "subsection lookup follows the stored hierarchy and source fragments",
+    "nonexistent exact reference returns no unrelated fallback",
+    "FTS plus vector RRF excludes an equally similar unpublished instrument",
+    "sealed membership cannot be deleted",
+    "published vector cannot be overwritten",
+    "published source text cannot be changed",
+    "profile identity cannot be changed under existing vectors",
+    "failed activation leaves previous publication active",
+    "cross-law exact-reference ambiguity is explicit",
+    "approval revocation invalidates the complete active release",
+    "activation revalidates approval even for an already active publication",
+    "concurrent activations commit safely or report busy and leave exactly one active publication",
+    "PostgreSQL can execute the existing cosine HNSW index"
+  ],
+  "hnsw_plan": [
+    "Limit  (cost=10000000012.27..10000000012.51 rows=5 width=24)",
+    "  InitPlan 1",
+    "    ->  Limit  (cost=10000000000.00..10000000000.04 rows=1 width=32)",
+    "          ->  Seq Scan on legal_chunk_embeddings  (cost=10000000000.00..10000000013.10 rows=310 width=32)",
+    "  ->  Index Scan using ix_lce_embedding_hnsw on legal_chunk_embeddings e  (cost=12.22..27.10 rows=310 width=24)",
+    "        Order By: (embedding <=> (InitPlan 1).col1)"
+  ],
+  "isolated_schema": "legalmind_verify_11121eefd0754452a53fbba28eb52ddc",
+  "public_corpus_modified": false
+}

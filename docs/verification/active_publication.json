@@ -1,0 +1,12 @@
+{
+  "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+  "name": "legalmind-pilot-20261016",
+  "status": "active",
+  "profile_id": "672cb22e-1f1e-49e6-89ef-a5c9cafb93e8",
+  "manifest_sha256": "774459f8e60527d9547b3c2472d4a134cc70016c00b518cb8f0af8d7309ec516",
+  "chunk_count": 531,
+  "instrument_count": 23,
+  "created_at": "2026-10-16 08:48:26.931593+00:00",
+  "activated_at": "2026-10-16 09:03:09.607126+00:00",
+  "previous_publication_id": null
+}

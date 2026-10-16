@@ -1,0 +1,25 @@
+{
+  "description": "Developer regression questions checked against the stored pilot corpus. Expected labels identify relevant provisions, not certified legal answers. These are development checks, not a held-out benchmark.",
+  "cases": [
+    {"id":"exact-receipt","query":"Section 19 of the Consumer Protection Act","status":"ok","law_contains":"Consumer Protection","labels":["19"]},
+    {"id":"exact-child","query":"Section 4(2)(a) of the Consumer Protection Act","status":"ok","law_contains":"Consumer Protection","labels":["4"]},
+    {"id":"exact-missing-letter","query":"Section 19A of the Consumer Protection Act","status":"no_results"},
+    {"id":"exact-missing-number","query":"Section 999 of the Consumer Protection Act","status":"no_results"},
+    {"id":"ambiguous-reference","query":"Section 19","status":"needs_clarification"},
+    {"id":"unpublished-law","query":"Section 19 of the Contract Act 1872","status":"no_results"},
+    {"id":"receipt-formal","query":"Receipt to be issued to the purchaser","status":"ok","law_contains":"Consumer Protection","labels":["19"]},
+    {"id":"receipt-paraphrase","query":"The shopkeeper refused to give me proof of purchase. Must a seller provide a bill?","status":"ok","law_contains":"Consumer Protection","labels":["19"]},
+    {"id":"price-display","query":"Must a store show the prices of the goods it sells?","status":"ok","law_contains":"Consumer Protection","labels":["18"]},
+    {"id":"defective-product","query":"Who is responsible when a defective manufactured product causes damage to a consumer?","status":"ok","law_contains":"Consumer Protection","labels":["4","5","6"]},
+    {"id":"ingredient-disclosure","query":"Must the manufacturer disclose product ingredients and expiry dates?","status":"ok","law_contains":"Consumer Protection","labels":["11"]},
+    {"id":"notice-response","query":"How many days does a service provider have to respond to a consumer notice about a faulty service?","status":"ok","law_contains":"Consumer Protection","labels":["28"]},
+    {"id":"consumer-remedies","query":"Can a consumer court order a replacement or refund for a defective product?","status":"ok","law_contains":"Consumer Protection","labels":["31"]},
+    {"id":"gambling-public","query":"What is the penalty for gambling in a public street?","status":"ok","law_contains":"Prevention of Gambling","labels":["5"]},
+    {"id":"gambling-house","query":"What happens to someone who runs a common gaming house?","status":"ok","law_contains":"Prevention of Gambling","labels":["3"]},
+    {"id":"followup-receipt","query":"What if they refuse to issue it?","context":{"previous_query":"Does a seller have to give a purchaser a receipt under the Punjab Consumer Protection Act 2005?"},"status":"ok","law_contains":"Consumer Protection","labels":["19"]},
+    {"id":"missing-context","query":"What about it?","status":"needs_clarification"},
+    {"id":"unrelated-science","query":"How does quantum entanglement work in a superconducting qubit?","status":"no_results"},
+    {"id":"unrelated-cooking","query":"Give me a recipe for chocolate lava cake","status":"no_results"},
+    {"id":"unrelated-astronomy","query":"How far away is the Andromeda galaxy in light years?","status":"no_results"}
+  ]
+}

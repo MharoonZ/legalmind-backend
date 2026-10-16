@@ -1,0 +1,49 @@
+{
+  "profile": "bge-m3-v1",
+  "profile_id": "672cb22e-1f1e-49e6-89ef-a5c9cafb93e8",
+  "model_id": "BAAI/bge-m3",
+  "dimension": 1024,
+  "max_tokens": 8192,
+  "input_recipe": "title_label_heading_body",
+  "normalize": true,
+  "chunk_sets": 23,
+  "chunks": 531,
+  "pgvector_version": "0.8.2",
+  "embedded_chunks": 531,
+  "max_input_characters": 4041,
+  "token_check_performed": false,
+  "maximum_observed_tokens": null,
+  "issues": {},
+  "samples": {},
+  "indexes": {
+    "ix_lce_embedding_hnsw": {
+      "name": "ix_lce_embedding_hnsw",
+      "valid": true,
+      "ready": true,
+      "definition": "CREATE INDEX ix_lce_embedding_hnsw ON public.legal_chunk_embeddings USING hnsw (embedding vector_cosine_ops) WITH (m='16', ef_construction='64')"
+    },
+    "ix_legal_chunks_search_vector": {
+      "name": "ix_legal_chunks_search_vector",
+      "valid": true,
+      "ready": true,
+      "definition": "CREATE INDEX ix_legal_chunks_search_vector ON public.legal_chunks USING gin (search_vector)"
+    }
+  },
+  "inventory": [
+    {
+      "chunker_version": "legal-chunk-v1",
+      "chunk_sets": 23,
+      "chunks": 529,
+      "embeddings_for_active_profile": 0
+    },
+    {
+      "chunker_version": "legal-chunk-v2-source-order",
+      "chunk_sets": 23,
+      "chunks": 531,
+      "embeddings_for_active_profile": 531
+    }
+  ],
+  "vector_fingerprint": "2dc71416e70f6700b471588ad74515367d74cdf5aed3c2cb6b895d5261be4f46",
+  "ok": true,
+  "provenance_limit": "Historical profile records model ID, not the original weights commit; stored vectors cannot prove which model artifact originally produced them."
+}

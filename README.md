@@ -1,6 +1,6 @@
 # LegalMind backend
 
-This repository implements full-PDF legal corpus ingestion and review, legal-aware chunking of approved revisions, plus a separate uploaded-contract API. The earlier 30-section Contract Act search and `/ask` prototype are retired. The new corpus does not yet have embeddings, indexing, or a question-answering endpoint.
+This repository implements full-PDF legal corpus ingestion and review, legal-aware chunking, BGE-M3 embeddings, validated corpus publications, and first-stage legal retrieval. Uploaded contracts remain a separate API. The earlier 30-section `/ask` prototype is retired; the new search endpoint returns evidence candidates rather than generated legal answers.
 
 ## Legal-PDF flow
 
@@ -10,7 +10,7 @@ This repository implements full-PDF legal corpus ingestion and review, legal-awa
 4. Build a draft structure revision and run the structure worker. It saves provisions, notes, relationships, and exact source spans.
 5. Review the persisted structure and audit findings; explicitly approve a revision when the review decision is justified.
 
-Each PDF has a durable job and extraction record. A structure revision pins specific completed extraction IDs; reprocessing does not silently change historical revisions. Approved revisions are Phase B inputs, not an already searchable corpus.
+Each PDF has a durable job and extraction record. A structure revision pins specific completed extraction IDs; reprocessing does not silently change historical revisions. Approval alone does not expose content to user search: a validated active publication must explicitly select its chunk set and revision.
 
 ## Chunking (Stage 6)
 
@@ -27,6 +27,41 @@ Each PDF has a durable job and extraction record. A structure revision pins spec
 ```
 
 See `app/services/legal_chunking.py` (pure chunking logic) and `app/repositories/legal_chunk_repository.py` (loading/idempotent persistence into `chunk_sets`, `legal_chunks`, `legal_chunk_provisions`).
+
+## Embeddings and publication retrieval (Stages 7 to 10)
+
+The active profile is `bge-m3-v1` (`BAAI/bge-m3`, 1024 dimensions, 8192 tokens).
+The builder preserves valid embeddings and repairs only missing, stale, or invalid
+rows. Token limits are checked with the tokenizer; source text is not silently
+truncated. Existing cosine HNSW and full-text GIN indexes are reused.
+
+Stage 9 creates immutable `corpus_publications` and `publication_items` from an
+explicit list of approved chunk sets. Creation reproduces chunks from their saved
+source spans and audits every vector. Activation validates again and atomically
+replaces the active publication. Published data is protected; new revisions,
+independent chunk sets, and profiles remain possible.
+
+Stage 10 `POST /search/legal` supports exact legal references, PostgreSQL FTS,
+HNSW semantic candidates, and Reciprocal Rank Fusion. Only the complete active
+publication is searched. Ambiguous references ask for clarification; missing
+references do not fall back to unrelated sections. Optional follow-up context is
+explicit request input. Candidate responses include legal/source metadata and
+keyword, vector, and RRF ranks. A semantic failure is disclosed if results use
+only lexical search.
+
+Search is off by default. To enable it after activating a publication:
+
+```powershell
+$env:LEGAL_SEARCH_ENABLED = 'true'
+.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Use [the implementation document and full PowerShell runbook](docs/STAGE9_STAGE10_IMPLEMENTATION.md)
+for the audit findings, safe migration, explicit publication creation/activation,
+retrieval examples, tests, and evaluation. First semantic use loads the BGE-M3
+weights; the optional audit calibration command can cache the weights beforehand.
+Publication HTTP administration shares the existing loopback/development gate.
+Existing local approvals do not certify current legal applicability.
 
 The 23 pilot legal source PDFs under `uploads/legal/` are committed to the private `haroon` branch so teammates can render original pages locally. Their content-hash paths must remain unchanged because database records refer to them. Future uploads remain Git-ignored by default; do not commit private contracts, database backups, or credentials.
 

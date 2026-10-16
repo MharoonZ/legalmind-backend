@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from sqlalchemy import delete, func, insert, select, text
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db.legal_corpus_models import (
@@ -33,7 +33,8 @@ from app.db.legal_corpus_models import (
 )
 from app.db.session import Database
 from app.embeddings.models import EmbeddingProfileModel, LegalChunkEmbedding
-from app.embeddings.profiles import EmbeddingProfile
+from app.embeddings.profiles import EmbeddingProfile, assert_profile_matches
+from app.embeddings.encoder import build_embedding_input, input_sha256, validate_vector
 from app.services.legal_chunking import ChunkConfig
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,16 @@ class EmbeddingRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
 
+    async def get_profile_id(self, profile: EmbeddingProfile) -> UUID | None:
+        """Read-only resolution; audit/search/dry-run must never create profiles."""
+        async with self.db.session() as session:
+            stored = await session.scalar(select(EmbeddingProfileModel).where(
+                EmbeddingProfileModel.name == profile.name))
+            if stored is None:
+                return None
+            assert_profile_matches(stored, profile)
+            return stored.id
+
     # ------------------------------------------------------------------
     # Profile management
     # ------------------------------------------------------------------
@@ -50,39 +61,59 @@ class EmbeddingRepository:
     async def ensure_profile(self, profile: EmbeddingProfile) -> UUID:
         """Return the DB UUID for ``profile``, creating the row if absent.
 
-        This is idempotent: calling it multiple times with the same profile is
-        safe.  A mismatch in ``dimension`` for an existing name raises
-        ``ValueError`` to prevent mixing incompatible vectors.
+        Every persisted configuration field must match a reused profile name.
+        Configuration changes require a new name, rather than mixed vectors.
         """
         async with self.db.session() as session, session.begin():
-            existing = (await session.execute(
-                select(EmbeddingProfileModel).where(EmbeddingProfileModel.name == profile.name)
-            )).scalar_one_or_none()
-
-            if existing is not None:
-                if existing.dimension != profile.dimension:
-                    raise ValueError(
-                        f"Profile '{profile.name}' already exists in the DB with dimension "
-                        f"{existing.dimension}, but code defines dimension {profile.dimension}. "
-                        "Create a new profile name if the dimension changed."
-                    )
-                return existing.id
-
-            new_profile = EmbeddingProfileModel(
-                name=profile.name,
-                model_id=profile.model_id,
-                dimension=profile.dimension,
-                max_tokens=profile.max_tokens,
-                input_recipe=profile.input_recipe,
+            await session.execute(pg_insert(EmbeddingProfileModel).values(
+                name=profile.name, model_id=profile.model_id, dimension=profile.dimension,
+                max_tokens=profile.max_tokens, input_recipe=profile.input_recipe,
                 normalize=profile.normalize,
-            )
-            session.add(new_profile)
-            await session.flush()
-            logger.info(
-                "Created embedding profile '%s' (id=%s, dim=%d).",
-                profile.name, new_profile.id, profile.dimension,
-            )
-            return new_profile.id
+            ).on_conflict_do_nothing(index_elements=["name"]))
+            stored = await session.scalar(select(EmbeddingProfileModel).where(
+                EmbeddingProfileModel.name == profile.name))
+            assert_profile_matches(stored, profile)
+            return stored.id
+
+    async def _embedding_candidates(self, profile_id: UUID, *, revision_id=None, config=None):
+        """Inspect hashes and vector health without loading the model or vector payloads."""
+        config = config or ChunkConfig()
+        async with self.db.session() as session:
+            stored = await session.get(EmbeddingProfileModel, profile_id)
+            if stored is None:
+                raise ValueError("Unknown embedding profile")
+            profile = EmbeddingProfile(**{field: getattr(stored, field) for field in
+                ("name", "model_id", "dimension", "max_tokens", "input_recipe", "normalize")})
+            query = (select(LegalChunk.id.label("chunk_id"), LegalChunk.revision_id,
+                LegalInstrument.canonical_title, LegalChunk.label, LegalChunk.heading,
+                LegalChunk.chunk_text, LegalChunkEmbedding.input_sha256,
+                func.vector_dims(LegalChunkEmbedding.embedding).label("dims"),
+                func.vector_norm(LegalChunkEmbedding.embedding).label("norm"))
+                .join(ChunkSet, ChunkSet.id == LegalChunk.chunk_set_id)
+                .join(CorpusRevision, CorpusRevision.id == ChunkSet.revision_id)
+                .join(LegalVersion, LegalVersion.id == CorpusRevision.legal_version_id)
+                .join(LegalInstrument, LegalInstrument.id == LegalVersion.instrument_id)
+                .outerjoin(LegalChunkEmbedding, (LegalChunkEmbedding.chunk_id == LegalChunk.id) &
+                           (LegalChunkEmbedding.profile_id == profile_id))
+                .where(ChunkSet.chunker_version == config.chunker_version,
+                       ChunkSet.config_sha256 == config.config_sha256,
+                       ChunkSet.content_sha256 == CorpusRevision.content_sha256,
+                       CorpusRevision.review_state == "approved")
+                .order_by(LegalInstrument.canonical_title, LegalChunk.ordinal, LegalChunk.id))
+            if revision_id is not None:
+                query = query.where(LegalChunk.revision_id == revision_id)
+            rows = (await session.execute(query)).mappings().all()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["expected_input_sha256"] = input_sha256(build_embedding_input(
+                row["canonical_title"], row["label"], row["heading"], row["chunk_text"], profile))
+            item["state"] = ("missing" if row["input_sha256"] is None else
+                "stale" if row["input_sha256"] != item["expected_input_sha256"] else
+                "invalid" if row["dims"] != profile.dimension or not row["norm"] or
+                    (profile.normalize and abs(row["norm"] - 1) > .001) else "valid")
+            result.append(item)
+        return result
 
     # ------------------------------------------------------------------
     # Fetching chunks that still need embeddings
@@ -96,7 +127,7 @@ class EmbeddingRepository:
         config: ChunkConfig | None = None,
         batch_size: int = 100,
     ) -> list[dict]:
-        """Return chunks that do not yet have a vector for ``profile_id``.
+        """Return missing, stale, or invalid vectors for ``profile_id``.
 
         Returns a list of dicts with keys:
             chunk_id, revision_id, canonical_title, label, heading, chunk_text
@@ -112,50 +143,10 @@ class EmbeddingRepository:
             Maximum number of rows returned per call.  Call repeatedly until
             an empty list is returned to process all chunks.
         """
-        config = config or ChunkConfig()
-        async with self.db.session() as session:
-            # Sub-query: chunk_ids that already have this profile's vector
-            embedded = select(LegalChunkEmbedding.chunk_id).where(
-                LegalChunkEmbedding.profile_id == profile_id
-            )
-            query = (
-                select(
-                    LegalChunk.id.label("chunk_id"),
-                    LegalChunk.revision_id,
-                    LegalInstrument.canonical_title,
-                    LegalChunk.label,
-                    LegalChunk.heading,
-                    LegalChunk.chunk_text,
-                )
-                .join(ChunkSet, ChunkSet.id == LegalChunk.chunk_set_id)
-                .join(CorpusRevision, CorpusRevision.id == ChunkSet.revision_id)
-                .join(LegalVersion, LegalVersion.id == CorpusRevision.legal_version_id)
-                .join(LegalInstrument, LegalInstrument.id == LegalVersion.instrument_id)
-                .where(
-                    ChunkSet.chunker_version == config.chunker_version,
-                    ChunkSet.config_sha256 == config.config_sha256,
-                    ChunkSet.content_sha256 == CorpusRevision.content_sha256,
-                    CorpusRevision.review_state == "approved",
-                    LegalChunk.id.notin_(embedded),
-                )
-                .order_by(LegalInstrument.canonical_title, LegalChunk.ordinal)
-                .limit(batch_size)
-            )
-            if revision_id is not None:
-                query = query.where(LegalChunk.revision_id == revision_id)
-
-            rows = (await session.execute(query)).all()
-            return [
-                {
-                    "chunk_id": row.chunk_id,
-                    "revision_id": row.revision_id,
-                    "canonical_title": row.canonical_title,
-                    "label": row.label,
-                    "heading": row.heading,
-                    "chunk_text": row.chunk_text,
-                }
-                for row in rows
-            ]
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        rows = await self._embedding_candidates(profile_id, revision_id=revision_id, config=config)
+        return [row for row in rows if row["state"] != "valid"][:batch_size]
 
     # ------------------------------------------------------------------
     # Persisting vectors
@@ -190,13 +181,40 @@ class EmbeddingRepository:
         ]
 
         async with self.db.session() as session, session.begin():
+            stored = await session.get(EmbeddingProfileModel, profile_id)
+            if stored is None:
+                raise ValueError("Unknown embedding profile")
+            profile = EmbeddingProfile(**{field: getattr(stored, field) for field in
+                ("name", "model_id", "dimension", "max_tokens", "input_recipe", "normalize")})
+            for row in rows:
+                validate_vector(row["embedding"], profile)
+            # A BEFORE INSERT protection trigger runs before ON CONFLICT.
+            # Skip healthy existing inputs first, so a valid published retry
+            # remains a true no-op and never reaches a write trigger.
+            existing = (await session.execute(select(
+                LegalChunkEmbedding.chunk_id, LegalChunkEmbedding.revision_id,
+                LegalChunkEmbedding.input_sha256,
+                func.vector_dims(LegalChunkEmbedding.embedding).label("dimension"),
+                func.vector_norm(LegalChunkEmbedding.embedding).label("norm"),
+            ).where(LegalChunkEmbedding.profile_id == profile_id,
+                    LegalChunkEmbedding.chunk_id.in_([r["chunk_id"] for r in rows])))).all()
+            valid_keys = {(r.chunk_id, r.revision_id, r.input_sha256) for r in existing
+                if r.dimension == profile.dimension and r.norm and
+                   (not profile.normalize or abs(r.norm - 1) <= .001)}
+            values = [r for r in values if (r["chunk_id"], r["revision_id"], r["input_sha256"]) not in valid_keys]
+            if not values:
+                return 0
             stmt = pg_insert(LegalChunkEmbedding).values(values)
             stmt = stmt.on_conflict_do_update(
-                constraint="uq_lce_chunk_profile",
+                index_elements=["chunk_id", "profile_id"],
                 set_={
                     "input_sha256": stmt.excluded.input_sha256,
                     "embedding": stmt.excluded.embedding,
                 },
+                where=or_(LegalChunkEmbedding.input_sha256 != stmt.excluded.input_sha256,
+                          func.vector_norm(LegalChunkEmbedding.embedding) == 0,
+                          func.abs(func.vector_norm(LegalChunkEmbedding.embedding) - 1) > .001
+                          if profile.normalize else False),
             )
             result = await session.execute(stmt)
             return result.rowcount
@@ -216,14 +234,14 @@ class EmbeddingRepository:
     ) -> list[dict]:
         """Return the top-``limit`` chunks closest to ``query_vector``.
 
-        Uses pgvector's ``<=>`` (cosine distance) operator.  Vectors must be
-        L2-normalised (bge-m3 with ``normalize=True`` satisfies this).
+        Uses pgvector's typed cosine-distance comparator. This profile stores
+        L2-normalized vectors; cosine itself accepts any finite nonzero vector.
 
         Results are scoped to approved v2 chunk sets.  If ``revision_ids`` is
         given, only those revisions are searched.
 
         Returns a list of dicts (same shape as keyword search results) with an
-        additional ``vector_score`` key (cosine similarity, 0–1, higher is
+        additional ``vector_score`` key (cosine similarity, -1–1, higher is
         better).
         """
         if not 1 <= limit <= 100:
@@ -231,7 +249,7 @@ class EmbeddingRepository:
         config = config or ChunkConfig()
 
         # cosine distance via <=>; convert distance → similarity
-        distance = LegalChunkEmbedding.embedding.op("<=>")(query_vector)
+        distance = LegalChunkEmbedding.embedding.cosine_distance(query_vector)
 
         async with self.db.session() as session:
             query = (
@@ -256,7 +274,7 @@ class EmbeddingRepository:
                 .order_by(distance)
                 .limit(limit)
             )
-            if revision_ids:
+            if revision_ids is not None:
                 query = query.where(ChunkSet.revision_id.in_(set(revision_ids)))
 
             rows = (await session.execute(query)).all()
@@ -297,44 +315,16 @@ class EmbeddingRepository:
         config: ChunkConfig | None = None,
     ) -> dict:
         """Return total eligible chunks and how many are already embedded."""
-        config = config or ChunkConfig()
-        async with self.db.session() as session:
-            base = (
-                select(func.count(LegalChunk.id))
-                .join(ChunkSet, ChunkSet.id == LegalChunk.chunk_set_id)
-                .join(CorpusRevision, CorpusRevision.id == ChunkSet.revision_id)
-                .where(
-                    ChunkSet.chunker_version == config.chunker_version,
-                    ChunkSet.config_sha256 == config.config_sha256,
-                    ChunkSet.content_sha256 == CorpusRevision.content_sha256,
-                    CorpusRevision.review_state == "approved",
-                )
-            )
-            if revision_id:
-                base = base.where(LegalChunk.revision_id == revision_id)
-            total = (await session.execute(base)).scalar_one()
-
-            embedded_q = (
-                select(func.count(LegalChunkEmbedding.chunk_id))
-                .join(LegalChunk, LegalChunk.id == LegalChunkEmbedding.chunk_id)
-                .join(ChunkSet, ChunkSet.id == LegalChunk.chunk_set_id)
-                .join(CorpusRevision, CorpusRevision.id == ChunkSet.revision_id)
-                .where(
-                    LegalChunkEmbedding.profile_id == profile_id,
-                    ChunkSet.chunker_version == config.chunker_version,
-                    ChunkSet.config_sha256 == config.config_sha256,
-                    ChunkSet.content_sha256 == CorpusRevision.content_sha256,
-                    CorpusRevision.review_state == "approved",
-                )
-            )
-            if revision_id:
-                embedded_q = embedded_q.where(LegalChunk.revision_id == revision_id)
-            embedded = (await session.execute(embedded_q)).scalar_one()
-
+        rows = await self._embedding_candidates(profile_id, revision_id=revision_id, config=config)
+        total = len(rows)
+        embedded = sum(row["state"] == "valid" for row in rows)
         return {
             "total_eligible_chunks": total,
             "embedded_chunks": embedded,
             "remaining_chunks": total - embedded,
+            "missing_chunks": sum(row["state"] == "missing" for row in rows),
+            "stale_chunks": sum(row["state"] == "stale" for row in rows),
+            "invalid_chunks": sum(row["state"] == "invalid" for row in rows),
             "percent_done": round(100 * embedded / total, 1) if total else 100.0,
         }
 

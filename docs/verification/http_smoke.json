@@ -1,0 +1,34 @@
+{
+  "port": 8019,
+  "unscoped_payload_http_status": 422,
+  "checks": [
+    {
+      "query": "Section 19 of the Consumer Protection Act",
+      "status": "ok",
+      "label": "19",
+      "source_count": 5,
+      "count": 1
+    },
+    {
+      "query": "Section 4(2)(a) of the Consumer Protection Act",
+      "status": "ok",
+      "label": "4",
+      "source_count": 9,
+      "count": 1
+    },
+    {
+      "query": "Section 999 of the Consumer Protection Act",
+      "status": "no_results",
+      "label": null,
+      "source_count": 0,
+      "count": 0
+    },
+    {
+      "query": "Section 19",
+      "status": "needs_clarification",
+      "label": null,
+      "source_count": 0,
+      "count": 0
+    }
+  ]
+}

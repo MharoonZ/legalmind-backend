@@ -9,11 +9,10 @@ Design decisions
 * Encoding is done through ``sentence-transformers`` which handles tokenization,
   batching, padding, and normalisation transparently.
 
-* Text is pre-truncated in *characters* before being passed to the model.
-  Because bge-m3 uses a byte-pair / word-piece tokenizer, one character ≠ one
-  token.  The encoder still hard-truncates at ``max_tokens`` internally, but
-  pre-truncating at ``max_tokens * 3`` characters (a conservative ratio for
-  English legal prose) avoids surprising silent losses.
+* Inputs are checked with the actual tokenizer, including special tokens.
+  Oversized inputs are rejected rather than silently losing legal text.
+  The historical v1 character ceiling remains a rejection boundary; inputs
+  below it have exactly the same recipe and hashes as existing vectors.
 
 * Encoding is deliberately synchronous (sentence-transformers runs on CPU/GPU
   via PyTorch; asyncio's thread pool is used in the async wrapper below).
@@ -29,7 +28,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import threading
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -40,11 +41,43 @@ from app.embeddings.profiles import EmbeddingProfile
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Singleton model cache (one per profile, keyed by profile.name)
+# Singleton model cache (one per complete immutable profile)
 # ---------------------------------------------------------------------------
 
 _lock = threading.Lock()
-_models: dict[str, "SentenceTransformer"] = {}
+_models: dict[EmbeddingProfile, "SentenceTransformer"] = {}
+
+
+class EmbeddingInputError(ValueError):
+    """The complete input cannot be encoded under the pinned profile."""
+
+
+def validate_vector(vector: list[float], profile: EmbeddingProfile) -> None:
+    if len(vector) != profile.dimension or not all(math.isfinite(x) for x in vector):
+        raise ValueError(f"Expected {profile.dimension} finite vector components")
+    norm = math.sqrt(sum(x * x for x in vector))
+    if norm == 0 or (profile.normalize and abs(norm - 1.0) > 0.001):
+        raise ValueError("Embedding is zero or is not normalized as configured")
+
+
+def check_token_lengths(texts: list[str], tokenizer, max_tokens: int) -> list[int]:
+    lengths = [len(tokenizer.encode(t, add_special_tokens=True, truncation=False)) for t in texts]
+    if any(n > max_tokens for n in lengths):
+        raise EmbeddingInputError(
+            f"Input requires {max(lengths)} tokens; profile allows {max_tokens}. "
+            "Split the source into a new chunk set; no vector was written."
+        )
+    return lengths
+
+
+@lru_cache(maxsize=4)
+def get_tokenizer(profile: EmbeddingProfile):
+    """Audit tokens without downloading/loading model weights."""
+    from transformers import AutoTokenizer
+    try:
+        return AutoTokenizer.from_pretrained(profile.model_id, trust_remote_code=False, local_files_only=True)
+    except OSError:
+        return AutoTokenizer.from_pretrained(profile.model_id, trust_remote_code=False)
 
 
 def get_encoder(profile: EmbeddingProfile) -> "SentenceTransformer":
@@ -58,9 +91,9 @@ def get_encoder(profile: EmbeddingProfile) -> "SentenceTransformer":
     ImportError
         If ``sentence-transformers`` is not installed.
     """
-    if profile.name not in _models:
+    if profile not in _models:
         with _lock:
-            if profile.name not in _models:
+            if profile not in _models:
                 try:
                     from sentence_transformers import SentenceTransformer
                 except ImportError as exc:
@@ -73,13 +106,19 @@ def get_encoder(profile: EmbeddingProfile) -> "SentenceTransformer":
                     profile.model_id,
                     profile.name,
                 )
-                model = SentenceTransformer(
-                    profile.model_id,
-                    trust_remote_code=True,   # bge-m3 uses custom pooling code
-                )
-                _models[profile.name] = model
+                try:
+                    model = SentenceTransformer(profile.model_id, trust_remote_code=False,
+                                                local_files_only=True)
+                except OSError:
+                    model = SentenceTransformer(profile.model_id, trust_remote_code=False)
+                if model.get_sentence_embedding_dimension() != profile.dimension:
+                    raise ValueError("Loaded model dimension disagrees with embedding profile")
+                if model.max_seq_length < profile.max_tokens:
+                    raise ValueError("Loaded model token limit is smaller than the stored profile")
+                model.max_seq_length = profile.max_tokens
+                _models[profile] = model
                 logger.info("Model %s loaded (dim=%d).", profile.model_id, profile.dimension)
-    return _models[profile.name]
+    return _models[profile]
 
 
 # ---------------------------------------------------------------------------
@@ -98,9 +137,8 @@ def build_embedding_input(
     The recipe mirrors the ``search_text`` used for keyword search (Act title +
     label + heading + body) so both retrieval modes see the same context.
 
-    Pre-truncates at a character level to avoid silent token-level losses
-    inside the model.  The resulting string is the canonical input; its SHA-256
-    is stored alongside the vector for idempotency checks.
+    Preserves the v1 recipe for all previously accepted complete inputs.
+    Rejects text that the old implementation would have truncated.
     """
     parts = [canonical_title]
     if label:
@@ -113,11 +151,10 @@ def build_embedding_input(
     # Conservative pre-truncation: English legal text averages ~3 chars/token
     char_budget = profile.max_tokens * 3
     if len(text) > char_budget:
-        logger.warning(
-            "Chunk input truncated from %d to %d chars (profile=%s).",
-            len(text), char_budget, profile.name,
+        raise EmbeddingInputError(
+            f"Input has {len(text)} characters, beyond the legacy recipe ceiling "
+            f"of {char_budget}. Re-chunk instead of truncating."
         )
-        text = text[:char_budget]
     return text
 
 
@@ -157,6 +194,7 @@ def encode_texts(
         return []
 
     model = get_encoder(profile)
+    check_token_lengths(texts, model.tokenizer, profile.max_tokens)
     logger.info("Encoding %d texts with %s …", len(texts), profile.model_id)
 
     embeddings = model.encode(
@@ -167,7 +205,12 @@ def encode_texts(
     )
     # sentence-transformers returns a numpy array; convert to plain Python lists
     # so the result is JSON-serialisable and works with pgvector's list input.
-    return [vec.tolist() for vec in embeddings]
+    vectors = [vec.tolist() for vec in embeddings]
+    if len(vectors) != len(texts):
+        raise ValueError("Encoder returned an unexpected number of vectors")
+    for vector in vectors:
+        validate_vector(vector, profile)
+    return vectors
 
 
 async def encode_texts_async(

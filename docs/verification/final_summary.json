@@ -1,0 +1,145 @@
+{
+  "verified_at_pakistan": "2026-10-16T14:49:02.995631+05:00",
+  "branch": "feature/legal-embeddings",
+  "base_commit": "e2a4424b70cdaea1eeb6fb6534966e6b85530c0f",
+  "migration_head": "20261016_17",
+  "migration_applied": true,
+  "publication": {
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "name": "legalmind-pilot-20261016",
+    "status": "active",
+    "profile_id": "672cb22e-1f1e-49e6-89ef-a5c9cafb93e8",
+    "manifest_sha256": "774459f8e60527d9547b3c2472d4a134cc70016c00b518cb8f0af8d7309ec516",
+    "chunk_count": 531,
+    "instrument_count": 23,
+    "created_at": "2026-10-16 08:48:26.931593+00:00",
+    "activated_at": "2026-10-16 09:03:09.607126+00:00",
+    "previous_publication_id": null
+  },
+  "unit_tests": {
+    "passed": 308,
+    "warnings": 10,
+    "seconds": 34.78
+  },
+  "postgresql_integration_checks": 20,
+  "retrieval": {
+    "cases": 20,
+    "passed": 20,
+    "hit_at_5": 1.0,
+    "mrr_at_5": 1.0,
+    "min_similarity": 0.48,
+    "semantic_fallback_cases": 0
+  },
+  "retrieval_before_relevance_fix": {
+    "cases": 20,
+    "passed": 19,
+    "hit_at_5": 1.0,
+    "mrr_at_5": 0.9166666666666666,
+    "min_similarity": 0.48
+  },
+  "existing_embeddings": {
+    "chunks": 531,
+    "vectors": 531,
+    "issues": {},
+    "before_fingerprint": "2dc71416e70f6700b471588ad74515367d74cdf5aed3c2cb6b895d5261be4f46",
+    "after_fingerprint": "2dc71416e70f6700b471588ad74515367d74cdf5aed3c2cb6b895d5261be4f46",
+    "preexisting_vectors_changed": 0,
+    "model_probe": {
+      "samples": 3,
+      "cosine_similarities": [
+        0.9999999999997796,
+        0.9999999999981575,
+        0.9999999999998235
+      ],
+      "loaded_dimension": 1024,
+      "loaded_max_seq_length": 8192,
+      "device": "cpu",
+      "writes": 0,
+      "ok": true
+    }
+  },
+  "source_files": {
+    "source_pdfs_verified": 23,
+    "source_byte_hashes_match": true,
+    "bad_provision_hashes": 0,
+    "bad_block_hashes": 0
+  },
+  "published_embedding_retry": {
+    "affected_rows": 0,
+    "stored_vector_unchanged": true,
+    "created_at_unchanged": true,
+    "model_encoding_performed": false
+  },
+  "legacy_vector_diagnostic": {
+    "legacy_vector_diagnostic_works": true,
+    "scores": [
+      1.0,
+      0.7702127236001074
+    ]
+  },
+  "http_checks": {
+    "port": 8019,
+    "unscoped_payload_http_status": 422,
+    "checks": [
+      {
+        "query": "Section 19 of the Consumer Protection Act",
+        "status": "ok",
+        "label": "19",
+        "source_count": 5,
+        "count": 1
+      },
+      {
+        "query": "Section 4(2)(a) of the Consumer Protection Act",
+        "status": "ok",
+        "label": "4",
+        "source_count": 9,
+        "count": 1
+      },
+      {
+        "query": "Section 999 of the Consumer Protection Act",
+        "status": "no_results",
+        "label": null,
+        "source_count": 0,
+        "count": 0
+      },
+      {
+        "query": "Section 19",
+        "status": "needs_clarification",
+        "label": null,
+        "source_count": 0,
+        "count": 0
+      }
+    ]
+  },
+  "http_semantic_checks": [
+    {
+      "label": "19",
+      "source_count": 5,
+      "warnings": [],
+      "result_count": 3,
+      "status": "ok",
+      "query": "The shopkeeper refused to give me proof of purchase. Must a seller provide a bill?"
+    },
+    {
+      "label": null,
+      "source_count": 0,
+      "warnings": [],
+      "result_count": 0,
+      "status": "no_results",
+      "query": "How far away is the Andromeda galaxy in light years?"
+    }
+  ],
+  "runtime_versions": {
+    "sentence-transformers": "5.7.0",
+    "transformers": "5.17.0",
+    "torch": "2.14.0",
+    "pgvector": "0.5.0",
+    "SQLAlchemy": "2.0.54",
+    "fastapi": "0.141.1",
+    "asyncpg": "0.31.0"
+  },
+  "evaluation_scope": "Developer regression questions, not a held-out or expert legal accuracy benchmark.",
+  "temporary_verification_schemas_remaining": 0,
+  "active_publication_rechecked": "3181ffc8-fa34-474a-a531-156928817d35",
+  "powershell_wrapper_verified": true
+}

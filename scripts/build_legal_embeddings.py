@@ -1,8 +1,8 @@
 """Build dense embeddings for all approved legal chunk sets.
 
 Uses the active embedding profile (BAAI/bge-m3, 1024 dims) to encode every
-v2 chunk that does not yet have a vector.  The script is fully idempotent:
-re-running it is safe and only encodes missing chunks.
+v2 chunk whose vector is missing, stale, or invalid. Re-running the script
+preserves healthy existing vectors and their timestamps.
 
 Prerequisites (run once before this script):
     1. alembic upgrade head          (creates embedding_profiles + legal_chunk_embeddings)
@@ -64,7 +64,11 @@ async def run(
         repo = EmbeddingRepository(db)
 
         # 1. Ensure the profile row exists in the DB
-        profile_id = await repo.ensure_profile(profile)
+        profile_id = await repo.get_profile_id(profile) if dry_run else await repo.ensure_profile(profile)
+        if profile_id is None:
+            print(json.dumps({"event": "dry_run_done", "profile_exists": False,
+                              "message": "No profile exists; run without --dry-run to build."}))
+            return
         logger.info(
             "Using profile '%s' (id=%s, model=%s, dim=%d).",
             profile.name, profile_id, profile.model_id, profile.dimension,
@@ -124,7 +128,7 @@ async def run(
                     "input_sha256": sha,
                     "embedding": vec,
                 }
-                for chunk, sha, vec in zip(chunks, hashes, vectors)
+                for chunk, sha, vec in zip(chunks, hashes, vectors, strict=True)
             ]
 
             upserted = await repo.upsert_embeddings(profile_id, rows)
@@ -175,6 +179,8 @@ if __name__ == "__main__":
         help="Chunks fetched from DB per iteration (default: 100).",
     )
     args = parser.parse_args()
+    if args.encode_batch_size < 1 or args.fetch_batch_size < 1:
+        parser.error("Batch sizes must be positive")
     asyncio.run(run(
         dry_run=args.dry_run,
         revision_id=args.revision_id,
