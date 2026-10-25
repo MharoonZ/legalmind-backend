@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import contracts, health, legal_ingestion, legal_search, publications
+from app.api.routes import contracts, health, legal_ingestion, legal_search, publications, qa
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import Database
@@ -31,6 +31,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db = Database(settings)
     app.state.db = db
     await db.connect()
+
+    if settings.legal_search_enabled:
+        from app.services.qa_reranker import warm_reranker
+        await warm_reranker()
 
     logger.info(
         "%s v%s started (%s)", settings.app_name, settings.app_version, settings.environment
@@ -64,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(legal_ingestion.router)
     app.include_router(publications.router)
     app.include_router(legal_search.router)
+    app.include_router(qa.router)
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:

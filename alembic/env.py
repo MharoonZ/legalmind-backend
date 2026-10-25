@@ -14,6 +14,7 @@ from app.db.session import prepared_statement_name
 from app.db import legal_corpus_models  # noqa: F401 - register Haroon's tables
 from app.db import models  # noqa: F401 - register existing tables
 from app.db import publication_models  # noqa: F401 - register publication tables
+from app.db import qa_record_models  # noqa: F401 - register Phase C tables
 from app.embeddings import models as embedding_models  # noqa: F401 - register embedding tables
 
 config = context.config

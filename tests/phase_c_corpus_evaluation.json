@@ -1,0 +1,714 @@
+[
+  {
+    "id": "E01",
+    "category": "straightforward",
+    "question": "Does section 9 of The Prisons Act, 1894 allow a prison officer to sell goods to a prisoner?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "1658163a-428a-4f97-abd0-81cfc09624e2",
+        "kind": "section",
+        "label": "9",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:III/s:9",
+        "page_index": 7
+      }
+    ],
+    "expected_answer_points": [
+      "No officer, or a person in trust for or employed by the officer, may sell or let articles to a prisoner or derive benefit from dealings with one."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not say every employee in Pakistan is barred from selling goods."
+    ],
+    "source_review_note": "prisons page 7",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E02",
+    "category": "straightforward",
+    "question": "What does section 10 of The Prisons Act, 1894 say about officers and prison-supply contracts?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "62e842b0-8886-4935-abfd-d19f82b5c2b7",
+        "kind": "section",
+        "label": "10",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:III/s:10",
+        "page_index": 7
+      }
+    ],
+    "expected_answer_points": [
+      "A prison officer, or their trustee/employee, must not hold a direct or indirect interest in a contract for prison supply."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not turn this into a general ban on all government contracts."
+    ],
+    "source_review_note": "prisons page 7",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E03",
+    "category": "straightforward",
+    "question": "Under section 24 of The Prisons Act, 1894, what happens when a prisoner is admitted?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "dafcb718-bef8-42f0-b81f-60ae419a0dc7",
+        "kind": "section",
+        "label": "24",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:IV/s:24",
+        "page_index": 9
+      }
+    ],
+    "expected_answer_points": [
+      "The prisoner is searched and weapons/prohibited articles are taken.",
+      "A criminal prisoner is medically examined as soon as possible after admission; female prisoners are searched/examined by the matron under the Medical Officer's orders."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not claim the medical examination applies identically to every category of prisoner."
+    ],
+    "source_review_note": "prisons page 9",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E04",
+    "category": "straightforward",
+    "question": "What does section 10 of The Punjab Murderous Outrages Act, 1867 say about appeals from orders under that Act?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Punjab Murderous Outrages Act, 1867",
+    "legal_version_id": "2d529396-b8b7-407b-9538-782434d77411",
+    "edition_key": "punjab-laws-snapshot-2026-10-05",
+    "revision_id": "64193eda-7586-4608-baf3-5e411e3fd2f7",
+    "source_pdf_filename": "punjab-murderous-outrages-act-1867.pdf",
+    "source_pdf_sha256": "37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c",
+    "expected_provisions": [
+      {
+        "provision_id": "87d630eb-7a65-4e00-a737-cdcda385374f",
+        "kind": "section",
+        "label": "10",
+        "reference_path": "f:834e10c8-990d-4a1d-82b1-abec590a1a45/s:10",
+        "page_index": 5
+      }
+    ],
+    "expected_answer_points": [
+      "The text says no appeal shall lie from an order or sentence under that Act, notwithstanding the Code of Criminal Procedure or other then-current enactment."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not claim that no later constitutional or other remedy can ever exist."
+    ],
+    "source_review_note": "murderous page 5",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E05",
+    "category": "straightforward",
+    "question": "Who must receive reports of proceedings under section 9 of The Punjab Murderous Outrages Act, 1867?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Punjab Murderous Outrages Act, 1867",
+    "legal_version_id": "2d529396-b8b7-407b-9538-782434d77411",
+    "edition_key": "punjab-laws-snapshot-2026-10-05",
+    "revision_id": "64193eda-7586-4608-baf3-5e411e3fd2f7",
+    "source_pdf_filename": "punjab-murderous-outrages-act-1867.pdf",
+    "source_pdf_sha256": "37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c",
+    "expected_provisions": [
+      {
+        "provision_id": "5d1b965d-00a1-42ca-90ee-bfcdf2f1343c",
+        "kind": "section",
+        "label": "9",
+        "reference_path": "f:834e10c8-990d-4a1d-82b1-abec590a1a45/s:9",
+        "page_index": 5
+      }
+    ],
+    "expected_answer_points": [
+      "The officer who held the trial reports proceedings in every trial under the Act to the Provincial Government without unnecessary delay."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not claim a fixed number of reporting days."
+    ],
+    "source_review_note": "murderous page 5",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E06",
+    "category": "condition/exception",
+    "question": "What separate accommodation does section 27 of The Prisons Act, 1894 require for female, young male, unconvicted, and civil prisoners?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "b49e539d-a9b2-4a7e-a8ab-15eec6d42c28",
+        "kind": "section",
+        "label": "27",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:V/s:27",
+        "page_index": 10
+      }
+    ],
+    "expected_answer_points": [
+      "Female prisoners are in separate buildings or parts to prevent seeing/conversing/intercourse with male prisoners.",
+      "Males under twenty-one must be separated from other prisoners, and those who have attained puberty from those who have not.",
+      "Unconvicted criminal prisoners are kept apart from convicted criminal prisoners; civil from criminal prisoners."
+    ],
+    "essential_qualifications": [
+      "Female prisoners are in separate buildings or parts to prevent seeing/conversing/intercourse with male prisoners.",
+      "Males under twenty-one must be separated from other prisoners, and those who have attained puberty from those who have not.",
+      "Unconvicted criminal prisoners are kept apart from convicted criminal prisoners; civil from criminal prisoners."
+    ],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not omit the puberty distinction or state a different age."
+    ],
+    "source_review_note": "prisons page 10",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E07",
+    "category": "condition/exception",
+    "question": "Under section 29 of The Prisons Act, 1894, what conditions apply to solitary confinement and to a cell stay longer than 24 hours?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "a8c1c984-73bf-4895-bc10-0afc037d6f3f",
+        "kind": "section",
+        "label": "29",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:V/s:29",
+        "page_index": 10
+      }
+    ],
+    "expected_answer_points": [
+      "A solitary-confinement cell must be furnished with means to communicate at any time with a prison officer.",
+      "A prisoner confined in a cell for more than twenty-four hours must be visited at least once a day by the Medical Officer or Medical Subordinate, whether as punishment or otherwise."
+    ],
+    "essential_qualifications": [
+      "A solitary-confinement cell must be furnished with means to communicate at any time with a prison officer.",
+      "A prisoner confined in a cell for more than twenty-four hours must be visited at least once a day by the Medical Officer or Medical Subordinate, whether as punishment or otherwise."
+    ],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not say solitary confinement is categorically forbidden or medical visits are needed only when it is punishment."
+    ],
+    "source_review_note": "prisons page 10",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E08",
+    "category": "multiple provisions",
+    "question": "What do sections 31 and 32 of The Prisons Act, 1894 say about private food and transferring food between prisoners?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "ca11c1d5-89d4-4f84-818a-6164bbb8f337",
+        "kind": "section",
+        "label": "31",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:VI/s:31",
+        "page_index": 10
+      },
+      {
+        "provision_id": "6d16d853-6a8e-42b6-9ff6-d584185f1add",
+        "kind": "section",
+        "label": "32",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:VI/s:32",
+        "page_index": 11
+      }
+    ],
+    "expected_answer_points": [
+      "A civil or unconvicted criminal prisoner may maintain themself and receive/buy food and other necessities from private sources at proper hours, subject to examination and approved rules.",
+      "Such food/clothing/necessities must not be given, hired or sold to another prisoner; breach may suspend the privilege for a time the Superintendent thinks proper."
+    ],
+    "essential_qualifications": [
+      "A civil or unconvicted criminal prisoner may maintain themself and receive/buy food and other necessities from private sources at proper hours, subject to examination and approved rules.",
+      "Such food/clothing/necessities must not be given, hired or sold to another prisoner; breach may suspend the privilege for a time the Superintendent thinks proper."
+    ],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not extend the private-source privilege to every prisoner or omit the transfer restriction."
+    ],
+    "source_review_note": "prisons pages 10–11",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E09",
+    "category": "condition/exception",
+    "question": "Under section 5 of The Punjab Murderous Outrages Act, 1867, who tries offences, and what can happen if evidence is offered to delay the trial?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Punjab Murderous Outrages Act, 1867",
+    "legal_version_id": "2d529396-b8b7-407b-9538-782434d77411",
+    "edition_key": "punjab-laws-snapshot-2026-10-05",
+    "revision_id": "64193eda-7586-4608-baf3-5e411e3fd2f7",
+    "source_pdf_filename": "punjab-murderous-outrages-act-1867.pdf",
+    "source_pdf_sha256": "37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c",
+    "expected_provisions": [
+      {
+        "provision_id": "1d936f2e-587b-4360-b440-b135a01b8683",
+        "kind": "section",
+        "label": "5",
+        "reference_path": "f:834e10c8-990d-4a1d-82b1-abec590a1a45/s:5",
+        "page_index": 4
+      }
+    ],
+    "expected_answer_points": [
+      "Subject to section 14, an offence triable under the Act is tried by the Sessions Judge or Commissioner of the division.",
+      "The proviso permits the accused to be required to show reasonable grounds for believing delay-related evidence is material; if the court is not satisfied it need not summon/examine it."
+    ],
+    "essential_qualifications": [
+      "Subject to section 14, an offence triable under the Act is tried by the Sessions Judge or Commissioner of the division.",
+      "The proviso permits the accused to be required to show reasonable grounds for believing delay-related evidence is material; if the court is not satisfied it need not summon/examine it."
+    ],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not omit section 14 or say all defence witnesses can be refused without the stated condition."
+    ],
+    "source_review_note": "murderous page 4",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E10",
+    "category": "condition/exception",
+    "question": "When may a jailer search a visitor under section 41 of The Prisons Act, 1894, and what follows refusal?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "ce9c88ab-aa35-46ff-a095-779d1877564b",
+        "kind": "section",
+        "label": "41",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:IX/s:41",
+        "page_index": 12
+      }
+    ],
+    "expected_answer_points": [
+      "The jailer may demand a visitor's name/address and search when there are grounds for suspicion, not in the presence of a prisoner or another visitor.",
+      "If a visitor refuses a search, the jailer may deny admission; grounds and particulars are recorded as the Provincial Government directs."
+    ],
+    "essential_qualifications": [
+      "The jailer may demand a visitor's name/address and search when there are grounds for suspicion, not in the presence of a prisoner or another visitor.",
+      "If a visitor refuses a search, the jailer may deny admission; grounds and particulars are recorded as the Provincial Government directs."
+    ],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not say the jailer can search anyone anywhere without suspicion or must always admit a refusing visitor."
+    ],
+    "source_review_note": "prisons page 12",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E11",
+    "category": "missing user fact",
+    "question": "A prisoner wants to work. Is the prison required to let them, and can the jailer make them work?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "c90740be-cfe8-46bb-9d99-f0bd7520513a",
+        "kind": "section",
+        "label": "34",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:VII/s:34",
+        "page_index": 11
+      },
+      {
+        "provision_id": "fb5c52d4-8586-4c07-95c4-312979d5fb24",
+        "kind": "section",
+        "label": "35",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:VII/s:35",
+        "page_index": 11
+      },
+      {
+        "provision_id": "cc7999a0-73dc-46b7-af97-7a3672fc43df",
+        "kind": "section",
+        "label": "36",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:VII/s:36",
+        "page_index": 11
+      }
+    ],
+    "expected_answer_points": [
+      "The answer depends at least on whether the prisoner is civil or criminal and, for a criminal prisoner, their sentence and permission/medical conditions."
+    ],
+    "essential_qualifications": [
+      "The answer depends at least on whether the prisoner is civil or criminal and, for a criminal prisoner, their sentence and permission/medical conditions."
+    ],
+    "expected_status": "clarification_needed",
+    "must_not_claim": [
+      "Do not give a universal yes or no for all prisoners."
+    ],
+    "source_review_note": "prisons page 11",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E12",
+    "category": "missing user fact",
+    "question": "Can this prisoner be kept alone in a cell for two days?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "a8c1c984-73bf-4895-bc10-0afc037d6f3f",
+        "kind": "section",
+        "label": "29",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:V/s:29",
+        "page_index": 10
+      }
+    ],
+    "expected_answer_points": [
+      "The answer depends on whether the cell permits communication with a prison officer and whether the required daily medical visits occur."
+    ],
+    "essential_qualifications": [
+      "The answer depends on whether the cell permits communication with a prison officer and whether the required daily medical visits occur."
+    ],
+    "expected_status": "clarification_needed",
+    "must_not_claim": [
+      "Do not claim a two-day stay is automatically lawful or automatically banned by this section."
+    ],
+    "source_review_note": "prisons page 10",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E13",
+    "category": "missing user fact",
+    "question": "Can the jailer search my friend when she visits a prisoner?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "ce9c88ab-aa35-46ff-a095-779d1877564b",
+        "kind": "section",
+        "label": "41",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:IX/s:41",
+        "page_index": 12
+      }
+    ],
+    "expected_answer_points": [
+      "Whether there are grounds for suspicion is a necessary fact for the search power; the search must not occur in the presence of a prisoner or other visitor."
+    ],
+    "essential_qualifications": [
+      "Whether there are grounds for suspicion is a necessary fact for the search power; the search must not occur in the presence of a prisoner or other visitor."
+    ],
+    "expected_status": "clarification_needed",
+    "must_not_claim": [
+      "Do not assert the particular visitor is suspicious without facts."
+    ],
+    "source_review_note": "prisons page 12",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E14",
+    "category": "unsupported",
+    "question": "What does section 9999 of the Imaginary Act say about teleportation permits?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": null,
+    "legal_version_id": null,
+    "edition_key": null,
+    "revision_id": null,
+    "source_pdf_filename": null,
+    "source_pdf_sha256": null,
+    "expected_provisions": [],
+    "expected_answer_points": [
+      "No matching approved Act or provision is in this publication."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "insufficient_evidence",
+    "must_not_claim": [
+      "Do not invent the Act, a section, or a permit rule."
+    ],
+    "source_review_note": "publication catalog only; fictional query",
+    "ground_truth_review_status": "Fictional Act absent from the read-only active-publication catalog; no PDF source exists",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E15",
+    "category": "unsupported",
+    "question": "Does The Prisons Act, 1894 give a prisoner an income-tax refund for buying a mobile phone?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [],
+    "expected_answer_points": [
+      "The reviewed Prisons Act pages contain no such tax-refund rule."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "insufficient_evidence",
+    "must_not_claim": [
+      "Do not answer from general tax law or invent a refund section."
+    ],
+    "source_review_note": "prisons pages 1–19; corpus rule absent",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E16",
+    "category": "unsupported",
+    "question": "What motorcycle speed limit does The Punjab Murderous Outrages Act, 1867 set?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Punjab Murderous Outrages Act, 1867",
+    "legal_version_id": "2d529396-b8b7-407b-9538-782434d77411",
+    "edition_key": "punjab-laws-snapshot-2026-10-05",
+    "revision_id": "64193eda-7586-4608-baf3-5e411e3fd2f7",
+    "source_pdf_filename": "punjab-murderous-outrages-act-1867.pdf",
+    "source_pdf_sha256": "37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c",
+    "expected_provisions": [],
+    "expected_answer_points": [
+      "The reviewed Act contains no motorcycle speed-limit rule."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "insufficient_evidence",
+    "must_not_claim": [
+      "Do not invent a road-traffic provision."
+    ],
+    "source_review_note": "murderous pages 1–6; corpus rule absent",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E17",
+    "category": "Roman Urdu of E01",
+    "question": "Prisons Act 1894 ki section 9 ke mutabiq, kya jail ka officer qaidii ko samaan bech sakta hai?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "1658163a-428a-4f97-abd0-81cfc09624e2",
+        "kind": "section",
+        "label": "9",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:III/s:9",
+        "page_index": 7
+      }
+    ],
+    "expected_answer_points": [
+      "Same source points as E01: officer/trustee/employee dealing and benefit restriction."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not give a different rule than E01."
+    ],
+    "source_review_note": "prisons page 7",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E18",
+    "category": "Roman Urdu of E06",
+    "question": "Prisons Act 1894 ki section 27 mein aurton, jawan mardon, aur under-trial qaidiyon ko alag rakhne ke kya rules hain?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "b49e539d-a9b2-4a7e-a8ab-15eec6d42c28",
+        "kind": "section",
+        "label": "27",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:V/s:27",
+        "page_index": 10
+      }
+    ],
+    "expected_answer_points": [
+      "Same source points as E06, including young male/puberty distinction and unconvicted/civil separation."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "answered",
+    "must_not_claim": [
+      "Do not omit a distinction present in E06."
+    ],
+    "source_review_note": "prisons page 10",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E19",
+    "category": "Roman Urdu of E11",
+    "question": "Agar qaidii kaam karna chahe, kya jailer usay kaam de ya zabardasti karwa sakta hai?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": "The Prisons Act, 1894",
+    "legal_version_id": "3102a3f2-8e41-419f-b265-c4503d04a5e5",
+    "edition_key": "local-source-8bfc899eb6fa",
+    "revision_id": "1fec0e90-23f1-498c-9bbc-338bdffe875e",
+    "source_pdf_filename": "13.pdf",
+    "source_pdf_sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+    "expected_provisions": [
+      {
+        "provision_id": "c90740be-cfe8-46bb-9d99-f0bd7520513a",
+        "kind": "section",
+        "label": "34",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:VII/s:34",
+        "page_index": 11
+      },
+      {
+        "provision_id": "fb5c52d4-8586-4c07-95c4-312979d5fb24",
+        "kind": "section",
+        "label": "35",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:VII/s:35",
+        "page_index": 11
+      },
+      {
+        "provision_id": "cc7999a0-73dc-46b7-af97-7a3672fc43df",
+        "kind": "section",
+        "label": "36",
+        "reference_path": "f:0d52a4d5-c71a-4978-b427-d58d1417b6ef/ch:VII/s:36",
+        "page_index": 11
+      }
+    ],
+    "expected_answer_points": [
+      "Ask whether the prisoner is civil or criminal and what sentence/permissions apply."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "clarification_needed",
+    "must_not_claim": [
+      "Do not give a universal rule for every prisoner."
+    ],
+    "source_review_note": "prisons page 11",
+    "ground_truth_review_status": "Machine-prepared from SHA-verified original PDF and visually spot-checked pages; not reviewed by a legal expert",
+    "actual": null,
+    "result_status": "Not run"
+  },
+  {
+    "id": "E20",
+    "category": "Roman Urdu of E14",
+    "question": "Imaginary Act ki section 9999 mein teleportation permit ka kya qanoon hai?",
+    "publication_id": "3181ffc8-fa34-474a-a531-156928817d35",
+    "publication_name": "legalmind-pilot-20261016",
+    "law": null,
+    "legal_version_id": null,
+    "edition_key": null,
+    "revision_id": null,
+    "source_pdf_filename": null,
+    "source_pdf_sha256": null,
+    "expected_provisions": [],
+    "expected_answer_points": [
+      "No matching approved Act or provision."
+    ],
+    "essential_qualifications": [],
+    "expected_status": "insufficient_evidence",
+    "must_not_claim": [
+      "Do not invent a provision."
+    ],
+    "source_review_note": "publication catalog only; fictional query",
+    "ground_truth_review_status": "Fictional Act absent from the read-only active-publication catalog; no PDF source exists",
+    "actual": null,
+    "result_status": "Not run"
+  }
+]

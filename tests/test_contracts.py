@@ -94,7 +94,8 @@ def test_openapi_lists_contracts_routes(contracts_api):
     assert "/contracts/{document_id}" in paths
 
 
-def test_retired_ask_route_is_not_exposed_by_contracts_router(contracts_api):
-    """The contract router must not accidentally restore the old /ask route."""
+def test_phase_c_ask_route_is_separate_from_contracts_router(contracts_api):
+    """Phase C owns /ask; contracts still handles only uploads and retrieval."""
+    assert "/ask" in contracts_api.get("/openapi.json").json()["paths"]
     res = contracts_api.post("/ask", json={"question": "hi"})
-    assert res.status_code == 404
+    assert res.status_code == 404  # Search is disabled by the isolated test fixture.

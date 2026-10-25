@@ -6,6 +6,9 @@ os.environ["DATABASE_URL"] = "postgresql://test:test@127.0.0.1:1/test"
 os.environ["DB_CONNECT_RETRIES"] = "1"
 os.environ["DB_CONNECT_TIMEOUT"] = "1"
 os.environ["DB_SSL"] = "false"
+os.environ["LEGAL_SEARCH_ENABLED"] = "false"
+os.environ["OPENAI_API_KEY"] = ""
+os.environ["QA_RECORD_RUNS"] = "false"
 
 from datetime import UTC, datetime  # noqa: E402
 
