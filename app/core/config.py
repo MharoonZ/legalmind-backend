@@ -68,6 +68,17 @@ class Settings(BaseSettings):
     legal_ocr_languages: str = "eng"
     legal_ocr_dpi: int = 200
 
+    # Compatibility for the earlier shimza extraction CLI and read-only inspector.
+    # The current workers and their configuration above are unchanged.
+    legal_worker_lease_seconds: int = Field(default=120, ge=15, le=3600)
+    legal_worker_max_attempts: int = Field(default=3, ge=1, le=10)
+    legal_page_timeout: int = Field(default=90, ge=5, le=600)
+    legal_ocr_enabled: bool = True
+    legal_tesseract_path: str = "tesseract"
+    legal_tessdata_dir: str = ""
+    legal_native_min_chars: int = Field(default=40, ge=1, le=1000)
+    legal_preview_dpi: int = Field(default=100, ge=36, le=150)
+
     # Search exposes evidence candidates from the active publication only.
     # The encoder is loaded lazily; existing API startup remains lightweight.
     legal_search_enabled: bool = False

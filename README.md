@@ -2,6 +2,10 @@
 
 This repository implements full-PDF legal corpus ingestion and review, legal-aware chunking, BGE-M3 embeddings, validated corpus publications, and first-stage legal retrieval. Uploaded contracts remain a separate API. The earlier 30-section `/ask` prototype is retired; the new search endpoint returns evidence candidates rather than generated legal answers.
 
+Phase C now also provides a new `POST /ask` that uses the active publication,
+checks evidence, generates a structured draft and verifies its citations. See
+[Shimza's implementation and validation notes](docs/SHIMZA_PHASE_C.md).
+
 ## Legal-PDF flow
 
 1. Register an Act or Rules PDF and its law/edition metadata through the local admin API.
@@ -100,3 +104,21 @@ See [the Phase B handover](docs/ABDULLAH_PHASE_B_HANDOVER.md) for the approved-r
 ## Migration history
 
 Alembic retains historical migrations that originally created the 30-section `law_sources`, `law_sections`, and `law_passages` tables. Migration `20261009_12` drops those tables. The historical migration files and their pgvector dependency remain so databases can traverse the migration chain; they are not active search code.
+
+## Existing shimza branch compatibility
+
+The current Phase A/B implementation and Phase C code are retained when joining
+the earlier `shimza` history. The previous read-only PDF inspector is available
+under `/local-admin/legal/inspection`, avoiding collisions with the current
+`/local-admin/legal` routes. It uses the same development/loopback gate.
+
+The earlier `scripts.run_legal_extraction` CLI and its worker use
+`legacy_legal_extraction_repository.py`; the current `app.workers.legal_extract`
+and `legal_extraction_repository.py` keep their existing implementation. This
+separates the two repository interfaces. Earlier Sprint 2 documents are retained
+as historical references; use the current workflow above for Phase A/B.
+
+The optional Phase C audit migration is included but has not been applied to the
+shared database by this delivery. Keep `QA_RECORD_RUNS=false` until separately
+reviewing and approving that migration. No shared corpus or publication data is
+changed by committing or pushing this branch.

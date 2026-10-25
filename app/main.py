@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import contracts, health, legal_ingestion, legal_search, publications, qa
+from app.api.routes import contracts, health, legal_ingestion, legal_inspection, legal_search, publications, qa
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import Database
@@ -66,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(contracts.router)
     app.include_router(legal_ingestion.router)
+    app.include_router(legal_inspection.router)
     app.include_router(publications.router)
     app.include_router(legal_search.router)
     app.include_router(qa.router)
