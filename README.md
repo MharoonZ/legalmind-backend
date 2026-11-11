@@ -59,7 +59,7 @@ Search is off by default. To enable it after activating a publication:
 $env:LEGAL_SEARCH_ENABLED = 'true'
 .\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-
+r
 Use [the implementation document and full PowerShell runbook](docs/STAGE9_STAGE10_IMPLEMENTATION.md)
 for the audit findings, safe migration, explicit publication creation/activation,
 retrieval examples, tests, and evaluation. First semantic use loads the BGE-M3

@@ -10,6 +10,9 @@ class AnswerSettings(BaseSettings):
 
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o-mini"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-3-flash-preview"
+    llm_provider: str = "auto"
     qa_openai_timeout_seconds: float = Field(default=35, gt=0, le=120)
     qa_openai_max_output_tokens: int = Field(default=1200, ge=256, le=4000)
     qa_repair_attempts: int = Field(default=1, ge=0, le=2)
