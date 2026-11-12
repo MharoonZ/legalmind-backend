@@ -27,6 +27,8 @@ class EvidenceDecision(BaseModel):
     outcome: Literal["ready_for_prompt", "clarification_needed", "insufficient_evidence", "service_unavailable"]
     reason: str
     evidence_ids: tuple[str, ...] = ()
+    missing_references: tuple[str, ...] = ()
+    limited_source_context: bool = False
     clarification_question: str | None = None
     clarification_options: tuple[dict, ...] = ()
     clarification_fact: NecessaryFact | None = None

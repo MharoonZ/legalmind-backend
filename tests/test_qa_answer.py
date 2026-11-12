@@ -4,6 +4,7 @@ import asyncio
 from fastapi.testclient import TestClient
 
 from app.api.routes.qa import get_question_answer_service
+from app.core.config import get_settings
 from app.main import create_app
 from app.schemas.qa import AskIn, AskOut
 from app.schemas.legal_search import SearchContextIn
@@ -164,8 +165,23 @@ def test_ask_api_exposes_contract_and_503_for_service_failure():
     assert response.json()["status"] == "service_unavailable"
 
 
+def test_ask_deadline_returns_the_frontend_503_contract():
+    class Slow:
+        async def ask(self, request):
+            await asyncio.sleep(1)
+
+    app = create_app()
+    app.dependency_overrides[get_question_answer_service] = lambda: Slow()
+    settings = get_settings().model_copy(update={"qa_request_timeout_seconds": .01})
+    app.dependency_overrides[get_settings] = lambda: settings
+    response = TestClient(app).post("/ask", json={"question": "What does the provision say?"})
+    assert response.status_code == 503
+    assert response.json()["status"] == "service_unavailable" and not response.json()["claims"]
+
+
 def test_plain_fact_reply_keeps_the_explicit_previous_question_and_law_scope():
     from tests.qa_fixtures import INSTRUMENT
+    from app.services.legal_query import prepare_query
     decision, draft = ready()
     preparation = FakePrep(decision)
     service = QuestionAnswerService(preparation, FakeGenerator([draft]), CitationVerifier(FakeSource()))
@@ -173,9 +189,9 @@ def test_plain_fact_reply_keeps_the_explicit_previous_question_and_law_scope():
         previous_query="May I act under this section?", law="Synthetic Test Act", instrument_id=INSTRUMENT))
     result = asyncio.run(service.ask(request))
     search = preparation.calls[0]
-    assert search.query == "May I act under this section?\nFollow-up information: Yes, I have a signed permit."
-    assert search.law == "Synthetic Test Act" and search.instrument_id == INSTRUMENT
-    assert search.context is None  # Already consumed exactly once by Phase C.
+    assert search.query == request.question and search.context == request.context
+    assert prepare_query(search).text == "May I act under this section?\nYes, I have a signed permit."
+    assert search.context.law == "Synthetic Test Act" and search.context.instrument_id == INSTRUMENT
     assert result.question == request.question
 
 
@@ -187,3 +203,23 @@ def test_empty_law_and_overlong_followup_are_input_errors_not_service_failures()
     response = client.post("/ask", json={"question": "A" * 3000,
         "context": {"previous_query": "B" * 2000}})
     assert response.status_code == 422
+
+
+def test_partial_exact_answer_reports_the_missing_reference_from_the_server():
+    catalog, reranked = graph()
+    row = reranked.candidates[0]
+    path = catalog.chunks[row.candidate.chunk_id].reference_path
+    row = row.model_copy(update={"candidate": row.candidate.model_copy(
+        update={"exact_rank": 1, "matched_reference_paths": [path]})})
+    reranked = reranked.model_copy(update={"candidates": (row,), "retrieval": reranked.retrieval.model_copy(
+        update={"missing_references": ["section 999"]})})
+    decision = EvidenceGate().decide(expand(catalog, reranked))
+    assert decision.missing_references == ("section 999",)
+    unit = decision.context.units[0]
+    claim = DraftClaim(evidence_id=unit.evidence_id, quote=unit.text, claim_text=unit.text)
+    full = AnswerDraft(outcome="answered", answer="", claims=[claim], missing_support="")
+    partial = full.model_copy(update={"outcome": "partial"})
+    result, _, generator = answer(decision, [full, partial])
+    assert generator.calls[1][1] == "missing_requested_reference"
+    assert result.status == "partial" and result.citations
+    assert result.missing_support == "Unavailable in this publication: section 999."

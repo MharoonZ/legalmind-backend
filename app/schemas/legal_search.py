@@ -1,8 +1,9 @@
 """First-stage evidence retrieval, without answer generation."""
+import re
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 
 class LegalReferenceIn(BaseModel):
@@ -10,6 +11,14 @@ class LegalReferenceIn(BaseModel):
     kind: Literal["section", "rule", "article", "schedule"] = "section"
     label: str = Field(min_length=1, max_length=100)
     reference_path: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def valid_label(self):
+        pattern = (r"(?:[ivxlcdm]+|\d+[a-z]*)" if self.kind == "schedule" else
+                   r"\d+(?:-?[a-z]+)?(?:\([a-z0-9]+\))*")
+        if not re.fullmatch(pattern, self.label, re.I):
+            raise ValueError("Use a numbered legal label such as 19 or 19(2)(a)")
+        return self
 
 
 class SearchContextIn(BaseModel):
@@ -28,6 +37,9 @@ class LegalSearchIn(BaseModel):
     jurisdiction_code: str | None = Field(default=None, min_length=1, max_length=50)
     reference: LegalReferenceIn | None = None
     context: SearchContextIn | None = None
+    # Only /ask can opt in to its explicit follow-up semantics.
+    _explicit_followup: bool = PrivateAttr(default=False)
+    _prefer_semantic_alternative: bool = PrivateAttr(default=False)
 
     @field_validator("query")
     @classmethod
@@ -69,7 +81,7 @@ class CandidateOut(BaseModel):
 
 
 class LegalSearchOut(BaseModel):
-    status: Literal["ok", "no_results", "needs_clarification", "no_active_publication"]
+    status: Literal["ok", "no_results", "needs_clarification", "no_active_publication", "service_unavailable"]
     query: str
     retrieval_query: str
     publication_id: UUID | None = None
@@ -78,4 +90,6 @@ class LegalSearchOut(BaseModel):
     message: str | None = None
     clarification_options: list[dict] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    missing_references: list[str] = Field(default_factory=list)
     results: list[CandidateOut] = Field(default_factory=list)
+    _has_semantic_alternative: bool = PrivateAttr(default=False)

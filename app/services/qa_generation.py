@@ -1,6 +1,8 @@
 """Step 15: request structured output; keep provider failures distinct from evidence gaps."""
 from __future__ import annotations
 
+import asyncio
+import logging
 from json import JSONDecodeError
 
 import httpx
@@ -9,6 +11,8 @@ from pydantic import ValidationError
 from app.core.qa_generation_config import AnswerSettings, get_answer_settings
 from app.schemas.qa_generation import AnswerDraft
 from app.services.qa_prompt import PromptPacket
+
+logger = logging.getLogger(__name__)
 
 
 class GenerationUnavailable(RuntimeError):
@@ -20,9 +24,10 @@ class GenerationInvalid(RuntimeError):
 
 
 class AnswerGenerator:
-    def __init__(self, settings: AnswerSettings | None = None, *, client=None):
+    def __init__(self, settings: AnswerSettings | None = None, *, client=None, gemini_transport=None):
         self.settings = settings or get_answer_settings()
         self._client = client
+        self._gemini_transport = gemini_transport
 
     def _get_client(self):
         if self._client is None:
@@ -41,73 +46,57 @@ class AnswerGenerator:
         if not self.settings.gemini_api_key or not self.settings.gemini_api_key.get_secret_value():
             raise GenerationUnavailable("The server's GEMINI_API_KEY is not configured.")
         key = self.settings.gemini_api_key.get_secret_value()
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.settings.gemini_model}:generateContent?key={key}"
-
-        schema = {
-            "type": "object",
-            "properties": {
-                "outcome": {
-                    "type": "string",
-                    "enum": ["answered", "partial", "clarification_needed", "insufficient_evidence"],
-                },
-                "answer": {"type": "string"},
-                "claims": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "evidence_id": {"type": "string"},
-                            "quote": {"type": "string"},
-                            "claim_text": {"type": "string"},
-                        },
-                        "required": ["evidence_id", "quote", "claim_text"],
-                    },
-                },
-                "missing_support": {"type": "string"},
-                "clarification_question": {"type": "string", "nullable": True},
-            },
-            "required": ["outcome", "answer", "claims", "missing_support"],
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.settings.gemini_model}:generateContent"
+        schema = AnswerDraft.model_json_schema()
+        schema["required"] = list(AnswerDraft.model_fields)
+        schema["properties"]["clarification_question"].pop("default", None)
+        config = {
+            "responseMimeType": "application/json",
+            "responseJsonSchema": schema,
+            "maxOutputTokens": self.settings.qa_gemini_max_output_tokens,
         }
-
+        if self.settings.qa_gemini_thinking_level is not None:
+            config["thinkingConfig"] = {"thinkingLevel": self.settings.qa_gemini_thinking_level.upper()}
         payload = {
-            "system_instruction": {"parts": [{"text": packet.system}]},
-            "contents": [{"parts": [{"text": user}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "responseSchema": schema,
-                "thinkingConfig": {
-                    "thinkingBudget": 0
-                },
-                "maxOutputTokens": self.settings.qa_openai_max_output_tokens,
-            },
+            "systemInstruction": {"parts": [{"text": packet.system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": config,
         }
 
+        # Only connection establishment is retried. A read timeout or an
+        # HTTP failure can occur after Gemini already processed the prompt.
+        transport = self._gemini_transport or httpx.AsyncHTTPTransport(retries=1)
+        timeout = self.settings.qa_gemini_timeout_seconds
         try:
-            async with httpx.AsyncClient(timeout=60.0) as http_client:
-                r = await http_client.post(url, json=payload)
-        except Exception as exc:
-            raise GenerationUnavailable("The Gemini answer provider timed out or could not be reached.") from exc
+            async with asyncio.timeout(timeout), httpx.AsyncClient(
+                transport=transport, timeout=timeout,
+            ) as http_client:
+                response = await http_client.post(url, headers={"x-goog-api-key": key}, json=payload)
+        except (TimeoutError, httpx.RequestError):
+            raise GenerationUnavailable("The Gemini answer provider timed out or could not be reached.") from None
 
-        if r.status_code == 429:
+        if response.status_code == 429:
             raise GenerationUnavailable("The Gemini answer provider's rate limit was reached.")
-        if r.status_code in {401, 403}:
+        if response.status_code in {401, 403}:
             raise GenerationUnavailable("The Gemini answer provider rejected the server credential.")
-        if r.status_code >= 500:
-            raise GenerationUnavailable("The Gemini answer provider failed to process the request.")
-        if r.status_code != 200:
-            raise GenerationUnavailable(f"The Gemini answer provider returned error status {r.status_code}.")
+        if response.status_code != 200:
+            raise GenerationUnavailable(f"The Gemini answer provider returned HTTP {response.status_code}.")
 
         try:
-            data = r.json()
-            candidates = data.get("candidates") or []
-            if not candidates:
-                raise GenerationInvalid("The Gemini answer provider returned no candidates.")
-            raw_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            return AnswerDraft.model_validate_json(raw_text)
-        except (ValidationError, JSONDecodeError) as exc:
-            raise GenerationInvalid("The Gemini answer provider returned an invalid structured answer.") from exc
-        except Exception as exc:
-            raise GenerationInvalid("The Gemini answer provider returned an unparseable response.") from exc
+            data = response.json()
+            candidate = (data.get("candidates") or [{}])[0]
+            if candidate.get("finishReason") != "STOP" or data.get("promptFeedback", {}).get("blockReason"):
+                raise GenerationInvalid("Gemini did not complete the structured answer.")
+            parts = candidate["content"]["parts"]
+            raw_text = "".join(part["text"] for part in parts if not part.get("thought") and "text" in part)
+            draft = AnswerDraft.model_validate_json(raw_text, strict=True)
+            usage = data.get("usageMetadata") or {}
+            logger.info("qa_gemini_usage model=%s input_tokens=%s output_tokens=%s thinking_tokens=%s",
+                        self.settings.gemini_model, usage.get("promptTokenCount"),
+                        usage.get("candidatesTokenCount"), usage.get("thoughtsTokenCount"))
+            return draft
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise GenerationInvalid("Gemini returned an invalid structured answer.") from None
 
     async def generate(self, packet: PromptPacket, *, repair_feedback: str | None = None) -> AnswerDraft:
         user = packet.user
@@ -118,12 +107,7 @@ class AnswerGenerator:
                 + "\nCorrect the draft using only the supplied evidence. If that is impossible, return insufficient_evidence."
             )
 
-        use_gemini = (
-            self.settings.llm_provider == "gemini"
-            or (self.settings.llm_provider == "auto" and self.settings.gemini_api_key and self.settings.gemini_api_key.get_secret_value())
-        )
-
-        if use_gemini:
+        if self.settings.use_gemini:
             return await self._generate_gemini(packet, user)
 
         client = self._get_client()

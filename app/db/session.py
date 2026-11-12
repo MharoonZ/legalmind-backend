@@ -58,6 +58,7 @@ class Database:
             pool_timeout=settings.db_pool_timeout,
             pool_recycle=settings.db_pool_recycle,
             pool_pre_ping=True,
+            hide_parameters=True,
             connect_args=connect_args,
         )
         self._session_factory = async_sessionmaker(
@@ -83,13 +84,7 @@ class Database:
                     await conn.execute(text("SELECT 1"))
             return True
         except Exception as exc:  # noqa: BLE001 - health check must not crash the app
-            detail = str(exc).strip() or "no error message"
-            if isinstance(exc, TimeoutError):
-                detail = (
-                    f"no answer within {limit:.0f}s; raise DB_CONNECT_TIMEOUT or "
-                    "run: python scripts/check_db.py"
-                )
-            logger.warning("Database ping failed: %s: %s", exc.__class__.__name__, detail)
+            logger.warning("database_ping_failed error=%s timeout_seconds=%g", type(exc).__name__, limit)
             return False
 
     async def connect(self) -> bool:

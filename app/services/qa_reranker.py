@@ -146,6 +146,14 @@ class CandidateReranker:
             if item.instrument_id in version_scope and version_scope[item.instrument_id] != scope:
                 raise EvidenceContractError("One instrument has conflicting source versions.")
             version_scope[item.instrument_id] = scope
+        if all(item.exact_rank is not None for item in snapshot.results):
+            # These are already resolved by numbered provision and publication.
+            # Keep all selected fragments so every requested root can expand.
+            items = sorted(snapshot.results, key=lambda item: item.exact_rank)
+            return RerankResult(**base, candidates=tuple(
+                RerankedCandidate(publication_id=snapshot.publication_id, candidate=item,
+                                  reranker_score=None, reranker_rank=rank)
+                for rank, item in enumerate(items, 1)))
         pairs = [(snapshot.retrieval_query, item.chunk_text) for item in snapshot.results]
         try:
             raw_scores = await asyncio.to_thread(self.scorer.score_pairs, pairs)

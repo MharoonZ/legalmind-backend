@@ -4,6 +4,8 @@ from types import SimpleNamespace as Row
 
 from app.core.qa_config import RerankerSettings
 from app.schemas.legal_search import LegalSearchIn, LegalSearchOut
+from app.schemas.qa_context import ContextIssue
+from app.schemas.qa_evidence import RerankedCandidate
 from app.schemas.qa_decision import NecessaryFact
 from app.services.legal_retrieval import LegalRetrievalService
 from app.services.qa_context import ContextExpander
@@ -195,3 +197,32 @@ def test_model_failure_is_service_error_not_insufficient_law():
     result = asyncio.run(prepared.prepare(LegalSearchIn(query="synthetic source")))
     assert result.outcome == "service_unavailable"
     assert result.context is None
+
+
+def test_partial_context_retries_one_relevant_root_and_keeps_its_required_source():
+    catalog, original = graph()
+    first = original.candidates[0]
+    second = RerankedCandidate(publication_id=PUBLICATION, candidate=candidate(2),
+                               reranker_rank=2, reranker_score=1)
+    response = retrieval([first.candidate, second.candidate], query="When are isolated source words considered?")
+    ranked = original.model_copy(update={"retrieval": response, "candidates": (first, second)})
+    complete = expand(catalog, original)
+
+    class Search:
+        async def search(self, request):
+            return response
+
+    class Rerank:
+        async def rerank(self, response):
+            return ranked
+
+    class Expand:
+        async def expand(self, result):
+            issues = (ContextIssue(code="unresolved_reference", detail="Second root is incomplete.",
+                                   critical=True),) if len(result.candidates) > 1 else ()
+            return complete.model_copy(update={"reranked": result, "issues": issues})
+
+    service = QuestionPreparationService(Search(), Rerank(), Expand(), EvidenceGate())
+    decision = asyncio.run(service.prepare(LegalSearchIn(query=response.query)))
+    assert decision.outcome == "ready_for_prompt" and decision.limited_source_context
+    assert decision.context.reranked.candidates == (first,)

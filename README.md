@@ -6,6 +6,11 @@ Phase C now also provides a new `POST /ask` that uses the active publication,
 checks evidence, generates a structured draft and verifies its citations. See
 [Shimza's implementation and validation notes](docs/SHIMZA_PHASE_C.md).
 
+For the `feature/ask` audit and current runbook, see the
+[architecture guide](docs/LEGALMIND_COMPLETE_SYSTEM_ARCHITECTURE_AND_STAGE_GUIDE.md),
+[database audit](docs/DATABASE_DATA_QUALITY_AUDIT.md) and
+[RAG benchmark report](docs/LEGALMIND_RAG_TESTING_AND_BENCHMARK_REPORT.md).
+
 ## Legal-PDF flow
 
 1. Register an Act or Rules PDF and its law/edition metadata through the local admin API.
@@ -118,7 +123,6 @@ and `legal_extraction_repository.py` keep their existing implementation. This
 separates the two repository interfaces. Earlier Sprint 2 documents are retained
 as historical references; use the current workflow above for Phase A/B.
 
-The optional Phase C audit migration is included but has not been applied to the
-shared database by this delivery. Keep `QA_RECORD_RUNS=false` until separately
-reviewing and approving that migration. No shared corpus or publication data is
-changed by committing or pushing this branch.
+Keep `QA_RECORD_RUNS=false` unless the optional audit tables and their
+row-level security migrations (`20261017_18` and `20261111_19`) are installed
+on the intended database and question retention has been reviewed.

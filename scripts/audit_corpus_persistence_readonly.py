@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import fitz
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import get_settings
 from app.db.legal_corpus_models import (
@@ -31,7 +31,8 @@ async def main() -> None:
     if not await db.connect():
         raise RuntimeError("Database unavailable")
     try:
-        async with db.session() as session:
+        async with db.session() as session, session.begin():
+            await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
             files = (await session.scalars(select(LegalFile))).all()
             assignments = (await session.scalars(select(LegalFileAssignment))).all()
             versions = {row.id: row for row in (await session.scalars(select(LegalVersion))).all()}

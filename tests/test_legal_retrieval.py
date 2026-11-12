@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.repositories.legal_search_repository import PublicationChanged
 from app.schemas.legal_search import LegalSearchIn
-from app.services.legal_query import parse_references, prepare_query, reference_parts, resolve_laws
+from app.services.legal_query import parse_references, prepare_query, query_alternative, reference_parts, resolve_laws
 from app.services.legal_retrieval import LegalRetrievalService, reciprocal_rank_fusion
 from app.services.retrieval_fusion import filter_keyword_candidates
 
@@ -79,6 +79,7 @@ def test_relaxed_keyword_overlap_needs_semantics_or_strong_fallback_coverage(str
 
 @pytest.mark.parametrize("query,label,children", [
     ("Section 19", "19", []), ("sec. 19A", "19A", []),
+    ("Sectoin １９", "19", []), ("subsection (2)(a) of section 4", "4", ["2", "a"]),
     ("section 19(2)(a)", "19", ["2", "a"]), ("Rule 7", "7", []),
     ("Article 25", "25", []), ("Schedule IV", "IV", [])])
 def test_exact_reference_parser_preserves_identifier_boundaries(query, label, children):
@@ -122,6 +123,111 @@ def test_ambiguous_reference_requests_law_clarification(settings):
 def test_plural_or_compound_references_are_not_silently_narrowed(settings):
     response = run({"query": "Sections 19 and 20"}, Repository(), settings)
     assert response.status == "needs_clarification"
+
+
+def test_every_reference_in_a_numbered_list_is_resolved_in_its_selected_law(settings):
+    class Multi(Repository):
+        async def retrieve(self, publication_id, **kwargs):
+            self.calls.append(kwargs)
+            label = kwargs["reference"].label
+            if label == "999":
+                return [], [], []
+            row = {**candidate(), "label": label, "matched_reference_paths": [f"f:source/s:{label}"]}
+            return [row], [], []
+
+    repo = Multi()
+    response = run({"query": "Sections 19, 20, and 999 of the Consumer Protection Act"}, repo, settings)
+    assert response.status == "ok" and response.missing_references == ["section 999"]
+    assert [row.label for row in response.results] == ["19", "20"]
+    assert [row.exact_rank for row in response.results] == [1, 2]
+    assert all(call["instrument_id"] == CONSUMER and call["query_vector"] is None for call in repo.calls)
+
+
+@pytest.mark.parametrize("query", [
+    "Sections 19, 20 to 22 of the Consumer Protection Act",
+    "Sections 19(1) and (2) of the Consumer Protection Act",
+    "Section 99999999999999999999999 of the Consumer Protection Act",
+    "Section 19 of the Contract Act 1872 and Section 19 of the Consumer Protection Act",
+])
+def test_unresolved_combined_reference_never_falls_back_to_the_first_number(query, settings):
+    repo = Repository()
+    assert run({"query": query}, repo, settings).status == "needs_clarification"
+    assert not repo.calls
+
+
+def test_conflicting_explicit_edition_cannot_resolve_to_the_current_act(settings):
+    repo = Repository(([candidate()], [], []))
+    out = run({"query": "Section 19 of the Consumer Protection Act 1999"}, repo, settings)
+    assert out.status == "no_results" and not repo.calls
+
+
+def test_exact_lookup_can_correct_a_misspelled_title_without_correcting_its_year(settings):
+    repo = Repository(([candidate()], [], []))
+    query = "Section 19 of the Consuemr Protecion Act"
+    assert run({"query": query}, repo, settings).status == "ok"
+    assert repo.calls[0]["instrument_id"] == CONSUMER
+    assert run({"query": query + " 1999"}, repo, settings).status == "no_results"
+
+
+def test_original_wording_and_repaired_keywords_are_both_used(settings):
+    repo = Repository(([], [candidate(keyword_score=1)], []))
+    original = "Must the shopkepper give a reciept to the purchser?"
+    assert query_alternative(original) == "Must the shopkeeper give a receipt to the purchaser?"
+    response = run({"query": original}, repo, settings)
+    assert response.query == original and response.retrieval_query == original
+    assert "reciept" in repo.calls[0]["query"]
+    assert "receipt" in repo.calls[0]["alternative_keyword"]
+    assert query_alternative("Has the law changed?") is None
+
+
+def test_empty_first_pass_retries_with_a_bounded_semantic_alternative(settings):
+    class Retry(Repository):
+        async def retrieve(self, publication_id, **kwargs):
+            self.calls.append(kwargs)
+            return ([], [], [candidate(vector_score=.7)]) if len(self.calls) == 2 else ([], [], [])
+
+    encoded = []
+
+    async def record_encode(texts, profile, **kwargs):
+        encoded.extend(texts)
+        return await encode(texts, profile, **kwargs)
+
+    repo = Retry()
+    result = run({"query": "Must I get proof of purchase?"}, repo, settings, record_encode)
+    assert result.status == "ok" and result.warnings
+    assert encoded == ["Must I get proof of purchase?", "Must I get receipt?"]
+    assert repo.calls[0]["pool_size"] < repo.calls[1]["pool_size"] <= 100
+    assert repo.calls[0]["min_similarity"] == repo.calls[1]["min_similarity"]
+
+
+def test_empty_lexical_results_with_a_failed_encoder_are_a_service_failure(settings):
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("private model detail")
+
+    result = run({"query": "receipt"}, Repository(), settings, unavailable)
+    assert result.status == "service_unavailable" and not result.results
+    assert "private" not in result.message
+
+
+def test_database_failure_is_a_service_failure_with_no_parameters(settings):
+    from sqlalchemy.exc import OperationalError
+
+    class Offline(Repository):
+        async def active_catalog(self):
+            raise OperationalError("SELECT ...", {"secret": "private"}, RuntimeError())
+
+    result = run({"query": "receipt"}, Offline(), settings)
+    assert result.status == "service_unavailable"
+    assert "private" not in result.message
+
+
+def test_explicit_followup_uses_the_new_reference_and_preserves_previous_context():
+    request = LegalSearchIn(query="What does Section 32 say?",
+        context={"previous_query": "Tell me about Section 31 of the Prisons Act, 1894."})
+    request._explicit_followup = True
+    prepared = prepare_query(request)
+    assert [reference.label for reference in prepared.references] == ["32"]
+    assert "Section 31" in prepared.text and prepared.context_used
 
 
 def test_explicit_reference_to_absent_law_does_not_search_other_acts(settings):
@@ -206,6 +312,7 @@ def test_publication_change_is_retried_without_mixing_candidates(settings):
 
 
 @pytest.mark.parametrize("payload", [{"query": " "}, {"query": "!!!"}, {"query": "x", "limit": 0},
-    {"query": "x", "limit": 51}, {"query": "x", "revision_ids": [str(uuid4())]}])
+    {"query": "x", "limit": 51}, {"query": "x", "revision_ids": [str(uuid4())]},
+    {"query": "section 19", "reference": {"label": "19()"}}])
 def test_request_rejects_invalid_or_unscoped_inputs(payload):
     with pytest.raises(ValidationError): LegalSearchIn(**payload)

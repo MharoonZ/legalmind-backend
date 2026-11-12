@@ -1,12 +1,17 @@
 """Step 17: compose Phase C and return only verified, source-backed quotations."""
 from __future__ import annotations
 
+import logging
+from time import perf_counter
+
 from app.schemas.legal_search import LegalSearchIn
 from app.schemas.qa import AskIn, AskOut
 from app.schemas.qa_generation import AnswerDraft, DraftClaim
 from app.services.qa_citations import CitationVerificationError
 from app.services.qa_generation import GenerationInvalid, GenerationUnavailable
 from app.services.qa_prompt import build_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class QuestionAnswerService:
@@ -20,16 +25,12 @@ class QuestionAnswerService:
 
     async def ask(self, request: AskIn) -> AskOut:
         try:
-            # Consume explicitly supplied follow-up context here. A short fact
-            # reply such as 'Yes, I have a permit' need not match Phase B's
-            # follow-up wording detector to retain the original legal question.
-            context = request.context
-            decision = await self.preparation.prepare(LegalSearchIn(
-                query=request.search_query(), limit=10,
-                law=request.law or (context.law if context else None),
-                instrument_id=context.instrument_id if context else None))
-        except Exception:
-            return self._service_error(request.question)
+            search = LegalSearchIn(query=request.question, limit=10, law=request.law, context=request.context)
+            search._explicit_followup = request.context is not None
+            decision = await self.preparation.prepare(search)
+        except Exception as exc:
+            logger.warning("qa_preparation_failed error=%s", type(exc).__name__)
+            return self.unavailable(request.question)
         publication_id = (decision.context.reranked.retrieval.publication_id
                           if decision.context else None)
         if decision.outcome == "clarification_needed":
@@ -43,12 +44,12 @@ class QuestionAnswerService:
                     verified = await self.verifier.verify(draft, decision)
                 except CitationVerificationError as exc:
                     if exc.code == "source_verification_unavailable":
-                        return self._service_error(request.question, publication_id)
+                        return self.unavailable(request.question, publication_id)
                     return AskOut(status="insufficient_evidence", question=request.question,
                         publication_id=publication_id,
                         answer="I can't verify the source condition needed to ask a follow-up question.")
                 except ValueError:
-                    return self._service_error(request.question, publication_id)
+                    return self.unavailable(request.question, publication_id)
                 result = AskOut(status="clarification_needed", question=request.question,
                     publication_id=publication_id,
                     answer=f'I need one more detail about your situation. The cited source says:\n“{fact.quote}”',
@@ -69,20 +70,28 @@ class QuestionAnswerService:
                             limitations=("The available corpus does not establish an answer; this does not mean the law is silent.",),
                             missing_support=decision.reason)
         elif decision.outcome == "service_unavailable":
-            result = self._service_error(request.question, publication_id)
+            result = self.unavailable(request.question, publication_id, decision.reason)
         else:
             try:
                 packet = build_prompt(decision)
                 verified = None
                 feedback = None
                 for attempt in range(self.repair_attempts + 1):
+                    started = perf_counter()
                     draft = await self.generator.generate(packet, repair_feedback=feedback)
+                    logger.info("qa_generation outcome=%s attempt=%d elapsed_ms=%.0f", draft.outcome,
+                                attempt + 1, (perf_counter() - started) * 1000)
+                    started = perf_counter()
                     try:
                         verified = await self.verifier.verify(draft, decision)
+                        logger.info("qa_citation_verification citations=%d elapsed_ms=%.0f",
+                                    len(verified.citations), (perf_counter() - started) * 1000)
                         break
                     except CitationVerificationError as exc:
+                        logger.info("qa_citation_rejected code=%s elapsed_ms=%.0f", exc.code,
+                                    (perf_counter() - started) * 1000)
                         if exc.code == "source_verification_unavailable":
-                            return self._service_error(request.question, publication_id)
+                            return self.unavailable(request.question, publication_id)
                         feedback = exc.code
                 if verified is None:
                     result = AskOut(status="insufficient_evidence", question=request.question,
@@ -109,13 +118,15 @@ class QuestionAnswerService:
                                     clarification_question=verified.clarification_question,
                                     missing_support=verified.missing_support or None,
                                     limitations=self._limitations(verified.missing_support))
-            except (GenerationUnavailable, GenerationInvalid, ValueError):
-                result = self._service_error(request.question, publication_id)
+            except (GenerationUnavailable, GenerationInvalid, ValueError) as exc:
+                logger.warning("qa_generation_failed error=%s", type(exc).__name__)
+                result = self.unavailable(request.question, publication_id)
         if self.recorder is not None:
             try:
                 await self.recorder.record(request, result, decision)
-            except Exception:
-                return self._service_error(request.question, publication_id)
+            except Exception as exc:
+                logger.warning("qa_recording_failed error=%s", type(exc).__name__)
+                return self.unavailable(request.question, publication_id)
         return result
 
     @staticmethod
@@ -129,7 +140,7 @@ class QuestionAnswerService:
         return notes
 
     @staticmethod
-    def _service_error(question: str, publication_id=None) -> AskOut:
+    def unavailable(question: str, publication_id=None, reason=None) -> AskOut:
         return AskOut(status="service_unavailable", question=question,
-                      publication_id=publication_id,
+                      publication_id=publication_id, missing_support=reason,
                       answer="The answer service is temporarily unavailable. Please try again later.")

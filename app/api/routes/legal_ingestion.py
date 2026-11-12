@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import ipaddress
 import re
 from datetime import date
 from uuid import UUID
-from urllib.parse import urlsplit
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
@@ -14,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 import fitz
 
-from app.api.deps import DatabaseDep, LegalIngestionRepositoryDep, SettingsDep
+from app.api.deps import DatabaseDep, LegalIngestionRepositoryDep, SettingsDep, require_local_development
 from app.core.errors import (
     LegalUploadConflictError,
     LegalUploadStorageError,
@@ -37,39 +35,11 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _CODE = re.compile(r"^[A-Z0-9][A-Z0-9-]*$")
 
 
-def _loopback_host(host: str | None) -> bool:
-    if not host:
-        return False
-    if host.lower() == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
 def _require_local_ingestion(request: Request, settings: SettingsDep) -> None:
     """Two explicit gates plus loopback checks; never trust CORS as security."""
-    if not settings.legal_ingest_enabled or settings.environment.lower() != "development":
+    if not settings.legal_ingest_enabled:
         raise HTTPException(status_code=404, detail="Not found")
-    if request.client is None or not _loopback_host(request.client.host):
-        raise HTTPException(status_code=404, detail="Not found")
-    try:
-        host = urlsplit("http://" + request.headers.get("host", "")).hostname
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Not found") from None
-    if not _loopback_host(host):
-        raise HTTPException(status_code=404, detail="Not found")
-    origin = request.headers.get("origin")
-    if origin:
-        try:
-            trusted_origin = origin in settings.cors_origins_list and _loopback_host(
-                urlsplit(origin).hostname
-            )
-        except ValueError:
-            trusted_origin = False
-        if not trusted_origin:
-            raise HTTPException(status_code=403, detail="Untrusted origin")
+    require_local_development(request, settings)
 
 
 router = APIRouter(

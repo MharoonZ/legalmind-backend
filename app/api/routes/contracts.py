@@ -11,9 +11,11 @@ separate from the new legal-PDF corpus and future question-answering API.
 
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import DocumentRepositoryDep, SettingsDep
+from app.api.deps import DocumentRepositoryDep, SettingsDep, require_local_development
 from app.core.errors import DocumentStorageError, DocumentValidationError
 from app.repositories.document_repository import DocumentRecord
 from app.schemas.documents import DocumentVersionOut
@@ -26,7 +28,12 @@ from app.services.document_upload import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/contracts", tags=["contracts"])
+def require_local_contracts(request: Request, settings: SettingsDep) -> None:
+    # Uploaded contracts have no account or ownership model yet.
+    require_local_development(request, settings)
+
+
+router = APIRouter(prefix="/contracts", tags=["contracts"], dependencies=[Depends(require_local_contracts)])
 
 
 def _to_response(record: DocumentRecord, message: str) -> DocumentVersionOut:
@@ -64,6 +71,7 @@ async def upload_contract(
     ),
     question: str | None = Form(
         None,
+        max_length=4000,
         description=(
             "Optional question about this contract. Saved for later - it "
             "cannot be answered until extraction and the AI summary step exist."
@@ -76,10 +84,10 @@ async def upload_contract(
     the file is real, usable, and safely stored. `status` always comes back
     "uploaded".
     """
-    data = await file.read()
+    data = await file.read(settings.upload_max_size_bytes + 1)
 
     try:
-        validated = validate_pdf_bytes(
+        validated = await run_in_threadpool(validate_pdf_bytes,
             data,
             filename=file.filename or "upload.pdf",
             content_type=file.content_type,
@@ -96,7 +104,7 @@ async def upload_contract(
     version_id = new_version_id()
 
     try:
-        storage_path = save_pdf_to_disk(
+        storage_path = await run_in_threadpool(save_pdf_to_disk,
             data, upload_dir=settings.upload_dir, document_id=document_id
         )
     except DocumentStorageError as exc:
@@ -106,17 +114,23 @@ async def upload_contract(
             detail="Could not save the uploaded file. Please try again.",
         ) from exc
 
-    record = await repository.create_upload(
-        document_id=document_id,
-        version_id=version_id,
-        original_filename=file.filename or "upload.pdf",
-        content_type=file.content_type or "application/pdf",
-        pdf_sha256=validated.sha256,
-        size_bytes=validated.size_bytes,
-        page_count=validated.page_count,
-        storage_path=storage_path,
-        question=question,
-    )
+    try:
+        record = await repository.create_upload(
+            document_id=document_id,
+            version_id=version_id,
+            original_filename=file.filename or "upload.pdf",
+            content_type=file.content_type or "application/pdf",
+            pdf_sha256=validated.sha256,
+            size_bytes=validated.size_bytes,
+            page_count=validated.page_count,
+            storage_path=storage_path,
+            question=question,
+        )
+    except (SQLAlchemyError, OSError, TimeoutError) as exc:
+        # A connection loss during COMMIT can leave a valid row behind. Keep
+        # the original bytes for reconciliation rather than deleting them.
+        logger.warning("contract_registration_failed document_id=%s error=%s", document_id, type(exc).__name__)
+        raise HTTPException(503, detail="Could not confirm the contract registration.") from None
 
     message = "Saved. Waiting for clause extraction."
     if question:
@@ -131,7 +145,11 @@ async def upload_contract(
     responses={404: {"description": "No document with this id"}},
 )
 async def get_contract(document_id: str, repository: DocumentRepositoryDep) -> DocumentVersionOut:
-    record = await repository.get_latest(document_id)
+    try:
+        record = await repository.get_latest(document_id)
+    except (SQLAlchemyError, OSError, TimeoutError) as exc:
+        logger.warning("contract_status_failed error=%s", type(exc).__name__)
+        raise HTTPException(503, detail="Contract status is temporarily unavailable.") from None
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found."

@@ -51,6 +51,32 @@ def test_exact_quotation_resolves_real_metadata_and_model_answer_is_not_trusted(
     assert "Untrusted model prose" not in str(verified)
 
 
+def test_subsection_lookup_cannot_be_answered_by_only_quoting_a_sibling():
+    catalog, reranked = graph()
+    original = reranked.candidates[0]
+    wanted = original.candidate.reference_path + "/ss:2"
+    row = original.model_copy(update={"candidate": original.candidate.model_copy(
+        update={"exact_rank": 1, "matched_reference_paths": [wanted]})})
+    decision = EvidenceGate().decide(expand(catalog, reranked.model_copy(update={"candidates": (row,)})))
+    unit = decision.context.units[0]
+    draft = AnswerDraft(outcome="answered", answer="", missing_support="",
+        claims=[DraftClaim(evidence_id=unit.evidence_id, quote=unit.text, claim_text=unit.text)])
+    with pytest.raises(CitationVerificationError, match="requested_reference_not_cited"):
+        asyncio.run(CitationVerifier(FakeSource()).verify(draft, decision))
+
+
+def test_limited_source_context_cannot_return_a_complete_answer():
+    decision, draft = setup()
+    limited = EvidenceGate().decide(decision.context.model_copy(update={"coverage_limited": True}))
+    source = FakeSource()
+    with pytest.raises(CitationVerificationError, match="limited_source_context"):
+        asyncio.run(CitationVerifier(source).verify(draft, limited))
+    verified = asyncio.run(CitationVerifier(source).verify(
+        draft.model_copy(update={"outcome": "partial"}), limited))
+    assert verified.outcome == "partial" and verified.citations
+    assert "Only some" in verified.missing_support
+
+
 def test_all_claims_are_sent_to_source_checker_in_one_batch():
     decision, draft = setup()
     class BatchSource(FakeSource):

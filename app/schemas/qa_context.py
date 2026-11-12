@@ -67,6 +67,7 @@ class ContextResult(BaseModel):
     units: tuple[ContextUnit, ...] = ()
     issues: tuple[ContextIssue, ...] = ()
     reference_links: tuple[ContextReference, ...] = ()
+    coverage_limited: bool = False
     token_count: int = 0
     char_count: int = 0
     token_limit: int

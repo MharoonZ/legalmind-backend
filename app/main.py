@@ -39,9 +39,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info(
         "%s v%s started (%s)", settings.app_name, settings.app_version, settings.environment
     )
-    yield
-
-    await db.dispose()
+    try:
+        yield
+    finally:
+        await db.dispose()
 
 
 def create_app() -> FastAPI:
@@ -51,7 +52,7 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version=settings.app_version,
         description="Legal PDF ingestion, validated corpus publications, legal evidence retrieval, and private contract APIs.",
-        debug=settings.debug,
+        debug=settings.debug and not settings.is_production,
         lifespan=lifespan,
     )
 
@@ -73,7 +74,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+        route = request.scope.get("route")
+        logger.error("request_failed method=%s route=%s error=%s", request.method,
+                     getattr(route, "path", "unknown"), type(exc).__name__)
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     return app

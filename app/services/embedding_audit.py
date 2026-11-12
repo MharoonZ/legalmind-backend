@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import statistics
 from collections import Counter
 
 from sqlalchemy import select, text
@@ -84,11 +86,20 @@ async def audit_embeddings(session, *, chunk_set_ids=None, check_tokens=False) -
         fingerprint_rows.append((str(identity), row["input_sha256"], row["vector_checksum"],
                                  str(row["embedding_created_at"])))
     max_tokens = None
+    token_distribution = None
     if check_tokens:
         tokenizer = get_tokenizer(profile)
         lengths = [len(tokenizer.encode(t, add_special_tokens=True, truncation=False))
                    for _, t in inputs]
         max_tokens = max(lengths, default=0)
+        if lengths:
+            ordered = sorted(lengths)
+            token_distribution = {
+                "mean": round(statistics.mean(lengths), 2), "median": statistics.median(lengths),
+                "p95": ordered[math.ceil(.95 * len(ordered)) - 1],
+                "p99": ordered[math.ceil(.99 * len(ordered)) - 1],
+                "max": max_tokens,
+            }
         for (identity, _), count in zip(inputs, lengths, strict=True):
             if count > profile.max_tokens:
                 flag("token_limit_exceeded", identity)
@@ -133,6 +144,7 @@ async def audit_embeddings(session, *, chunk_set_ids=None, check_tokens=False) -
         "embedded_chunks": sum(r["input_sha256"] is not None for r in rows),
         "max_input_characters": max((len(t) for _, t in inputs), default=0),
         "token_check_performed": check_tokens, "maximum_observed_tokens": max_tokens,
+        "token_distribution": token_distribution,
         "issues": dict(issues), "samples": samples, "indexes": by_name,
         "inventory": [dict(r) for r in inventory],
         "vector_fingerprint": hashlib.sha256(json.dumps(fingerprint_rows).encode()).hexdigest(),

@@ -287,7 +287,11 @@ class LegalChunkRepository:
 
     @staticmethod
     async def _source_refs(session, chunks: list[LegalChunk]) -> dict[UUID, list[dict]]:
-        if not chunks:
+        return await LegalChunkRepository.source_refs_for_ids(session, [chunk.id for chunk in chunks])
+
+    @staticmethod
+    async def source_refs_for_ids(session, chunk_ids: list[UUID]) -> dict[UUID, list[dict]]:
+        if not chunk_ids:
             return {}
         rows = (await session.execute(
             select(LegalChunkProvision, ProvisionSpan.page_id, ProvisionSpan.block_id,
@@ -302,7 +306,7 @@ class LegalChunkRepository:
             .outerjoin(FileBlock, FileBlock.id == ProvisionSpan.block_id)
             .outerjoin(FileExtraction, FileExtraction.id == ProvisionSpan.extraction_id)
             .outerjoin(LegalFile, LegalFile.id == FileExtraction.file_id)
-            .where(LegalChunkProvision.chunk_id.in_([chunk.id for chunk in chunks]))
+            .where(LegalChunkProvision.chunk_id.in_(chunk_ids))
             .order_by(LegalChunkProvision.chunk_id, LegalChunkProvision.ordinal)
         )).all()
         result: dict[UUID, list[dict]] = {}

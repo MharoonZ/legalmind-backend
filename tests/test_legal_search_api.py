@@ -1,8 +1,10 @@
 from types import SimpleNamespace
+import asyncio
 
 import pytest
 
 from app.api.routes.legal_search import get_legal_retrieval_service
+from app.core.config import get_settings
 from app.schemas.legal_search import LegalSearchOut
 
 
@@ -19,6 +21,18 @@ def test_search_endpoint_returns_candidates_alongside_phase_c_ask(client):
     assert response.status_code == 200
     assert response.json()["status"] == "no_results" and response.json()["results"] == []
     assert "/ask" in client.app.openapi()["paths"]
+
+
+def test_search_timeout_returns_structured_503(client):
+    async def search(payload):
+        await asyncio.sleep(1)
+        pytest.fail("The request should have timed out.")
+
+    settings = get_settings().model_copy(update={"legal_search_timeout_seconds": .01})
+    client.app.dependency_overrides[get_settings] = lambda: settings
+    client.app.dependency_overrides[get_legal_retrieval_service] = lambda: SimpleNamespace(search=search)
+    result = client.post("/search/legal", json={"query": "receipt"})
+    assert result.status_code == 503 and result.json()["status"] == "service_unavailable"
 
 
 @pytest.mark.parametrize("payload", [{"query": ""}, {"query": "receipt", "limit": 999},

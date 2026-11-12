@@ -45,6 +45,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _lock = threading.Lock()
+# A SentenceTransformer instance is shared by synchronous and asynchronous
+# callers. Keep CPU/GPU forward passes serialized in a process.
+_inference_lock = threading.Lock()
 _models: dict[EmbeddingProfile, "SentenceTransformer"] = {}
 
 
@@ -197,12 +200,13 @@ def encode_texts(
     check_token_lengths(texts, model.tokenizer, profile.max_tokens)
     logger.info("Encoding %d texts with %s …", len(texts), profile.model_id)
 
-    embeddings = model.encode(
-        texts,
-        batch_size=batch_size,
-        normalize_embeddings=profile.normalize,
-        show_progress_bar=False,
-    )
+    with _inference_lock:
+        embeddings = model.encode(
+            texts,
+            batch_size=batch_size,
+            normalize_embeddings=profile.normalize,
+            show_progress_bar=False,
+        )
     # sentence-transformers returns a numpy array; convert to plain Python lists
     # so the result is JSON-serialisable and works with pgvector's list input.
     vectors = [vec.tolist() for vec in embeddings]

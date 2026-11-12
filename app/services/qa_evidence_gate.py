@@ -8,6 +8,7 @@ from uuid import UUID
 
 from app.schemas.qa_context import ContextResult
 from app.schemas.qa_decision import EvidenceDecision, NecessaryFact
+from app.services.legal_query import normalize_query, query_alternative
 
 _STOP = frozenset({
     "what", "which", "where", "when", "whose", "could", "would", "should", "does",
@@ -16,6 +17,7 @@ _STOP = frozenset({
     "tell", "explain", "give", "show", "section", "sections", "article", "articles",
     "rule", "rules", "schedule", "schedules", "legal", "law", "laws", "person",
     "someone", "answer", "question", "written", "says", "said", "say", "means",
+    "happen", "happens", "happened", "obtain", "obtained", "obtaining", "must",
 })
 _WORD = re.compile(r"[^\W\d_][\w-]{3,}", re.UNICODE)
 
@@ -44,16 +46,61 @@ def _scope(item):
     return item.legal_version_id, item.revision_id, item.chunk_set_id
 
 
+def _query_terms(reranked):
+    response = reranked.retrieval
+    original = response.retrieval_query if response.context_used else normalize_query(response.query)
+    # Compute the same bounded alternative used for lexical search. Exact
+    # lookups are resolved independently of this approximate matching.
+    alternate = query_alternative(original)
+    return tuple(material_terms(text) for text in (original, alternate) if text)
+
+
+def _topic_overlap(rows, terms):
+    title = material_terms(rows[0].candidate.instrument_title)
+    body = material_terms(" ".join(row.candidate.chunk_text.split("\n\n", 1)[-1] for row in rows))
+    return [(len(topics & body), len(topics)) for topics in (query - title for query in terms) if topics]
+
+
+def supports_context_retry(reranked, rows):
+    """Require substantial direct coverage before retrying only one root."""
+    return any(matched >= 2 and matched / total >= .6
+               for matched, total in _topic_overlap(rows, _query_terms(reranked)))
+
+
+def relevance_by_root(reranked):
+    """Evaluate each root using only the original retrieved candidate bodies."""
+    terms = _query_terms(reranked)
+    groups = defaultdict(list)
+    for row in reranked.candidates:
+        groups[row.candidate.root_provision_id].append(row)
+    signals = {}
+    for root_id, rows in groups.items():
+        if any(row.candidate.exact_rank is not None for row in rows):
+            signals[root_id] = "exact"
+            continue
+        if any(row.candidate.vector_rank is not None
+               and row.candidate.vector_score is not None
+               and math.isfinite(row.candidate.vector_score)
+               and 0 < row.candidate.vector_score <= 1
+               and row.reranker_score is not None and row.reranker_score > 0 for row in rows):
+            signals[root_id] = "semantic"
+            continue
+        if any(matched >= min(2, total) for matched, total in _topic_overlap(rows, terms)):
+            signals[root_id] = "lexical"
+    return signals
+
+
 class EvidenceGate:
     """Ready means worth grounded model review, not that a claim is proved."""
     def decide(self, context: ContextResult, *,
                necessary_facts: tuple[NecessaryFact, ...] = (),
                known_fact_keys: frozenset[str] = frozenset()) -> EvidenceDecision:
         response = context.reranked.retrieval
-        base = dict(context=context, evidence_ids=tuple(unit.evidence_id for unit in context.units))
-        if response.status == "no_active_publication":
+        base = dict(context=context, evidence_ids=tuple(unit.evidence_id for unit in context.units),
+                    limited_source_context=context.coverage_limited)
+        if response.status in {"no_active_publication", "service_unavailable"}:
             return EvidenceDecision(**base, outcome="service_unavailable",
-                                    reason="No complete active legal publication is available.")
+                                    reason=response.message or "Published evidence search is unavailable.")
         if response.status == "needs_clarification":
             return EvidenceDecision(**base, outcome="clarification_needed",
                                     reason=response.message or "The legal reference needs clarification.",
@@ -61,13 +108,15 @@ class EvidenceGate:
                                     clarification_options=tuple(response.clarification_options))
         if response.status == "no_results":
             return EvidenceDecision(**base, outcome="insufficient_evidence",
-                                    reason="No relevant passages were returned from the approved publication.")
+                                    reason=response.message or "No relevant passages were found in the approved publication.")
         if response.status != "ok":
             return EvidenceDecision(**base, outcome="service_unavailable",
                                     reason="Legal retrieval is unavailable.")
         if not context.reranked.candidates or not context.units:
             return EvidenceDecision(**base, outcome="insufficient_evidence",
-                                    reason="No complete source-backed candidate is available.")
+                                    reason=("The retrieved passages did not establish a direct topic match."
+                                            if response.results and not context.reranked.candidates else
+                                            "No complete source-backed candidate is available."))
         if any(issue.critical for issue in context.issues):
             return EvidenceDecision(**base, outcome="insufficient_evidence",
                                     reason="Required source context or publication evidence is missing.")
@@ -142,39 +191,18 @@ class EvidenceGate:
     @staticmethod
     def _relevance(context, base):
         response = context.reranked.retrieval
-        if any(row.candidate.exact_rank is not None for row in context.reranked.candidates):
+        signals = set(relevance_by_root(context.reranked).values())
+        if "exact" in signals:
+            missing = tuple(response.missing_references)
             return EvidenceDecision(**base, outcome="ready_for_prompt",
-                                    reason="An exact published reference has complete source context for model review.")
-        # Phase B has already applied its configured vector-similarity filter.
-        # A matching dense candidate AND a positive raw cross-encoder score can
-        # admit a paraphrase for grounded review, without requiring shared words.
-        # Neither signal establishes legal support or a calibrated confidence.
-        semantic_match = any(
-            row.candidate.vector_rank is not None and
-            row.candidate.vector_score is not None and
-            math.isfinite(row.candidate.vector_score) and
-            0 < row.candidate.vector_score <= 1 and row.reranker_score > 0
-            for row in context.reranked.candidates
-        )
-        if semantic_match:
+                                    reason=("Some exact references are unavailable in the publication." if missing else
+                                            "An exact published reference has complete source context for model review."),
+                                    missing_references=missing)
+        if "semantic" in signals:
             return EvidenceDecision(**base, outcome="ready_for_prompt",
                                     reason="Published semantic evidence also passed cross-encoder relevance screening.",
                                     heuristic_notes=("This unvalidated vector/reranker screen allows model review; it does not prove legal support and needs corpus evaluation.",))
-        # Keep a conservative lexical route when semantic search is unavailable.
-        # Compare passage bodies, excluding title/display prefixes.
-        title_words = set().union(*(material_terms(unit.instrument_title) for unit in context.units))
-        query_words = material_terms(response.query) - title_words
-        # Split fragments of the same section can contribute jointly. Unrelated
-        # sections/laws must not manufacture relevance by pooling isolated words.
-        bodies = defaultdict(list)
-        for unit in context.units:
-            if unit.relation == "retrieved":
-                bodies[(unit.instrument_id, unit.revision_id, unit.provision_id)].append(
-                    unit.text.split("\n\n", 1)[-1])
-        required_overlap = min(2, len(query_words))
-        if not required_overlap or not any(
-                len(query_words & material_terms(" ".join(parts))) >= required_overlap
-                for parts in bodies.values()):
+        if "lexical" not in signals:
             return EvidenceDecision(**base, outcome="insufficient_evidence",
                                     reason="The retrieved passages do not show enough direct topic overlap for model review.",
                                     heuristic_notes=("Lexical overlap is an unvalidated screening heuristic; it may miss synonyms.",))

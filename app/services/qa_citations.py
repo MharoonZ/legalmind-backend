@@ -43,6 +43,14 @@ class CitationVerifier:
         units = {unit.evidence_id: unit for unit in context.units}
         question = (draft.clarification_question or "").strip()
         missing_support = draft.missing_support.strip()
+        if decision.missing_references:
+            if draft.outcome not in {"partial", "insufficient_evidence"}:
+                raise CitationVerificationError("missing_requested_reference")
+            missing_support = "Unavailable in this publication: " + ", ".join(decision.missing_references) + "."
+        elif decision.limited_source_context:
+            if draft.outcome not in {"partial", "insufficient_evidence"}:
+                raise CitationVerificationError("limited_source_context")
+            missing_support = "Only some of the relevant material could be verified with its required source context."
         if draft.outcome == "clarification_needed":
             if len(question) < 3 or not missing_support:
                 raise CitationVerificationError("missing_clarification")
@@ -119,6 +127,13 @@ class CitationVerifier:
                 indexes.append(citations.index(citation))
             claims.append(VerifiedClaim(text=quote, evidence_id=unit.evidence_id,
                                         citation_indexes=tuple(dict.fromkeys(indexes))))
+        requested = {path for row in context.reranked.candidates if row.candidate.exact_rank is not None
+                     for path in row.candidate.matched_reference_paths}
+        if requested and draft.outcome in {"answered", "partial"}:
+            matched = {path for path in requested for citation in citations if citation.reference_path and
+                       (citation.reference_path == path or citation.reference_path.startswith(path + "/"))}
+            if not matched or (draft.outcome == "answered" and matched != requested):
+                raise CitationVerificationError("requested_reference_not_cited")
         return VerifiedDraft(outcome=draft.outcome, claims=tuple(claims),
                              citations=tuple(citations), missing_support=missing_support,
                              clarification_question=question or None)

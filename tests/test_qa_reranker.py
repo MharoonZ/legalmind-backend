@@ -44,6 +44,14 @@ def test_exact_reference_fragments_keep_their_upstream_order():
     assert result.candidates[0].reranker_score == -20  # no fabricated score boost
 
 
+def test_numbered_lookup_bypasses_the_cross_encoder_without_making_up_scores():
+    source = retrieval([candidate(1, exact_rank=1), candidate(2, exact_rank=2)])
+    result, scorer = run(source, error=RuntimeError("model must stay unloaded"))
+    assert [row.candidate.exact_rank for row in result.candidates] == [1, 2]
+    assert all(row.reranker_score is None for row in result.candidates)
+    assert not result.all_scores and not scorer.calls
+
+
 def test_tied_scores_have_stable_upstream_order():
     result, _ = run(scores=[1] * 10)
     assert [r.candidate.rank for r in result.candidates] == [1, 2, 3, 4, 5]

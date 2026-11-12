@@ -393,7 +393,13 @@ class ContextExpander:
             # reference optional, even when both point to the same section.
             await follow_references(required_seeds, required=True)
             definition_instruments = set()
-            instruments = deque(dict.fromkeys(instrument_id for instrument_id, _ in expanded_roots))
+            numbered_lookup = any(row.candidate.matched_reference_paths for row in reranked.candidates)
+            asks_definition = re.search(r"\b(?:defin\w*|mean(?:s|ing)?|interpret\w*)\b",
+                                        reranked.retrieval.query, re.I)
+            # A numbered lookup already has its required references. Only add
+            # heading-based definitions if the question calls for them.
+            instruments = deque(dict.fromkeys(instrument_id for instrument_id, _ in expanded_roots)
+                                if not numbered_lookup or asks_definition else ())
             while instruments and not any(issue.critical for issue in issues):
                 instrument_id = instruments.popleft()
                 if instrument_id in definition_instruments:

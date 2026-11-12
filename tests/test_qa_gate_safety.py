@@ -108,6 +108,13 @@ def test_topic_words_from_unrelated_sections_cannot_be_pooled_to_pass():
     assert EvidenceGate().decide(lexical_context([first, second])).outcome == "insufficient_evidence"
 
 
+def test_spelling_variant_needs_material_topic_words_and_generic_verbs_do_not_count():
+    section = candidate(1, chunk_text="A written licence may be obtained with the owner's consent.",
+                        vector_rank=None, vector_score=None)
+    context = lexical_context([section], query="What happns if consent is obtaind by fruad?")
+    assert EvidenceGate().decide(context).outcome == "insufficient_evidence"
+
+
 def test_fragments_of_the_same_section_can_jointly_establish_topic_overlap():
     first = candidate(1, chunk_text="The payroll procedure applies.", vector_rank=None, vector_score=None,
                       root_total_chunks=2)

@@ -99,3 +99,10 @@ def test_phase_c_ask_route_is_separate_from_contracts_router(contracts_api):
     assert "/ask" in contracts_api.get("/openapi.json").json()["paths"]
     res = contracts_api.post("/ask", json={"question": "hi"})
     assert res.status_code == 404  # Search is disabled by the isolated test fixture.
+def test_contract_upload_and_status_are_disabled_on_hosted_deployments(contracts_api):
+    from app.core.config import get_settings
+
+    production = get_settings().model_copy(update={"environment": "production"})
+    contracts_api.app.dependency_overrides[get_settings] = lambda: production
+    assert contracts_api.get("/contracts/doc:any").status_code == 404
+    assert contracts_api.post("/contracts").status_code == 404

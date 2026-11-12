@@ -63,6 +63,36 @@ def test_encoder_validates_output_count_and_dimension(monkeypatch):
         encoder.encode_texts(["query"], ACTIVE_PROFILE)
 
 
+def test_shared_model_forward_calls_are_serialized(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier, Lock
+    from time import sleep
+
+    barrier, guard = Barrier(2), Lock()
+    active = peak = 0
+
+    def run_model(*args, **kwargs):
+        nonlocal active, peak
+        with guard:
+            active += 1
+            peak = max(peak, active)
+        sleep(.02)
+        with guard:
+            active -= 1
+        return np.eye(1, 1024)
+
+    model = SimpleNamespace(tokenizer=SimpleNamespace(encode=lambda *a, **k: [1]), encode=run_model)
+    monkeypatch.setattr(encoder, "get_encoder", lambda profile: model)
+
+    def encode_query(query):
+        barrier.wait(timeout=2)
+        return encoder.encode_texts([query], ACTIVE_PROFILE)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outputs = list(pool.map(encode_query, ("first", "second")))
+    assert peak == 1 and outputs[0] == outputs[1]
+
+
 def test_model_cache_distinguishes_configuration_and_disallows_remote_code(monkeypatch):
     import sys
     calls = []

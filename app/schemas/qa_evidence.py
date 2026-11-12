@@ -1,4 +1,4 @@
-"""Phase C evidence wrappers. CandidateOut remains Abdullah's unmodified contract."""
+"""Phase C evidence wrappers and cross-encoder rankings."""
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,7 +10,7 @@ class RerankedCandidate(BaseModel):
     model_config = ConfigDict(frozen=True)
     publication_id: UUID
     candidate: CandidateOut
-    reranker_score: float = Field(allow_inf_nan=False)
+    reranker_score: float | None = Field(allow_inf_nan=False)
     reranker_rank: int = Field(ge=1)
 
 

@@ -21,3 +21,4 @@ FlagEmbedding>=1.3.5,<2
 
 # Server-side structured answer generation; keys are loaded from backend .env.
 openai>=1.88,<3
+httpx>=0.27,<1

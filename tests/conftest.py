@@ -8,6 +8,8 @@ os.environ["DB_CONNECT_TIMEOUT"] = "1"
 os.environ["DB_SSL"] = "false"
 os.environ["LEGAL_SEARCH_ENABLED"] = "false"
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""
+os.environ["LLM_PROVIDER"] = "auto"
 os.environ["QA_RECORD_RUNS"] = "false"
 
 from datetime import UTC, datetime  # noqa: E402
@@ -86,6 +88,6 @@ def contracts_api(tmp_path, settings):
         update={"upload_dir": str(tmp_path)}
     )
 
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as test_client:
         test_client.state = state
         yield test_client
