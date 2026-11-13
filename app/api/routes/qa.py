@@ -41,6 +41,8 @@ def get_question_answer_service(db: DatabaseDep, settings: SettingsDep,
                                fact_provider=Depends(get_fact_requirement_provider)):
     if not settings.legal_search_enabled:
         raise HTTPException(404, detail="Not found")
+    if not hasattr(fact_provider, "assess"):
+        fact_provider = None
     answer_settings = get_answer_settings()
     retrieval = LegalRetrievalService(LegalSearchRepository(db), settings)
     preparation = QuestionPreparationService(

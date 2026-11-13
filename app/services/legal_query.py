@@ -191,11 +191,11 @@ def keyword_text(query):
 
 
 def explicit_law_mentions(query):
-    """Read named laws after 'of/under/from' without reassigning references."""
+    """Read named laws from query (with prepositions of/under/from/in, or standalone title references)."""
     names = []
     consumed = 0
-    # Keep internal prepositions, e.g. "the Prevention of Gambling Ordinance".
-    for part in re.finditer(r"\b(?:of|under|from)\b", query, re.I):
+    # Preposition-anchored mentions: "Section 19 of Consumer Protection Act"
+    for part in re.finditer(r"\b(?:of|under|from|in)\b", query, re.I):
         if part.start() < consumed:
             continue
         match = re.match(
@@ -209,6 +209,25 @@ def explicit_law_mentions(query):
                 not re.match(r"(?:section|article|rule|this|that|same)\b", name, re.I)):
             names.append(name)
             consumed = part.end() + match.end()
+
+    # Direct/trailing mentions without preposition: "Section 19 Consumer Protection Act"
+    for match in re.finditer(
+        r"\b(?:the\s+)?((?:[a-zA-Z0-9\'-]+\s+){1,6}"
+        r"(?:act|ordinance|rules|code|regulations?|constitution|order)\b(?:[,\s]+\d{4})?)",
+        query, re.I
+    ):
+        if match.start() < consumed:
+            continue
+        raw_name = match[1].strip()
+        # Strip leading question words or reference words
+        words = raw_name.split()
+        while words and (words[0].casefold() in _QUESTION_WORDS or re.match(r"^(?:sections?|sec\.?|s\.|rules?|articles?|art\.?|\d+)$", words[0], re.I)):
+            words.pop(0)
+        name = " ".join(words)
+        cleaned_tokens = set(normalized(name).split()) - _GENERIC
+        if cleaned_tokens and not re.match(r"^(?:section|article|rule|this|that|same)\b", name, re.I):
+            names.append(name)
+
     return tuple(dict.fromkeys(names))
 
 

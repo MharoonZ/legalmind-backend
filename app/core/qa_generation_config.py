@@ -12,9 +12,9 @@ class AnswerSettings(BaseSettings):
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o-mini"
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = Field(default="gemini-3.1-flash-lite", pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
+    gemini_model: str = Field(default="gemini-3.5-flash-lite", pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
     llm_provider: Literal["auto", "gemini", "openai"] = "auto"
-    qa_gemini_timeout_seconds: float = Field(default=35, gt=0, le=120)
+    qa_gemini_timeout_seconds: float = Field(default=90, gt=0, le=180)
     qa_gemini_max_output_tokens: int = Field(default=1200, ge=256, le=4000)
     qa_gemini_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
     qa_openai_timeout_seconds: float = Field(default=35, gt=0, le=120)

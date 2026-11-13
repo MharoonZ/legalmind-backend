@@ -33,17 +33,18 @@ class QuestionPreparationService:
             started = perf_counter()
             reranked = await self.reranker.rerank(response)
             signals = relevance_by_root(reranked)
-            if not signals and response._has_semantic_alternative:
+            if not reranked.candidates and response._has_semantic_alternative:
                 retry = request.model_copy()
                 retry._prefer_semantic_alternative = True
                 alternative = await self.retrieval_service.search(retry)
                 if alternative.status == "ok" and alternative.publication_id == response.publication_id:
                     reranked_alternative = await self.reranker.rerank(alternative)
-                    alternative_signals = relevance_by_root(reranked_alternative)
-                    if alternative_signals:
-                        reranked, signals = reranked_alternative, alternative_signals
-                        logger.info("qa_alternative_retrieval accepted_roots=%d", len(signals))
-            retained = tuple(row for row in reranked.candidates if row.candidate.root_provision_id in signals)
+                    if reranked_alternative.candidates:
+                        reranked = reranked_alternative
+                        logger.info("qa_alternative_retrieval accepted_candidates=%d", len(reranked.candidates))
+            # Keep top candidates based on vector embeddings and reranker score.
+            # Retain all top reranked candidates so the LLM gets full context.
+            retained = tuple(reranked.candidates[:self.reranker.settings.top_k])
             logger.info("qa_rerank retrieved=%d ranked=%d retained=%d elapsed_ms=%.0f", len(response.results),
                         len(reranked.candidates), len(retained), (perf_counter() - started) * 1000)
             reranked = reranked.model_copy(update={"candidates": retained})

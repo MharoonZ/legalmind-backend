@@ -11,7 +11,7 @@ class RerankerSettings(BaseSettings):
         env_file=".env", env_prefix="QA_RERANK_", extra="ignore", frozen=True,
     )
     model_name: Literal["BAAI/bge-reranker-v2-m3"] = "BAAI/bge-reranker-v2-m3"
-    top_k: int = Field(default=8, ge=5, le=10)
+    top_k: int = Field(default=5, ge=1, le=10)
     device: str = "cpu"
     use_fp16: bool = False
     batch_size: int = Field(default=4, ge=1, le=32)

@@ -105,21 +105,16 @@ class QuestionAnswerService:
                                     missing_support=verified.missing_support or None,
                                     limitations=self._limitations(verified.missing_support, quotations=False))
                 else:
-                    leads = {
-                        "answered": "The cited PDF text says:",
-                        "partial": "I can't confirm a complete answer. A possibly relevant passage says:",
-                        "clarification_needed": "I need one more detail about your situation. The cited PDF text says:",
-                    }
-                    lead = leads[verified.outcome]
-                    quoted = "\n".join(f'“{claim.text}”' for claim in verified.claims)
+                    # Use the LLM's natural language answer directly, with verified citations below it.
+                    answer_body = draft.answer.strip() if draft and draft.answer.strip() else "\n".join(f'“{claim.text}”' for claim in verified.claims)
                     result = AskOut(status=verified.outcome, question=request.question,
-                                    publication_id=publication_id, answer=f"{lead}\n{quoted}",
+                                    publication_id=publication_id, answer=answer_body,
                                     claims=verified.claims, citations=verified.citations,
                                     clarification_question=verified.clarification_question,
                                     missing_support=verified.missing_support or None,
                                     limitations=self._limitations(verified.missing_support))
             except (GenerationUnavailable, GenerationInvalid, ValueError) as exc:
-                logger.warning("qa_generation_failed error=%s", type(exc).__name__)
+                logger.exception("qa_generation_failed error=%s: %s", type(exc).__name__, exc)
                 result = self.unavailable(request.question, publication_id)
         if self.recorder is not None:
             try:

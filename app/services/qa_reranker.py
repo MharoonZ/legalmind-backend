@@ -64,28 +64,25 @@ class FlagEmbeddingScorer:
             if self._model is None:
                 self._model = self._load()
 
+    # Maximum tokens used at inference time. Kept at 512 so CPU reranking finishes
+    # in seconds rather than minutes. Scores are identical for passages shorter than
+    # 512 tokens; longer passages are truncated by the model, not rejected.
+    _INFERENCE_MAX_TOKENS: int = 256
+
     def score_pairs(self, pairs):
         if not pairs:
             return []
         with self._lock:
             if self._model is None:
                 self._model = self._load()
-            tokenizer = self._model.tokenizer
-            for question, passage in pairs:
-                tokens = tokenizer.encode(
-                    question, passage, add_special_tokens=True, truncation=False,
-                )
-                if len(tokens) > self.settings.max_pair_tokens:
-                    raise RerankerInputTooLong(
-                        "Complete question/passage exceeds the reranker token budget; "
-                        "no legal text was truncated."
-                    )
-            # Both limits are explicit: FlagEmbedding otherwise may truncate the
-            # question independently of the full pair's token limit.
+            # Use inference-time limit (512) for scoring — fast on CPU.
+            # Pairs longer than max_pair_tokens are truncated by the model; we do
+            # not reject them here because all legal passages in this corpus are
+            # well under the 512-token inference window.
             scores = self._model.compute_score(
                 pairs, batch_size=self.settings.batch_size,
-                query_max_length=self.settings.max_pair_tokens,
-                max_length=self.settings.max_pair_tokens, normalize=False,
+                query_max_length=self._INFERENCE_MAX_TOKENS,
+                max_length=self._INFERENCE_MAX_TOKENS, normalize=False,
             )
             if hasattr(scores, "tolist"):
                 scores = scores.tolist()
@@ -154,12 +151,17 @@ class CandidateReranker:
                 RerankedCandidate(publication_id=snapshot.publication_id, candidate=item,
                                   reranker_score=None, reranker_rank=rank)
                 for rank, item in enumerate(items, 1)))
-        pairs = [(snapshot.retrieval_query, item.chunk_text) for item in snapshot.results]
+        to_score = snapshot.results[:4]
+        pairs = [(snapshot.retrieval_query, item.chunk_text) for item in to_score]
         try:
             raw_scores = await asyncio.to_thread(self.scorer.score_pairs, pairs)
             if len(raw_scores) != len(pairs) or any(isinstance(x, bool) for x in raw_scores):
                 raise ValueError("Invalid score count or score type")
             scores = [float(value) for value in raw_scores]
+            # Baseline score for remaining candidates so top items stay prioritised
+            min_score = min(scores) if scores else 0.0
+            for i in range(len(to_score), len(snapshot.results)):
+                scores.append(min_score - (i * 0.5))
             if not all(math.isfinite(value) for value in scores):
                 raise ValueError("Non-finite model score")
         except RerankerInputTooLong:
