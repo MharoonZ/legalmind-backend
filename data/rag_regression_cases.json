@@ -28,6 +28,10 @@
     {"id":"coercion-paraphrase","category":"absent","question":"Can an agreement be challenged if someone is forced to sign it?","expected":[],"expected_preparation":"insufficient_evidence"},
     {"id":"prison-tax","category":"adversarial","question":"Does The Prisons Act, 1894 give a prisoner an income-tax refund for buying a mobile phone?","expected":[],"expected_preparation":"insufficient_evidence"},
     {"id":"science","category":"off-topic","question":"How does quantum entanglement work in a superconducting qubit?","expected":[],"expected_preparation":"insufficient_evidence"},
-    {"id":"missing-context","category":"followup","question":"What about it?","expected":[],"expected_preparation":"clarification_needed"}
+    {"id":"missing-context","category":"followup","question":"What about it?","expected":[],"expected_preparation":"clarification_needed"},
+    {"id":"appliance-fire-scenario","category":"scenario","question":"I bought an electronic appliance and it caught fire due to a manufacturing defect and damaged my kitchen. Can I hold the manufacturer liable under consumer law?","expected":[["Consumer Protection","4"]],"expected_preparation":"ready_for_prompt"},
+    {"id":"manufacturer-defective-product","category":"scenario","question":"Can I sue a manufacturer for a defective product?","expected":[["Consumer Protection","4"]],"expected_preparation":"ready_for_prompt"},
+    {"id":"appliance-fire-liability","category":"scenario","question":"Who is responsible if an electrical appliance catches fire?","expected":[["Consumer Protection","4"]],"expected_preparation":"ready_for_prompt"},
+    {"id":"defective-product-property-damage","category":"scenario","question":"What happens if a defective appliance damages someone's property?","expected":[["Consumer Protection","4"]],"expected_preparation":"ready_for_prompt"}
   ]
 }

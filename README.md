@@ -11,7 +11,9 @@ For the `feature/ask` audit and current runbook, see the
 [database audit](docs/DATABASE_DATA_QUALITY_AUDIT.md) and
 [RAG benchmark report](docs/LEGALMIND_RAG_TESTING_AND_BENCHMARK_REPORT.md).
 
-Current architecture, stage contracts, diagrams and review results are in [the 14 November system review](docs/LEGALMIND_REVIEW_2026-11-14.md). The answer implementation is grouped under app/services/qa.
+Current changes, diagrams and limitations are in [the implementation continuation](docs/LEGALMIND_IMPLEMENTATION_2026-11-14.md). The preceding architecture audit and baseline are in [the 14 November system review](docs/LEGALMIND_REVIEW_2026-11-14.md). The answer implementation is grouped under app/services/qa.
+
+The [original PDF validation report](docs/LEGALMIND_ORIGINAL_PDF_VALIDATION_2026-11-14.md) records restoration of all 23 source files and checks of physical pages, extracted blocks, chunk/embedding lineage and literal citations.
 
 ## Legal-PDF flow
 

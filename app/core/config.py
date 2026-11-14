@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     legal_search_hnsw_ef_search: int = Field(default=200, ge=40, le=1000)
     legal_search_timeout_seconds: float = Field(default=90, gt=0, le=230)
     qa_request_timeout_seconds: float = Field(default=180, gt=0, le=230)
+    qa_max_concurrent_requests: int = Field(default=4, ge=1, le=32)
 
     # ------------------------------------------------------------ Validators
     @field_validator("database_url")

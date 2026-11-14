@@ -6,10 +6,11 @@ from time import perf_counter
 
 from app.schemas.legal_search import LegalSearchIn
 from app.schemas.qa import AskIn, AskOut
-from app.schemas.qa_generation import AnswerDraft, DraftClaim
 from app.services.qa.citations import CitationVerificationError
 from app.services.qa.generation import GenerationInvalid, GenerationUnavailable
 from app.services.qa.prompt import build_prompt
+from app.services.qa.analysis import verify_analysis
+from app.services.qa.conversation import resolve_conversation, greeting_response
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +25,16 @@ class QuestionAnswerService:
         self.recorder = recorder
 
     async def ask(self, request: AskIn) -> AskOut:
+        greeting = greeting_response(request.question)
+        if greeting:
+            return AskOut(status="answered", question=request.question, answer=greeting)
         try:
-            search = LegalSearchIn(query=request.question, limit=10, law=request.law, context=request.context)
-            search._explicit_followup = request.context is not None
+            started = perf_counter()
+            context = await resolve_conversation(request, self.generator)
+            logger.info("qa_conversation history_turns=%d context_used=%s elapsed_ms=%.0f",
+                        len(request.history), context is not None, (perf_counter()-started)*1000)
+            search = LegalSearchIn(query=request.question, limit=10, law=request.law, context=context)
+            search._explicit_followup = context is not None
             decision = await self.preparation.prepare(search)
         except Exception as exc:
             logger.warning("qa_preparation_failed error=%s", type(exc).__name__)
@@ -48,7 +56,7 @@ class QuestionAnswerService:
             result = self.unavailable(request.question, publication_id, decision.reason)
         else:
             try:
-                packet = build_prompt(decision)
+                packet = build_prompt(decision, history=request.history)
                 verified = None
                 feedback = None
                 for attempt in range(self.repair_attempts + 1):
@@ -61,13 +69,18 @@ class QuestionAnswerService:
                         verified = await self.verifier.verify(draft, decision)
                         logger.info("qa_citation_verification citations=%d elapsed_ms=%.0f",
                                     len(verified.citations), (perf_counter() - started) * 1000)
+                        started = perf_counter()
+                        verified = await verify_analysis(draft, verified, decision, self.generator)
+                        logger.info("qa_analysis_verification paragraphs=%d elapsed_ms=%.0f",
+                                    len(verified.analysis), (perf_counter()-started)*1000)
                         break
                     except CitationVerificationError as exc:
                         logger.info("qa_citation_rejected code=%s elapsed_ms=%.0f", exc.code,
                                     (perf_counter() - started) * 1000)
                         if exc.code == "source_verification_unavailable":
                             return self.unavailable(request.question, publication_id)
-                        feedback = exc.code
+                        verified = None
+                        feedback = exc.code + (": " + exc.feedback if exc.feedback else "")
                 if verified is None:
                     result = AskOut(status="insufficient_evidence", question=request.question,
                                     publication_id=publication_id,
@@ -87,8 +100,16 @@ class QuestionAnswerService:
                     }
                     lead = leads[verified.outcome]
                     quoted = "\n".join(f'“{claim.text}”' for claim in verified.claims)
+                    if verified.analysis:
+                        paragraphs = []
+                        for step in verified.analysis:
+                            indexes = sorted({i for claim in step.claim_indexes
+                                              for i in verified.claims[claim].citation_indexes})
+                            paragraphs.append(step.text + " " + " ".join(f"[{i+1}]" for i in indexes))
+                        quoted = "\n\n".join(paragraphs)
+                        lead = "" if verified.outcome == "answered" else lead
                     result = AskOut(status=verified.outcome, question=request.question,
-                                    publication_id=publication_id, answer=f"{lead}\n{quoted}",
+                                    publication_id=publication_id, answer=f"{lead}\n{quoted}".strip(),
                                     claims=verified.claims, citations=verified.citations,
                                     clarification_question=verified.clarification_question,
                                     missing_support=verified.missing_support or None,

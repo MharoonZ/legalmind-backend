@@ -1,5 +1,6 @@
 """Citation boundary and stored-offset checks, without a live DB or model."""
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace as Row
 
 import pytest
@@ -20,6 +21,24 @@ def proof_for(unit, start=0, end=None, page=1):
         provision_id=unit.provision_id, kind=unit.kind, label=unit.label, reference_path=unit.reference_path,
         source_span_id=identity(f"span-{page}"), file_id=identity("file"), file_sha256="a" * 64,
         filename="synthetic.pdf", page_index=page, source_url=None)
+
+
+def test_reviewed_substitution_cannot_be_quoted_as_original_pdf_wording():
+    decision, draft = setup()
+    unit = decision.context.units[0]
+    proof = replace(proof_for(unit), original_text=unit.text.replace("1", "l", 1))
+    with pytest.raises(CitationVerificationError, match="quotation_contains_reviewed_substitution"):
+        asyncio.run(CitationVerifier(FakeSource([proof])).verify(draft, decision))
+
+
+def test_unchanged_words_in_a_reviewed_block_remain_citable():
+    decision, draft = setup()
+    unit = decision.context.units[0]
+    proof = replace(proof_for(unit), original_text=unit.text.replace("1", "l", 1))
+    quote = unit.text.split(". ", 1)[1]
+    draft = draft.model_copy(update={"claims": [draft.claims[0].model_copy(update={"quote":quote,"claim_text":quote})]})
+    verified = asyncio.run(CitationVerifier(FakeSource([proof])).verify(draft, decision))
+    assert verified.claims[0].text == quote
 
 
 @pytest.mark.parametrize("fault", ["missing_prefix", "missing_tail", "middle_gap", "negative", "overshoot", "empty"])

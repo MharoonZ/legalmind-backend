@@ -42,6 +42,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        from app.api.routes.qa import _generator
+        if hasattr(_generator, "cache_info") and _generator.cache_info().currsize:
+            await _generator().aclose()
+            _generator.cache_clear()
         await db.dispose()
 
 

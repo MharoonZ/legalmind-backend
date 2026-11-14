@@ -9,10 +9,10 @@ from app.db.legal_corpus_models import (
     FileBlock, FileExtraction, FilePage, LegalChunkProvision, LegalFile,
     Provision, ProvisionSpan, RevisionSource,
 )
-from app.repositories.qa_context_repository import QaContextRepository
+from app.repositories.qa_context_repository import QaContextRepository, source_read_options
 from app.schemas.qa_context import ContextUnit
 from app.services.qa.source_proofs import (
-    CitationVerificationError, SourceProof, covered_proofs, valid_text_range,
+    CitationVerificationError, SourceProof, covered_proofs, valid_text_range, original_source_fragment,
 )
 
 
@@ -71,6 +71,7 @@ class QaSourceVerifier:
                             file_id=ref["file_id"], file_sha256=ref["file_sha256"],
                             filename=ref["filename"], page_index=ref["page_index"],
                             source_url=ref["source_url"],
+                            original_text=ref.get("original_text"),
                         ) for ref in provision_refs.get(node.id, [])]
                     else:
                         checked[key] = self._chunk_proofs(unit, by_chunk[unit.chunk_id])
@@ -82,6 +83,7 @@ class QaSourceVerifier:
         return (await catalog.session.execute(
                 select(LegalChunkProvision, ProvisionSpan, Provision, FilePage,
                        FileBlock, FileExtraction, LegalFile, RevisionSource)
+                .options(*source_read_options())
                 .join(ProvisionSpan, (ProvisionSpan.id == LegalChunkProvision.source_span_id) &
                       (ProvisionSpan.provision_id == LegalChunkProvision.provision_id) &
                       (ProvisionSpan.revision_id == LegalChunkProvision.revision_id))
@@ -134,5 +136,7 @@ class QaSourceVerifier:
                 file_id=file.id, file_sha256=file.sha256,
                 filename=file.original_filename, page_index=page.page_index,
                 source_url=file.source_url,
+                original_text=original_source_fragment(block.raw_text,block.normalized_text,
+                    span.block_char_start,span.block_char_end),
             ))
         return proofs

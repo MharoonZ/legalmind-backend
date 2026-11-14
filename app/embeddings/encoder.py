@@ -25,7 +25,6 @@ unless the loading or encoding logic itself needs to change.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import math
@@ -228,9 +227,7 @@ async def encode_texts_async(
     block the asyncio event loop (important when called from a FastAPI endpoint
     or an async script).
     """
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None,
-        lambda: encode_texts(texts, profile, batch_size=batch_size),
-    )
+    from app.services.model_runtime import runtime
+    return await runtime.run(lambda stop: encode_texts(texts, profile, batch_size=batch_size),
+                             stage="query_embedding" if len(texts) == 1 else "embedding_batch")
 

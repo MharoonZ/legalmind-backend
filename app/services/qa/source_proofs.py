@@ -1,12 +1,14 @@
 """Shared character-proof checks for source reads and final citation assembly."""
 from dataclasses import dataclass
 from uuid import UUID
+import unicodedata
 
 
 class CitationVerificationError(RuntimeError):
     """A draft claim is unsupported or its source mapping cannot be proved."""
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, feedback: str | None = None):
         self.code = code
+        self.feedback = feedback
         super().__init__(code)
 
 
@@ -24,6 +26,22 @@ class SourceProof:
     filename: str
     page_index: int
     source_url: str | None
+    original_text: str | None = None
+
+
+def original_source_fragment(raw: str, normalized: str, start: int, end: int) -> str | None:
+    """Keep reviewed substitutions distinct from original extracted wording.
+
+    Canonical Unicode/line-ending normalization does not change wording. Other
+    edits need a length-preserving mapping to the original block; approval alone
+    does not make substituted characters literal PDF quotations.
+    """
+    original = unicodedata.normalize("NFC", raw.replace("\r\n", "\n").replace("\r", "\n"))
+    if original == normalized:
+        return None
+    if len(original) != len(normalized):
+        raise CitationVerificationError("unmapped_source_correction")
+    return original[start:end]
 
 
 def valid_text_range(text: str, start: int, end: int) -> bool:
@@ -42,6 +60,14 @@ def covered_proofs(text: str, start: int, end: int, proofs: list[SourceProof]) -
                       key=lambda row: (row.start, row.end))
     cursor = start
     for row in selected:
+        if row.original_text is not None:
+            if len(row.original_text) != row.end-row.start:
+                raise CitationVerificationError("unmapped_source_correction")
+            left,right = max(start,row.start),min(end,row.end)
+            if row.original_text[left-row.start:right-row.start] != text[left:right]:
+                raise CitationVerificationError("quotation_contains_reviewed_substitution", feedback=
+                    "The quotation includes a reviewed substitution rather than original source characters. "
+                    "Select unchanged wording, omitting the affected numbering marker if possible.")
         if row.start > cursor and text[cursor:min(row.start, end)].strip():
             raise CitationVerificationError("source_span_gap")
         cursor = max(cursor, min(row.end, end))

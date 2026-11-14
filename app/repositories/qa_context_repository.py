@@ -17,11 +17,25 @@ from app.db.legal_corpus_models import (
 )
 from app.db.publication_models import CorpusPublication, PublicationItem
 from app.repositories.legal_chunk_repository import LegalChunkRepository
-from app.services.qa.source_proofs import valid_text_range
+from app.services.qa.source_proofs import valid_text_range, original_source_fragment
 
 
 class ContextScopeError(RuntimeError):
     """The retrieved publication or approved source scope is no longer usable."""
+
+
+def source_read_options():
+    """Read proof fields without repeating full pages/extraction reports per span."""
+    return (
+        load_only(Provision.id, Provision.revision_id, Provision.own_text, Provision.text_sha256,
+                  Provision.reference_path, Provision.kind, Provision.label),
+        load_only(FilePage.id, FilePage.page_index),
+        load_only(FileBlock.id, FileBlock.raw_text, FileBlock.normalized_text, FileBlock.text_sha256),
+        load_only(FileExtraction.id, FileExtraction.file_id),
+        load_only(LegalFile.id, LegalFile.sha256, LegalFile.original_filename, LegalFile.source_url, LegalFile.publisher),
+        load_only(RevisionSource.revision_id, RevisionSource.extraction_id,
+                  RevisionSource.file_id, RevisionSource.source_role),
+    )
 
 
 @dataclass(frozen=True)
@@ -103,6 +117,7 @@ class ContextCatalog:
         rows = (await self.session.execute(
             select(ProvisionSpan, Provision, FilePage, FileBlock, FileExtraction,
                    LegalFile, RevisionSource)
+            .options(*source_read_options())
             .join(Provision, (Provision.id == ProvisionSpan.provision_id) &
                  (Provision.revision_id == ProvisionSpan.revision_id))
             .join(RevisionSource, (RevisionSource.revision_id == ProvisionSpan.revision_id) &
@@ -140,6 +155,8 @@ class ContextCatalog:
                 "provision_char_end": span.provision_char_end,
                 "block_char_start": span.block_char_start,
                 "block_char_end": span.block_char_end,
+                "original_text": original_source_fragment(block.raw_text,block.normalized_text,
+                    span.block_char_start,span.block_char_end),
             })
         for provision_id in provision_ids:
             node = self.nodes[provision_id]

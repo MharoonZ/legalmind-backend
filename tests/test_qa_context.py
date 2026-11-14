@@ -143,9 +143,32 @@ def test_default_budget_retains_a_root_with_many_required_qualifications():
     result = expand(catalog, reranked)
     assert len(result.units) == 9
     assert not any(issue.critical for issue in result.issues)
-    assert not any(issue.critical for issue in result.issues)
     assert len({unit.evidence_id for unit in result.units}) == len(result.units)
     assert reranked.candidates[0].candidate.rrf_score == result.reranked.candidates[0].candidate.rrf_score
+
+
+def test_packing_retains_multiple_complete_roots_when_a_lower_ranked_group_does_not_fit():
+    catalog, ranked = graph()
+    selected = list(ranked.candidates)
+    for index in (2, 3):
+        item = candidate(index)
+        root = node(f"provision-{index}", label=str(index), text=item.chunk_text)
+        passage = chunk(f"chunk-{index}", root, text=item.chunk_text)
+        catalog.chunks[passage.id] = passage
+        catalog.nodes[root.id] = root
+        catalog.members[passage.id] = {root.id}
+        selected.append(RerankedCandidate(publication_id=PUBLICATION, candidate=item,
+                                         reranker_rank=index, reranker_score=1/index))
+    catalog._index_graph()
+    ranked = ranked.model_copy(update={"candidates": tuple(selected)})
+    result = asyncio.run(ContextExpander(FakeRepo(catalog), ContextSettings(max_units=3),
+        token_counter=lambda text: len(text.split())).expand_packed(ranked))
+    assert result.coverage_limited
+    assert len(result.reranked.candidates) == 2
+    assert len(result.units) == 3
+    assert not any(issue.critical for issue in result.issues)
+    assert len({unit.evidence_id for unit in result.units}) == len(result.units)
+    assert ranked.candidates[0].candidate.rrf_score == result.reranked.candidates[0].candidate.rrf_score
 
 
 def test_resolved_reference_follows_pinned_publication_and_stops_cycle():

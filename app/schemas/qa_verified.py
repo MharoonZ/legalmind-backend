@@ -35,6 +35,13 @@ class VerifiedClaim(BaseModel):
     citation_indexes: tuple[int, ...]
 
 
+class VerifiedAnalysis(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    kind: Literal["explanation", "application"]
+    text: str
+    claim_indexes: tuple[int, ...]
+
+
 class VerifiedDraft(BaseModel):
     model_config = ConfigDict(frozen=True)
     outcome: Literal["answered", "partial", "clarification_needed", "insufficient_evidence"]
@@ -42,3 +49,4 @@ class VerifiedDraft(BaseModel):
     citations: tuple[VerifiedCitation, ...]
     missing_support: str
     clarification_question: str | None = None
+    analysis: tuple[VerifiedAnalysis, ...] = ()

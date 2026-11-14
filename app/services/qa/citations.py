@@ -39,10 +39,10 @@ class CitationVerifier:
             if draft.outcome not in {"partial", "insufficient_evidence"}:
                 raise CitationVerificationError("missing_requested_reference")
             missing_support = "Unavailable in this publication: " + ", ".join(decision.missing_references) + "."
-        elif decision.limited_source_context:
-            if draft.outcome not in {"partial", "insufficient_evidence"}:
-                raise CitationVerificationError("limited_source_context")
-            missing_support = "Only some of the relevant material could be verified with its required source context."
+        # Whole ranked roots may be omitted during packing. Required context
+        # for each retained rule is still complete. Relevance/completeness of
+        # the explanation is assessed against that context, not inferred from
+        # the number of candidates that fitted the prompt.
         if draft.outcome == "clarification_needed":
             if len(question) < 3 or not missing_support:
                 raise CitationVerificationError("missing_clarification")

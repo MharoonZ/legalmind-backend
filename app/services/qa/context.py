@@ -40,7 +40,10 @@ class ContextExpander:
         self.settings = settings or get_context_settings()
         self.token_counter = token_counter or count_context_tokens
 
-    async def expand(self, reranked: RerankResult) -> ContextResult:
+    async def expand_packed(self, reranked: RerankResult) -> ContextResult:
+        return await self.expand(reranked, pack_complete_roots=True)
+
+    async def expand(self, reranked: RerankResult, *, pack_complete_roots=False) -> ContextResult:
         base = dict(reranked=reranked, token_limit=self.settings.max_tokens,
                     char_limit=self.settings.max_chars, unit_limit=self.settings.max_units)
         if reranked.retrieval.status != "ok" or not reranked.candidates:
@@ -51,6 +54,8 @@ class ContextExpander:
         units, issues, reference_links = [], [], []
         seen, token_count, char_count = set(), 0, 0
         original = {row.candidate.chunk_id: row for row in reranked.candidates}
+        packing = pack_complete_roots and not any(row.candidate.exact_rank for row in reranked.candidates)
+        coverage_limited = False
 
         async with self.repository.snapshot(publication_id, instrument_ids={
                 row.candidate.instrument_id for row in reranked.candidates}) as catalog:
@@ -129,6 +134,22 @@ class ContextExpander:
                         return False
                 return True
 
+            def group_fits(passages, *, required):
+                # Check complete-group budgets before fetching its source spans.
+                # Discarded lower-ranked groups otherwise incurred remote reads
+                # even though their text could never enter the prompt.
+                pending = {key: value for key, value in passages if key not in seen}
+                costs = [self.token_counter(value) + 16 for value in pending.values()]
+                if any(isinstance(cost, bool) or not isinstance(cost, int) or cost < 16 for cost in costs):
+                    raise ContextTokenizationError("The context tokenizer returned an invalid count.")
+                if (len(units) + len(pending) > self.settings.max_units or
+                        char_count + sum(map(len, pending.values())) > self.settings.max_chars or
+                        token_count + sum(costs) > self.settings.max_tokens):
+                    add_issue("budget_omission", "A complete source group did not fit the context budget.",
+                              critical=required, source_id=next(iter(pending), None))
+                    return False
+                return True
+
             async def chunk_unit(chunk, instrument_id, relation):
                 item = item_for(instrument_id)
                 check_chunk(chunk, item)
@@ -187,7 +208,8 @@ class ContextExpander:
                 chunk = catalog.chunks.get(candidate.chunk_id)
                 if chunk is None:
                     raise ContextScopeError("A retrieved chunk is absent from the active publication.")
-                add_unit(await chunk_unit(chunk, candidate.instrument_id, "retrieved"), required=True)
+                if not packing:
+                    add_unit(await chunk_unit(chunk, candidate.instrument_id, "retrieved"), required=True)
                 key = (candidate.instrument_id, chunk.root_provision_id)
                 if key not in selected_root_ids:
                     selected_root_ids.add(key)
@@ -241,11 +263,17 @@ class ContextExpander:
                         related.add(node.id)
                 parents = [parent for parent in ancestors(root) if parent.own_text.strip()]
                 related.update(parent.id for parent in parents)
+                if not group_fits(
+                        [(f"chunk:{part.id}", part.chunk_text) for part in parts] +
+                        [(f"provision:{node.id}", node.own_text) for node in (*qualifications, *parents)],
+                        required=required):
+                    return None
                 # Fetch exact source spans once per whole group, rather than one
                 # network round trip for every parent, qualifier or split chunk.
                 await catalog.chunk_sources([part.id for part in parts if part.id not in original])
                 await catalog.provision_sources([node.id for node in (*qualifications, *parents)])
-                group = [await chunk_unit(part, instrument_id, relation) for part in parts]
+                group = [await chunk_unit(part, instrument_id,
+                    "retrieved" if packing and part.id in original else relation) for part in parts]
                 group.extend([await provision_unit(node, instrument_id, "qualification")
                               for node in qualifications])
                 group.extend([await provision_unit(parent, instrument_id, "parent")
@@ -271,6 +299,8 @@ class ContextExpander:
                               critical=required, source_id=f"provision:{scope.target_id}")
                     return None
                 nodes = [node for node in nodes if node.own_text.strip()]
+                if not group_fits([(f"provision:{node.id}", node.own_text) for node in nodes], required=required):
+                    return None
                 await catalog.provision_sources([node.id for node in nodes])
                 group = [await provision_unit(node, instrument_id,
                     "parent" if node.id in parent_ids else
@@ -282,7 +312,7 @@ class ContextExpander:
 
             required_seeds = []
             for instrument_id, root_id in selected_roots:
-                if await complete_root(instrument_id, root_id, "sibling", required=True) is not None:
+                if not packing and await complete_root(instrument_id, root_id, "sibling", required=True) is not None:
                     required_seeds.append((instrument_id, root_id, 0))
 
             # Reviewed links and unique same-revision numbered source mentions
@@ -391,7 +421,34 @@ class ContextExpander:
             # Required sections and their dependencies have first claim on the
             # budget. A heading-discovered definition must never make a required
             # reference optional, even when both point to the same section.
-            await follow_references(required_seeds, required=True)
+            if packing:
+                # Commit a ranked root only together with all its qualifications
+                # and required references. Failed groups cannot contaminate a
+                # retained rule or force the whole question down to one root.
+                for instrument_id, root_id in selected_roots:
+                    count, old_tokens, old_chars = len(units), token_count, char_count
+                    old_issues, old_links = len(issues), len(reference_links)
+                    old_seen, old_roots, old_closed = seen.copy(), expanded_roots.copy(), closed_roots.copy()
+                    added = await complete_root(instrument_id, root_id, "sibling", required=True)
+                    complete = added is not None and await follow_references(
+                        [(instrument_id, root_id, 0)], required=True)
+                    if not complete or any(issue.critical for issue in issues[old_issues:]):
+                        del units[count:]
+                        del reference_links[old_links:]
+                        del issues[old_issues:]
+                        seen.clear()
+                        seen.update(old_seen)
+                        expanded_roots.clear()
+                        expanded_roots.update(old_roots)
+                        closed_roots.clear()
+                        closed_roots.update(old_closed)
+                        token_count, char_count = old_tokens, old_chars
+                        coverage_limited = True
+                        add_issue("optional_context_omitted",
+                            "A ranked source group and its required dependencies could not be retained completely.",
+                            source_id=f"provision:{root_id}")
+            else:
+                await follow_references(required_seeds, required=True)
             definition_instruments = set()
             numbered_lookup = any(row.candidate.matched_reference_paths for row in reranked.candidates)
             asks_definition = re.search(r"\b(?:defin\w*|mean(?:s|ing)?|interpret\w*)\b",
@@ -441,6 +498,10 @@ class ContextExpander:
                         instruments.extend(dict.fromkeys(
                             instrument for instrument, _ in expanded_roots
                             if instrument not in definition_instruments))
-        return ContextResult(**base, units=tuple(units), issues=tuple(issues),
+        if packing:
+            retained = {unit.chunk_id for unit in units if unit.relation == "retrieved"}
+            base["reranked"] = reranked.model_copy(update={
+                "candidates": tuple(row for row in reranked.candidates if row.candidate.chunk_id in retained)})
+        return ContextResult(**base, units=tuple(units), issues=tuple(issues), coverage_limited=coverage_limited,
                              reference_links=tuple(reference_links),
                              token_count=token_count, char_count=char_count)

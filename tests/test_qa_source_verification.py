@@ -47,7 +47,8 @@ def prepared_source(block_text=None):
     link = Row(chunk_id=unit.chunk_id, chunk_char_start=0, chunk_char_end=len(text),
                provision_char_start=0, provision_char_end=len(text))
     page = Row(page_index=1)
-    block = Row(normalized_text=block_text if block_text is not None else text)
+    block = Row(normalized_text=block_text if block_text is not None else text,
+                raw_text=block_text if block_text is not None else text)
     file = Row(id=identity("file"), sha256="a" * 64,
                original_filename="synthetic.pdf", source_url=None)
     catalog.session = FakeSession([(link, span, node, page, block, Row(), file, Row())])

@@ -1,0 +1,206 @@
+{
+  "date": "2026-11-14",
+  "baseline_commit": "4fa5c51",
+  "provider": "gemini-3.5-flash-lite",
+  "reranking": {
+    "pairs": 10,
+    "baseline_seconds": 98.6734420999419,
+    "first_improved_seconds": 51.919,
+    "final_seconds": 35.979,
+    "reduction_percent": 63.54,
+    "same_inputs": true,
+    "maximum_score_difference": 3.814697265625e-06
+  },
+  "real_api_cases": [
+    {
+      "id": "greeting",
+      "http": 200,
+      "status": "answered",
+      "seconds": 0.264,
+      "claims": 0,
+      "citations": 0,
+      "answer": "Hello! Tell me your legal question or describe what happened, and I can help explain the available legal sources.",
+      "missing_support": null,
+      "source": "final run"
+    },
+    {
+      "id": "scenario",
+      "http": 200,
+      "status": "answered",
+      "seconds": 164.702,
+      "claims": 3,
+      "citations": 9,
+      "answer": "The Punjab Consumer Protection Act 2005 establishes that a product manufacturer is liable for damages proximately caused by a characteristic that renders the product defective, assuming the damage arose from a reasonably anticipated use by the consumer. [1]\n\nA product qualifies as defective under the law only if it meets specific statutory criteria: being defective in construction or composition, defective in design, lacking an adequate warning, or failing to conform to an express warranty. [2] [3] [4] [5] [6] [7] [8]\n\nThe law restricts damages to a return of consideration and costs only when the consumer has suffered no damage other than the loss of utility. Because your kitchen was damaged, this restriction does not bar your claim for broader damages. [9]\n\nApplying these provisions to your situation, if you bought an electronic appliance that caught fire due to a manufacturing defect during reasonably anticipated use and consequently damaged your kitchen, you can hold the manufacturer liable under consumer law for the proximately caused damages. [1] [2] [3] [4] [5] [6] [7] [8] [9]",
+      "missing_support": null,
+      "source": "final run"
+    },
+    {
+      "id": "scenario-followup",
+      "http": 200,
+      "status": "answered",
+      "seconds": 129.049,
+      "claims": 2,
+      "citations": 2,
+      "answer": "Because the fire caused property damage to the kitchen rather than only a loss of utility, the restriction limiting recovery solely to the return of consideration and costs does not apply. [1] [2]",
+      "missing_support": null,
+      "source": "initial revised run"
+    },
+    {
+      "id": "invented-section",
+      "http": 200,
+      "status": "insufficient_evidence",
+      "seconds": 11.406,
+      "claims": 0,
+      "citations": 0,
+      "answer": "I can't determine the answer from the approved PDFs currently in this collection. Try naming the Act or section, or check another applicable source.",
+      "missing_support": "The requested reference is unavailable in the selected publication.",
+      "source": "initial revised run"
+    },
+    {
+      "id": "exact-subsection",
+      "http": 200,
+      "status": "answered",
+      "seconds": 67.994,
+      "claims": 1,
+      "citations": 1,
+      "answer": "Section 4(2)(a) of The Punjab Consumer Protection Act 2005 specifies that a product is considered defective only if it is defective in construction or composition, referencing the standards provided in section 5. [1]",
+      "missing_support": null,
+      "source": "final run"
+    }
+  ],
+  "validation": {
+    "full_backend_run": {
+      "passed": 759,
+      "failed": 5,
+      "skipped": 1,
+      "seconds": 75.07
+    },
+    "corrected_failures": "One newly added test used the wrong fixture variable; four SDK fixtures omitted the newly supported analysis field. Corrected and passed focused reruns.",
+    "focused_recheck": {
+      "passed": 134,
+      "failed": 0,
+      "seconds": 10.11
+    },
+    "source_query_recheck": {
+      "passed": 103,
+      "failed": 0,
+      "seconds": 3.48
+    },
+    "final_backend_case_status": {
+      "passed": 769,
+      "failed": 0,
+      "skipped": 1,
+      "basis": "Prior full run and focused rechecks plus five added PDF restoration/source-character tests. A second whole-suite run was not performed."
+    },
+    "frontend_typecheck": "passed",
+    "frontend_lint": "passed",
+    "frontend_browser_checks": {
+      "passed": 2
+    },
+    "pdf_restore_checks": {
+      "passed": 10,
+      "failed": 0,
+      "seconds": 5.05
+    },
+    "original_source_guard_checks": {
+      "passed": 68,
+      "failed": 0,
+      "seconds": 5.26
+    }
+  },
+  "projected_proof_check": {
+    "mode": "real database, projected proof payloads",
+    "claims_checked": 4,
+    "source_proofs": 10,
+    "seconds": 22.38,
+    "all_passed": true
+  },
+  "conversation": {
+    "mode": "real Gemini context selection",
+    "cases": [
+      {
+        "question": "Can I recover the cost of repairing my kitchen?",
+        "context_used": true,
+        "expected": true
+      },
+      {
+        "question": "What are the duties of prison officers under the Prisons Act?",
+        "context_used": false,
+        "expected": false
+      }
+    ]
+  },
+  "pdf_inventory": {
+    "discovered_source_copies": 46,
+    "unique_originals": 23,
+    "restored_originals": 23,
+    "missing_originals": 0,
+    "file": "implementation_20261114_pdfs.json",
+    "restoration_file": "implementation_20261114_pdf_restore.json"
+  },
+  "limitations": [
+    "Final API scenario took 164.702 seconds despite improved inference, with substantial DB/source-read variability.",
+    "Projected source payload optimization was verified against the real DB separately; no full API timing after that last optimization.",
+    "Semantic explanation review is model-based and does not certify interpretation or applicability.",
+    "Applicability remains unknown for all 23 editions.",
+    "No local disposable PostgreSQL instance for the skipped worker locking test.",
+    "Original pages were compared automatically across the collection; six pages received additional visual spot checks, not exhaustive legal review."
+  ],
+  "original_pdf_validation": {
+    "summary": {
+      "originals": 23,
+      "original_errors": 0,
+      "pages": 199,
+      "raw_page_mismatches": 0,
+      "normalized_page_mismatches": 1,
+      "raw_block_mismatches": 0,
+      "citation_checks": 19,
+      "citation_mismatches": 0,
+      "unmatched_citation_inputs": 0,
+      "seconds": 196.049
+    },
+    "page_totals": {
+      "pages": 199,
+      "fresh_method_native": 182,
+      "raw_page_matches": 199,
+      "normalized_page_matches": 198,
+      "stored_blocks": 1548,
+      "raw_block_matches": 1548,
+      "normalized_block_matches": 1547,
+      "fresh_method_none": 17,
+      "fresh_warning_blank_candidate": 17,
+      "fresh_warning_ambiguous_numbering_glyph": 4,
+      "fresh_warning_table_layout_candidate": 3
+    },
+    "lineage": {
+      "fragment_links": 2473,
+      "mismatched_links": 0
+    },
+    "embeddings": {
+      "chunks": 531,
+      "maximum_input_tokens": 1016,
+      "profile": "bge-m3-v1",
+      "dimension": 1024,
+      "input_or_vector_identity_failures": [],
+      "bad_root_sequences": 0
+    },
+    "detail_file": "implementation_20261114_original_validation.json"
+  },
+  "original_quote_guard": {
+    "filename": "393.pdf",
+    "page": 3,
+    "reviewed_substitution_rejected": "quotation_contains_reviewed_substitution",
+    "unchanged_words_verified": true,
+    "source_spans": 3,
+    "database_changed": false
+  },
+  "original_preview": {
+    "filename": "477.pdf",
+    "physical_page": 5,
+    "status": 200,
+    "content_type": "image/png",
+    "cache_control": "no-store",
+    "png_bytes": 217735,
+    "source": "restored original, real database and real API"
+  }
+}

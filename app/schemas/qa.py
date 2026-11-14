@@ -8,11 +8,18 @@ from app.schemas.legal_search import SearchContextIn
 from app.schemas.qa_verified import VerifiedCitation, VerifiedClaim
 
 
+class ConversationTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class AskIn(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    question: str = Field(min_length=3, max_length=4000)
+    question: str = Field(min_length=1, max_length=4000)
     law: str | None = Field(default=None, min_length=1, max_length=255)
     context: SearchContextIn | None = None
+    history: list[ConversationTurn] = Field(default_factory=list, max_length=6)
 
     @field_validator("question")
     @classmethod
@@ -28,6 +35,8 @@ class AskIn(BaseModel):
 
     @model_validator(mode="after")
     def bounded_followup(self):
+        if sum(len(turn.content) for turn in self.history) > 12000:
+            raise ValueError("Conversation history must fit within 12000 characters")
         if len(self.search_query()) > 4000:
             raise ValueError("The question and previous question together must fit within 4000 characters")
         return self

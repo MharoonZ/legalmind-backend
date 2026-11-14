@@ -32,15 +32,9 @@ class QuestionPreparationService:
             ranked = await self.reranker.rerank(response)
             logger.info("qa_rerank candidates=%d elapsed_ms=%.0f", len(ranked.candidates),
                         (perf_counter() - started) * 1000)
-            context = await self.context_expander.expand(ranked)
-            roots = {row.candidate.root_provision_id for row in ranked.candidates}
-            if (len(roots) > 1 and not any(row.candidate.exact_rank for row in ranked.candidates)
-                    and any(issue.critical for issue in context.issues)):
-                first = ranked.candidates[0].candidate.root_provision_id
-                rows = tuple(row for row in ranked.candidates if row.candidate.root_provision_id == first)
-                narrower = await self.context_expander.expand(ranked.model_copy(update={"candidates": rows}))
-                if narrower.units and not any(issue.critical for issue in narrower.issues):
-                    context = narrower.model_copy(update={"coverage_limited": True})
+            started = perf_counter()
+            expand = getattr(self.context_expander, "expand_packed", self.context_expander.expand)
+            context = await expand(ranked)
             if not context.units or any(issue.critical for issue in context.issues):
                 return PreparedQuestion(outcome="insufficient_evidence", context=context,
                     reason="Required source passages or dependencies could not fit the complete context.")

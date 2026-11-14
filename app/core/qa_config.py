@@ -15,6 +15,7 @@ class RerankerSettings(BaseSettings):
     device: str = "cpu"
     use_fp16: bool = False
     batch_size: int = Field(default=4, ge=1, le=32)
+    batch_token_budget: int = Field(default=2048, ge=256, le=65536)
     max_pair_tokens: int = Field(default=8192, ge=32, le=8192)
     warm_on_startup: bool = True
 

@@ -5,12 +5,14 @@ import asyncio
 import logging
 import math
 import threading
+from time import perf_counter
 from numbers import Real
 from typing import Protocol
 
 from app.core.qa_config import RerankerSettings, get_reranker_settings
 from app.schemas.legal_search import LegalSearchOut
 from app.schemas.qa_evidence import RerankResult, RerankedCandidate
+from app.services.model_runtime import InferenceCancelled, runtime
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +66,17 @@ class FlagEmbeddingScorer:
             if self._model is None:
                 self._model = self._load()
 
-    def score_pairs(self, pairs):
+    def score_pairs(self, pairs, *, cancel_event=None):
         if not pairs:
             return []
         with self._lock:
             if self._model is None:
                 self._model = self._load()
             tokenizer = self._model.tokenizer
+            encoded = []
             for question, passage in pairs:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise InferenceCancelled()
                 tokens = tokenizer.encode(
                     question, passage, add_special_tokens=True, truncation=False,
                 )
@@ -80,6 +85,9 @@ class FlagEmbeddingScorer:
                         "Complete question/passage exceeds the reranker token budget; "
                         "no legal text was truncated."
                     )
+                encoded.append(tokens)
+            if hasattr(self._model, "model"):
+                return self._score_encoded(encoded, cancel_event)
             # Both limits are explicit: FlagEmbedding otherwise may truncate the
             # question independently of the full pair's token limit.
             scores = self._model.compute_score(
@@ -90,6 +98,46 @@ class FlagEmbeddingScorer:
             if hasattr(scores, "tolist"):
                 scores = scores.tolist()
             return [scores] if isinstance(scores, Real) else list(scores)
+
+    def _score_encoded(self, encoded, cancel_event):
+        """Use the same classifier once per batch, without the library's duplicate
+        largest-batch trial forward pass or second, truncating tokenization.
+        XLM-R uses no token-type IDs. The paired encodings above include
+        the exact paired special tokens, and tokenizer.pad supplies attention.
+        """
+        import torch
+        model = self._model.model
+        model.to(self._model.target_devices[0])
+        if self.settings.use_fp16 and self._model.target_devices[0] != "cpu":
+            model.half()
+        device = next(model.parameters()).device
+        model.eval()
+        order = sorted(range(len(encoded)), key=lambda i: len(encoded[i]), reverse=True)
+        scores = [0.0] * len(encoded)
+        started = perf_counter()
+        with torch.inference_mode():
+            offset = 0
+            while offset < len(order):
+                if cancel_event is not None and cancel_event.is_set():
+                    raise InferenceCancelled()
+                count = min(self.settings.batch_size, len(order)-offset)
+                while count > 1 and count*len(encoded[order[offset]]) > self.settings.batch_token_budget:
+                    count -= 1
+                ids = order[offset:offset+count]
+                batch = self._model.tokenizer.pad(
+                    [{"input_ids": encoded[i], "attention_mask": [1]*len(encoded[i])} for i in ids],
+                    padding=True, return_tensors="pt",
+                ).to(device)
+                values = model(**batch, return_dict=True).logits.view(-1).float().cpu().tolist()
+                if len(values) != len(ids):
+                    raise ValueError("Invalid classifier score count")
+                for i, score in zip(ids, values):
+                    scores[i] = score
+                offset += count
+        logger.info("qa_rerank_inference pairs=%d max_tokens=%d input_tokens=%d device=%s threads=%d elapsed_ms=%.0f",
+                    len(encoded), max(map(len, encoded)), sum(map(len, encoded)), device,
+                    torch.get_num_threads(), (perf_counter()-started)*1000)
+        return scores
 
 
 _scorers: dict[RerankerSettings, FlagEmbeddingScorer] = {}
@@ -156,7 +204,10 @@ class CandidateReranker:
                 for rank, item in enumerate(items, 1)))
         pairs = [(snapshot.retrieval_query, item.chunk_text) for item in snapshot.results]
         try:
-            raw_scores = await asyncio.to_thread(self.scorer.score_pairs, pairs)
+            raw_scores = await runtime.run(
+                lambda stop: self.scorer.score_pairs(pairs, cancel_event=stop)
+                if isinstance(self.scorer, FlagEmbeddingScorer) else self.scorer.score_pairs(pairs),
+                stage="reranking")
             if len(raw_scores) != len(pairs) or any(isinstance(x, bool) for x in raw_scores):
                 raise ValueError("Invalid score count or score type")
             scores = [float(value) for value in raw_scores]

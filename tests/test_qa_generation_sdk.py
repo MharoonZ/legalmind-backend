@@ -27,7 +27,7 @@ PRIVATE = "PRIVATE-PROVIDER-DETAIL-DO-NOT-RETURN"
 
 
 def draft_data(outcome="answered"):
-    return dict(outcome=outcome, answer="Unverified model prose.",
+    return dict(outcome=outcome, answer="Unverified model prose.", analysis=[],
         claims=[] if outcome == "insufficient_evidence" else [dict(evidence_id="chunk:synthetic",
             quote="Provided that a signed permit is required.",
             claim_text="Provided that a signed permit is required.")],

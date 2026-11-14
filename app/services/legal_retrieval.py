@@ -36,11 +36,17 @@ class LegalRetrievalService:
         return result
 
     async def _search(self, request):
+        started = perf_counter()
         prepared = prepare_query(request)
+        logger.info("legal_query_preprocessing context_used=%s elapsed_ms=%.0f",
+                    prepared.context_used, (perf_counter()-started)*1000)
         response = {"query": request.query, "retrieval_query": prepared.text,
                     "context_used": prepared.context_used}
         for attempt in range(2):
+            started = perf_counter()
             publication, instruments = await self.repository.active_catalog()
+            logger.info("legal_catalog instruments=%d elapsed_ms=%.0f", len(instruments),
+                        (perf_counter()-started)*1000)
             if publication is None:
                 return LegalSearchOut(status="no_active_publication", **response,
                     message="No complete active corpus publication is available.")
@@ -55,22 +61,28 @@ class LegalRetrievalService:
             law_text = explicit_law or question
             matches = resolve_laws(law_text, instruments, explicit=bool(explicit_law))
             selectors = set(mentions) | ({request.law} if request.law else set())
+            instrument_ids = None
             if len(selectors) > 1:
                 resolved = [resolve_laws(name, instruments, explicit=True) for name in selectors]
-                if any(len(rows) != 1 for rows in resolved) or len({
-                        rows[0]["instrument_id"] for rows in resolved}) != 1:
+                identities = {rows[0]["instrument_id"] for rows in resolved if len(rows) == 1}
+                if any(len(rows) != 1 for rows in resolved) or (
+                        len(identities) > 1 and (prepared.references or request.instrument_id or request.law)):
                     return LegalSearchOut(status="needs_clarification", **response,
                         message="The question names different laws. Specify the law for this lookup.")
+                if len(identities) > 1:
+                    instrument_ids = sorted(identities, key=str)
+                    matches = []
+                    explicit_law = None
             if explicit_law and prepared.references:
                 # A trailing law name cannot be applied to references to
                 # two different named laws in the same question.
                 named = resolve_laws(question, instruments)
                 if len({row["instrument_id"] for row in (*matches, *named)}) > 1:
                     matches = list({row["instrument_id"]: row for row in (*matches, *named)}.values())
-            if not matches and not explicit_law and context and context.law:
+            if not instrument_ids and not matches and not explicit_law and context and context.law:
                 explicit_law = context.law
                 matches = resolve_laws(explicit_law, instruments, explicit=True)
-            if not matches and not explicit_law and context and context.previous_query:
+            if not instrument_ids and not matches and not explicit_law and context and context.previous_query:
                 matches = resolve_laws(request.context.previous_query, instruments)
                 response["context_used"] = bool(matches) or response["context_used"]
             if explicit_law and not matches:
@@ -87,7 +99,7 @@ class LegalRetrievalService:
                     return LegalSearchOut(status="needs_clarification", **response,
                         message="The supplied law and instrument ID conflict.")
                 instrument_id = matches[0]["instrument_id"]
-            if instrument_id is None and context and context.instrument_id:
+            if not instrument_ids and instrument_id is None and context and context.instrument_id:
                 instrument_id = context.instrument_id
                 response["context_used"] = True
             if context and context.law and explicit_law == context.law:
@@ -109,6 +121,8 @@ class LegalRetrievalService:
                           min_similarity=self.settings.legal_search_min_similarity,
                           ef_search=self.settings.legal_search_hnsw_ef_search,
                           result_limit=request.limit, rrf_k=self.settings.legal_search_rrf_k)
+            if instrument_ids:
+                common["instrument_ids"] = instrument_ids
             try:
                 if prepared.references:
                     return await self._exact_lookup(prepared.references, response, common)
@@ -188,7 +202,9 @@ class LegalRetrievalService:
                     len(keyword), len(vector), bool(alternative), fallback, (perf_counter() - started) * 1000)
         warnings = [] if query_vector is not None else [
             "Semantic search unavailable; results use PostgreSQL full-text search only."]
+        started = perf_counter()
         results = reciprocal_rank_fusion(keyword, vector, k=common["rrf_k"])[:common["result_limit"]]
+        logger.info("legal_fusion candidates=%d elapsed_ms=%.0f", len(results), (perf_counter()-started)*1000)
         if not results and warnings:
             return LegalSearchOut(status="service_unavailable", **response, warnings=warnings,
                                   message="Semantic search was unavailable and keyword search found no candidates.")

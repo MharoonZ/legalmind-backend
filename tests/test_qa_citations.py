@@ -65,16 +65,16 @@ def test_subsection_lookup_cannot_be_answered_by_only_quoting_a_sibling():
         asyncio.run(CitationVerifier(FakeSource()).verify(draft, decision))
 
 
-def test_limited_source_context_cannot_return_a_complete_answer():
+def test_omitted_whole_candidates_do_not_override_a_supported_answer():
     decision, draft = setup()
     limited = prepared_context(decision.context.model_copy(update={"coverage_limited": True}))
     source = FakeSource()
-    with pytest.raises(CitationVerificationError, match="limited_source_context"):
-        asyncio.run(CitationVerifier(source).verify(draft, limited))
+    complete = asyncio.run(CitationVerifier(source).verify(draft, limited))
+    assert complete.outcome == "answered" and complete.citations
     verified = asyncio.run(CitationVerifier(source).verify(
-        draft.model_copy(update={"outcome": "partial"}), limited))
+        draft.model_copy(update={"outcome": "partial", "missing_support": "The requested remedy is not established."}), limited))
     assert verified.outcome == "partial" and verified.citations
-    assert "Only some" in verified.missing_support
+    assert "remedy" in verified.missing_support
 
 
 def test_all_claims_are_sent_to_source_checker_in_one_batch():

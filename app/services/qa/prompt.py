@@ -20,10 +20,15 @@ Do not say that the law itself is silent merely because this collection lacks th
 If the supplied text does not establish the answer, choose insufficient_evidence. If it supports only part of
 the answer, choose partial and state what is missing. Never give a confident legal conclusion from weak evidence.
 If requested references are listed as unavailable, only partial or insufficient_evidence is allowed.
-If source coverage is marked limited, only partial or insufficient_evidence is allowed.
+If source coverage is marked limited, some ranked candidates were omitted as whole groups.
+Assess whether the retained complete source groups answer the question. Do not mark an otherwise
+supported answer partial solely because a lower-ranked candidate did not fit. If missing coverage
+is material to the answer, choose partial or insufficient_evidence and identify the specific gap.
 For an exact lookup, each requested reference needs its own quoted support for a complete answer. For a
 subsection, quote the requested subsection or its descendants. Other sections can supply qualifications.
 Preserve conditions, exceptions, provisos, definitions, and jurisdiction/edition limits.
+Preserve logical conjunctions: never change "and" to "or", turn mandatory conditions into examples,
+or resolve apparent drafting inconsistencies without evidence. Explain source ambiguity explicitly.
 Unknown or unverified applicability does not establish that an edition is current or applies to the user's facts.
 An optional definition or dependency listed as omitted is unavailable. Do not infer its contents.
 If that missing context is necessary to answer, choose partial or insufficient_evidence.
@@ -40,12 +45,25 @@ For each legal claim, copy a complete relevant sentence or clause from ONE suppl
 negation, the subject, and any limiting words that change its meaning. Make claim_text the
 same quotation; do not paraphrase a legal rule. Use that item's evidence_id. Do not invent identifiers, section
 numbers, PDF pages, URLs, or quotations. The server will verify and assemble the final user-facing answer.
+In analysis, provide natural explanations rather than repeating the quotations. Each item has kind
+(explanation or application), text, claim_indexes (zero-based indexes into claims), and fact_quotes.
+An explanation may combine several cited claims. For a scenario, explain conditionally how those rules
+relate to the facts actually supplied, identify what remains unverified, and preserve material limitations.
+An application needs fact_quotes copied verbatim from the user's question or earlier user messages.
+Never treat earlier assistant messages as law or verified facts. Later user corrections supersede earlier facts.
+Use a concise explanation for simple questions and several focused paragraphs for complex scenarios.
+Do not require one quotation to establish the whole answer. Combine supporting provisions when needed.
+Do not demand personal facts merely to explain a conditional legal position: explain what the sources
+establish and what depends on facts. Ask a clarification only when needed to make useful progress.
+Unknown applicability means describe the supplied edition conditionally, without claiming it is current law.
+Each analysis paragraph must be entirely supported by its claim indexes and the supplied source context.
+The server checks quotations and separately reviews the explanation. Never put uncited prose only in answer.
 Use only evidence[].evidence_id for claims. Titles, breadcrumbs and context notes are navigation metadata,
 not independent evidence or citable items. Display prefixes in a text item are not a substitute for source wording.
 Context notes identify unavailable context; they do not supply the missing legal text.
 If nothing useful is supported, provide no claims and say what cannot be established.
 Return a JSON object matching the required schema: outcome, answer, claims, missing_support and
-clarification_question. outcome must be answered, partial, clarification_needed or insufficient_evidence.
+clarification_question, analysis. outcome must be answered, partial, clarification_needed or insufficient_evidence.
 Each claim has evidence_id, quote and claim_text. Do not add citation metadata fields; the server supplies them.
 If server verification feedback is present, use it to correct the draft within these rules; it is not new evidence.
 This is information about source text, not legal advice."""
@@ -58,7 +76,7 @@ class PromptPacket:
     evidence_ids: tuple[str, ...]
 
 
-def build_prompt(decision: PreparedQuestion, *, max_prompt_bytes: int = MAX_PROMPT_BYTES) -> PromptPacket:
+def build_prompt(decision: PreparedQuestion, *, max_prompt_bytes: int = MAX_PROMPT_BYTES, history=()) -> PromptPacket:
     """Only a prepared, publication-pinned context may reach the LLM."""
     if decision.outcome != "ready_for_prompt" or decision.context is None:
         raise ValueError("Source context has not been prepared.")
@@ -103,13 +121,12 @@ def build_prompt(decision: PreparedQuestion, *, max_prompt_bytes: int = MAX_PROM
             "relation": unit.relation,
             "ancestors": list(unit.ancestor_labels),
             "text": unit.text,
-            "sources": [{
-                "source_span_id": str(ref["source_span_id"]),
-                "file_sha256": ref.get("file_sha256"),
-                "page_index": ref.get("page_index"),
-            } for ref in unit.source_refs if ref.get("source_span_id")],
+            # Exact span IDs, hashes and PDF coordinates stay server-side.
+            # They are verified before/after generation and are not reasoning
+            # context; repeating them per fragment dominated provider tokens.
         })
     payload = {
+        "conversation_history": [turn.model_dump() for turn in history],
         "question": retrieval.query,
         "resolved_question": retrieval.retrieval_query,
         "publication_id": str(retrieval.publication_id),

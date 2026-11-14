@@ -1,5 +1,7 @@
 # LegalMind architecture review and implementation
 
+> Baseline report. The [implementation continuation](LEGALMIND_IMPLEMENTATION_2026-11-14.md) updates answer synthesis, conversation handling, model execution and performance measurements.
+
 Reviewed on **14 November 2026**, starting at commit 072fee2 on feature/ask.
 This report supersedes the 11 November description of the answer pipeline.
 

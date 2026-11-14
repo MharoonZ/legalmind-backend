@@ -20,6 +20,7 @@ from app.services.qa.generation import AnswerGenerator
 from app.services.qa.preparation import QuestionPreparationService
 from app.services.qa.reranker import CandidateReranker
 from app.services.qa.source_verification import QaSourceVerifier
+from app.services.model_runtime import request_capacity
 
 
 router = APIRouter(tags=["legal answers"])
@@ -51,8 +52,13 @@ def get_question_answer_service(db: DatabaseDep, settings: SettingsDep):
 async def ask(payload: AskIn, settings: SettingsDep, service=Depends(get_question_answer_service)):
     started = perf_counter()
     try:
-        async with asyncio.timeout(settings.qa_request_timeout_seconds):
-            result = await service.ask(payload)
+        with request_capacity.reserve(settings.qa_max_concurrent_requests) as admitted:
+            if not admitted:
+                result = QuestionAnswerService.unavailable(payload.question,
+                    reason="The answer service is busy. Please retry shortly.")
+            else:
+                async with asyncio.timeout(settings.qa_request_timeout_seconds):
+                    result = await service.ask(payload)
     except TimeoutError:
         result = QuestionAnswerService.unavailable(payload.question, reason="The answer request timed out.")
     logger.info("qa_request outcome=%s elapsed_ms=%.0f", result.status, (perf_counter() - started) * 1000)

@@ -90,10 +90,14 @@ class LegalSearchRepository:
 
     async def retrieve(self, publication_id, *, instrument_id, jurisdiction, query, reference,
                        query_vector, pool_size, min_similarity, ef_search, result_limit=10, rrf_k=60,
-                       alternative_keyword=None):
+                       alternative_keyword=None, instrument_ids=None):
         params = {"publication_id": publication_id, "instrument_id": instrument_id,
                   "jurisdiction": jurisdiction, "query": query, "pool": pool_size,
                   "alternative": alternative_keyword}
+        scope = SCOPE
+        if instrument_ids:
+            params["instrument_ids"] = list(instrument_ids)
+            scope += " AND i.id=ANY(CAST(:instrument_ids AS uuid[])) "
         async with self.snapshot() as session:
             complete = await session.scalar(text(
                 "SELECT p.chunk_count = (SELECT count(*) " + _PUBLICATION_SCOPE + ") "
@@ -157,7 +161,7 @@ class LegalSearchRepository:
                     "(c.search_vector @@ q.strict) AS keyword_strict_match, " +
                     "(cardinality(q.lexemes)>1 AND c.search_vector @@ q.phrase) AS keyword_phrase_match, " +
                     matched_terms + " AS keyword_matched_terms, cardinality(q.lexemes) AS keyword_total_terms, " +
-                    cosine + " AS lexical_vector_score " + SCOPE + lexical_match +
+                    cosine + " AS lexical_vector_score " + scope + lexical_match +
                     " ORDER BY keyword_phrase_match DESC,keyword_strict_match DESC,keyword_matched_terms DESC, "
                     "keyword_score DESC,i.canonical_title,c.ordinal,c.id LIMIT :pool) hit "
                     "ORDER BY hit.keyword_phrase_match DESC,hit.keyword_strict_match DESC,hit.keyword_matched_terms DESC,"
@@ -188,7 +192,7 @@ class LegalSearchRepository:
                                                "set_config('hnsw.iterative_scan','strict_order',true)"),
                                           {"ef": str(ef_search)})
                     statement = text("SELECT " + PROJECTION +
-                        ", 1 - (e.embedding <=> :qv) AS vector_score " + SCOPE +
+                        ", 1 - (e.embedding <=> :qv) AS vector_score " + scope +
                         " ORDER BY e.embedding <=> :qv LIMIT :pool").bindparams(bindparam("qv", type_=Vector(1024)))
                     nearest = (await session.execute(statement, {**params, "qv": query_vector})).mappings().all()
                     vector = [dict(r) for r in nearest if r["vector_score"] >= min_similarity]

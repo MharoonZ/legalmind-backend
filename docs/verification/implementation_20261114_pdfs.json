@@ -1,0 +1,797 @@
+{
+  "uploads_root": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads",
+  "legal_upload_root": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal",
+  "additional_source_root": null,
+  "restored_paths": [],
+  "local_pdfs": [
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\0c\\0c9530e36ee07517e4f3147b400fddad52ddd61c6e952b8029ae0e462a1953d0.pdf",
+      "bytes": 283013,
+      "sha256": "0c9530e36ee07517e4f3147b400fddad52ddd61c6e952b8029ae0e462a1953d0",
+      "pages": 5,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        543,
+        0,
+        4152,
+        3827,
+        464
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\0f\\0f297e71fc261d0563c659b2fb1de2549ed5834c1d72a6eb1d6f7d1a1024276e.pdf",
+      "bytes": 362637,
+      "sha256": "0f297e71fc261d0563c659b2fb1de2549ed5834c1d72a6eb1d6f7d1a1024276e",
+      "pages": 14,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1489,
+        394,
+        3605,
+        3168,
+        3862,
+        3812,
+        3471,
+        3997,
+        4842,
+        3231,
+        3829,
+        3330,
+        3823,
+        20
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\1f\\1f1094b404f4552201d741c7f4d2e86789f27b59e0cac36afd2d59dc86f3800c.pdf",
+      "bytes": 241928,
+      "sha256": "1f1094b404f4552201d741c7f4d2e86789f27b59e0cac36afd2d59dc86f3800c",
+      "pages": 7,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1165,
+        0,
+        3232,
+        3503,
+        3774,
+        3911,
+        3025
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\31\\314ddc5eec94d35211c1cbf97bc071ab870101a13de0dec7e16ccba5b84efb9e.pdf",
+      "bytes": 474204,
+      "sha256": "314ddc5eec94d35211c1cbf97bc071ab870101a13de0dec7e16ccba5b84efb9e",
+      "pages": 15,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1420,
+        1841,
+        2950,
+        4721,
+        4211,
+        5343,
+        3508,
+        4345,
+        3823,
+        3802,
+        4900,
+        3736,
+        3508,
+        2797,
+        936
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\37\\37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c.pdf",
+      "bytes": 266297,
+      "sha256": "37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c",
+      "pages": 6,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1013,
+        0,
+        4274,
+        3305,
+        3630,
+        1365
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\3d\\3d0bd23cda491b299ee4855c99b06d7e0cd5b2900d9bcf12341377d617dff078.pdf",
+      "bytes": 367567,
+      "sha256": "3d0bd23cda491b299ee4855c99b06d7e0cd5b2900d9bcf12341377d617dff078",
+      "pages": 13,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1133,
+        891,
+        2895,
+        3206,
+        3267,
+        3221,
+        2665,
+        3524,
+        3552,
+        3450,
+        3537,
+        3079,
+        1478
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\3d\\3d66886bdd2c6f807cc0193d65e637570772de1fadda1bdf04a8b31bdf7585af.pdf",
+      "bytes": 134793,
+      "sha256": "3d66886bdd2c6f807cc0193d65e637570772de1fadda1bdf04a8b31bdf7585af",
+      "pages": 5,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        503,
+        0,
+        2655,
+        3042,
+        1284
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\72\\72b42aa266749c84b6f80e2c231c60ca029dfcc286ef073bc7dcfff79826504d.pdf",
+      "bytes": 268653,
+      "sha256": "72b42aa266749c84b6f80e2c231c60ca029dfcc286ef073bc7dcfff79826504d",
+      "pages": 9,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1108,
+        0,
+        3262,
+        2914,
+        3872,
+        3653,
+        3259,
+        3154,
+        1407
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\7b\\7b665b8046d1ab5fd6db2afe950f9c43fba47f897a6e0e741a9b0da4ed490598.pdf",
+      "bytes": 160758,
+      "sha256": "7b665b8046d1ab5fd6db2afe950f9c43fba47f897a6e0e741a9b0da4ed490598",
+      "pages": 3,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        282,
+        0,
+        1881
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\86\\8685b71ccc7776ef2aaf7f93395f82b45957ae87b0d7005aa1ccb2d5bf056954.pdf",
+      "bytes": 303857,
+      "sha256": "8685b71ccc7776ef2aaf7f93395f82b45957ae87b0d7005aa1ccb2d5bf056954",
+      "pages": 9,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1121,
+        0,
+        2695,
+        3530,
+        4043,
+        3592,
+        3229,
+        3199,
+        2870
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\8b\\8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801.pdf",
+      "bytes": 490842,
+      "sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+      "pages": 19,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1289,
+        1611,
+        634,
+        0,
+        3731,
+        3821,
+        3624,
+        3076,
+        3064,
+        3032,
+        3344,
+        3395,
+        2652,
+        3648,
+        3533,
+        3743,
+        3451,
+        3374,
+        2104
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\a1\\a1000e4b0c37866770fcae1a1aeca99dd6364ba8b899b3a092ee0e72fb4c5e4e.pdf",
+      "bytes": 160463,
+      "sha256": "a1000e4b0c37866770fcae1a1aeca99dd6364ba8b899b3a092ee0e72fb4c5e4e",
+      "pages": 3,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        332,
+        0,
+        2727
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\a5\\a57bed1b0e062873387cb3b1db4a2fa76ebd689796a1dc9df4ef5b82c5f78aee.pdf",
+      "bytes": 162864,
+      "sha256": "a57bed1b0e062873387cb3b1db4a2fa76ebd689796a1dc9df4ef5b82c5f78aee",
+      "pages": 1,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        2262
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c0\\c0f0cae67d5e10d69db6848c439a3370e6397717c1f29061d78ccc4842fce6a9.pdf",
+      "bytes": 216075,
+      "sha256": "c0f0cae67d5e10d69db6848c439a3370e6397717c1f29061d78ccc4842fce6a9",
+      "pages": 5,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        781,
+        0,
+        2838,
+        3055,
+        3168
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c2\\c2b8a85ff08c86bd732361ad7a93d96b0220515ff8ac7eefc7327c862ee04166.pdf",
+      "bytes": 410608,
+      "sha256": "c2b8a85ff08c86bd732361ad7a93d96b0220515ff8ac7eefc7327c862ee04166",
+      "pages": 9,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1085,
+        0,
+        2973,
+        3347,
+        3286,
+        3189,
+        3533,
+        3437,
+        2535
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c3\\c3a04a94aa20e727204b6fc1b8ea484de07c49a4b3844745ddfce19421dcaef5.pdf",
+      "bytes": 143776,
+      "sha256": "c3a04a94aa20e727204b6fc1b8ea484de07c49a4b3844745ddfce19421dcaef5",
+      "pages": 3,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        166,
+        0,
+        765
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c7\\c761be3880a9f21e2854f74b1cb3755bf15c64990dc86e8cbcde3e285632eadc.pdf",
+      "bytes": 356697,
+      "sha256": "c761be3880a9f21e2854f74b1cb3755bf15c64990dc86e8cbcde3e285632eadc",
+      "pages": 10,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1873,
+        356,
+        3440,
+        3512,
+        3826,
+        3088,
+        3354,
+        3270,
+        3175,
+        1450
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c8\\c8c95cbbd44cc91326918e32512e5b711f766a213df3f991367b5fa2703762fb.pdf",
+      "bytes": 248972,
+      "sha256": "c8c95cbbd44cc91326918e32512e5b711f766a213df3f991367b5fa2703762fb",
+      "pages": 6,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1186,
+        0,
+        3081,
+        3261,
+        3146,
+        2263
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\de\\de82c9823912abc6104b960af65eaa2dbd4e47c487e17a7f44c703649f9648b6.pdf",
+      "bytes": 255613,
+      "sha256": "de82c9823912abc6104b960af65eaa2dbd4e47c487e17a7f44c703649f9648b6",
+      "pages": 5,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        431,
+        0,
+        3037,
+        3464,
+        1792
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\e3\\e36ae78fdf7d613a5c9f2d5cb84d242043f4570ffe57b42a6a7f583c676e0caa.pdf",
+      "bytes": 257967,
+      "sha256": "e36ae78fdf7d613a5c9f2d5cb84d242043f4570ffe57b42a6a7f583c676e0caa",
+      "pages": 11,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1268,
+        0,
+        3159,
+        3711,
+        3789,
+        3308,
+        3797,
+        3485,
+        3755,
+        3476,
+        1581
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\ee\\ee5a56bf0f2b4223816bc805068a5ccaf2848902279854ec064118962b0a82f2.pdf",
+      "bytes": 380313,
+      "sha256": "ee5a56bf0f2b4223816bc805068a5ccaf2848902279854ec064118962b0a82f2",
+      "pages": 13,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        2348,
+        396,
+        2861,
+        3477,
+        3741,
+        3714,
+        3720,
+        3462,
+        3593,
+        4440,
+        4392,
+        3088,
+        3524
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\f1\\f1fc1ff4f2188a665a949902c1b51acc355e58603c1c7540d70b43913da290ea.pdf",
+      "bytes": 345208,
+      "sha256": "f1fc1ff4f2188a665a949902c1b51acc355e58603c1c7540d70b43913da290ea",
+      "pages": 16,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1553,
+        0,
+        3667,
+        4326,
+        3854,
+        4304,
+        4436,
+        3721,
+        3737,
+        3469,
+        3613,
+        3106,
+        3666,
+        3903,
+        3316,
+        681
+      ]
+    },
+    {
+      "path": "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\f2\\f2d382c7f7daa80515c041870cc876870ed48129726722c1f39550fd84ac1407.pdf",
+      "bytes": 325046,
+      "sha256": "f2d382c7f7daa80515c041870cc876870ed48129726722c1f39550fd84ac1407",
+      "pages": 12,
+      "encrypted": 0,
+      "native_text_characters_by_page": [
+        1368,
+        0,
+        3114,
+        3143,
+        3627,
+        3215,
+        3387,
+        3416,
+        3040,
+        3704,
+        3104,
+        2709
+      ]
+    }
+  ],
+  "registered_files": [
+    {
+      "id": "5bddebee-a314-4bce-9045-65e9e4727c2a",
+      "original_filename": "112.pdf",
+      "object_key": "f2/f2d382c7f7daa80515c041870cc876870ed48129726722c1f39550fd84ac1407.pdf",
+      "sha256": "f2d382c7f7daa80515c041870cc876870ed48129726722c1f39550fd84ac1407",
+      "byte_size": 325046,
+      "page_count": 12,
+      "published_laws": [
+        "The Punjab Control of Goondas Ordinance, 1959"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\f2\\f2d382c7f7daa80515c041870cc876870ed48129726722c1f39550fd84ac1407.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "d937999a-ece8-4e93-80bf-f6e888a4c9b5",
+      "original_filename": "127.pdf",
+      "object_key": "f1/f1fc1ff4f2188a665a949902c1b51acc355e58603c1c7540d70b43913da290ea.pdf",
+      "sha256": "f1fc1ff4f2188a665a949902c1b51acc355e58603c1c7540d70b43913da290ea",
+      "byte_size": 345208,
+      "page_count": 16,
+      "published_laws": [
+        "The Punjab Maintenance of Public Order Ordinance, 1960"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\f1\\f1fc1ff4f2188a665a949902c1b51acc355e58603c1c7540d70b43913da290ea.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "0d52a4d5-c71a-4978-b427-d58d1417b6ef",
+      "original_filename": "13.pdf",
+      "object_key": "8b/8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801.pdf",
+      "sha256": "8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801",
+      "byte_size": 490842,
+      "page_count": 19,
+      "published_laws": [
+        "The Prisons Act, 1894"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\8b\\8bfc899eb6fadd2a0ace95fdd1f08059c945d3c001a06434ef5955222f438801.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "ac0cf29b-7a83-4f42-8c95-cedce6f0835d",
+      "original_filename": "130.pdf",
+      "object_key": "1f/1f1094b404f4552201d741c7f4d2e86789f27b59e0cac36afd2d59dc86f3800c.pdf",
+      "sha256": "1f1094b404f4552201d741c7f4d2e86789f27b59e0cac36afd2d59dc86f3800c",
+      "byte_size": 241928,
+      "page_count": 7,
+      "published_laws": [
+        "The Punjab Suppression of Prostitution Ordinance, 1961"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\1f\\1f1094b404f4552201d741c7f4d2e86789f27b59e0cac36afd2d59dc86f3800c.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "8cda0817-9fa2-40ee-b084-1971398e170e",
+      "original_filename": "131.pdf",
+      "object_key": "de/de82c9823912abc6104b960af65eaa2dbd4e47c487e17a7f44c703649f9648b6.pdf",
+      "sha256": "de82c9823912abc6104b960af65eaa2dbd4e47c487e17a7f44c703649f9648b6",
+      "byte_size": 255613,
+      "page_count": 5,
+      "published_laws": [
+        "The Punjab Anti-Corruption Establishment Ordinance, 1961"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\de\\de82c9823912abc6104b960af65eaa2dbd4e47c487e17a7f44c703649f9648b6.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "74570d32-d9eb-40a4-9728-d8878370333d",
+      "original_filename": "14.pdf",
+      "object_key": "c7/c761be3880a9f21e2854f74b1cb3755bf15c64990dc86e8cbcde3e285632eadc.pdf",
+      "sha256": "c761be3880a9f21e2854f74b1cb3755bf15c64990dc86e8cbcde3e285632eadc",
+      "byte_size": 356697,
+      "page_count": 10,
+      "published_laws": [
+        "The Reformatory Schools Act, 1897"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c7\\c761be3880a9f21e2854f74b1cb3755bf15c64990dc86e8cbcde3e285632eadc.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "f2088305-4221-49cf-9e0f-1b61cd8347cc",
+      "original_filename": "17.pdf",
+      "object_key": "31/314ddc5eec94d35211c1cbf97bc071ab870101a13de0dec7e16ccba5b84efb9e.pdf",
+      "sha256": "314ddc5eec94d35211c1cbf97bc071ab870101a13de0dec7e16ccba5b84efb9e",
+      "byte_size": 474204,
+      "page_count": 15,
+      "published_laws": [
+        "The Prisoners Act, 1900"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\31\\314ddc5eec94d35211c1cbf97bc071ab870101a13de0dec7e16ccba5b84efb9e.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "60699a1d-5e65-4c56-b776-6f86f19f664c",
+      "original_filename": "190.pdf",
+      "object_key": "0f/0f297e71fc261d0563c659b2fb1de2549ed5834c1d72a6eb1d6f7d1a1024276e.pdf",
+      "sha256": "0f297e71fc261d0563c659b2fb1de2549ed5834c1d72a6eb1d6f7d1a1024276e",
+      "byte_size": 362637,
+      "page_count": 14,
+      "published_laws": [
+        "The Punjab Arms Ordinance, 1965"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\0f\\0f297e71fc261d0563c659b2fb1de2549ed5834c1d72a6eb1d6f7d1a1024276e.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "4891713d-40da-46ed-abd2-8cf20a8f6957",
+      "original_filename": "221.pdf",
+      "object_key": "e3/e36ae78fdf7d613a5c9f2d5cb84d242043f4570ffe57b42a6a7f583c676e0caa.pdf",
+      "sha256": "e36ae78fdf7d613a5c9f2d5cb84d242043f4570ffe57b42a6a7f583c676e0caa",
+      "byte_size": 257967,
+      "page_count": 11,
+      "published_laws": [
+        "The Criminal Law (Special Provisions) Ordinance, 1968"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\e3\\e36ae78fdf7d613a5c9f2d5cb84d242043f4570ffe57b42a6a7f583c676e0caa.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "e7e7824a-79a9-45c3-8fea-76abbf3c28bb",
+      "original_filename": "26.pdf",
+      "object_key": "c8/c8c95cbbd44cc91326918e32512e5b711f766a213df3f991367b5fa2703762fb.pdf",
+      "sha256": "c8c95cbbd44cc91326918e32512e5b711f766a213df3f991367b5fa2703762fb",
+      "byte_size": 248972,
+      "page_count": 6,
+      "published_laws": [
+        "The Restriction of Habitual Offenders (Punjab) Act, 1918"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c8\\c8c95cbbd44cc91326918e32512e5b711f766a213df3f991367b5fa2703762fb.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "7030c2c2-1188-43e7-abfb-df7813262932",
+      "original_filename": "2712.pdf",
+      "object_key": "3d/3d66886bdd2c6f807cc0193d65e637570772de1fadda1bdf04a8b31bdf7585af.pdf",
+      "sha256": "3d66886bdd2c6f807cc0193d65e637570772de1fadda1bdf04a8b31bdf7585af",
+      "byte_size": 134793,
+      "page_count": 5,
+      "published_laws": [
+        "The Punjab Criminal Prosecution Service Inspectorate Act 2018"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\3d\\3d66886bdd2c6f807cc0193d65e637570772de1fadda1bdf04a8b31bdf7585af.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "39d286c4-f2ba-499a-a8e1-c81c11f30b6f",
+      "original_filename": "275.pdf",
+      "object_key": "a5/a57bed1b0e062873387cb3b1db4a2fa76ebd689796a1dc9df4ef5b82c5f78aee.pdf",
+      "sha256": "a57bed1b0e062873387cb3b1db4a2fa76ebd689796a1dc9df4ef5b82c5f78aee",
+      "byte_size": 162864,
+      "page_count": 1,
+      "published_laws": [
+        "The Punjab Control of Goondas (Removal of Doubts) Ordinance, 1972"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\a5\\a57bed1b0e062873387cb3b1db4a2fa76ebd689796a1dc9df4ef5b82c5f78aee.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "42c8460c-3c93-4b43-8ccf-f5f7ef9c97e5",
+      "original_filename": "329.pdf",
+      "object_key": "c0/c0f0cae67d5e10d69db6848c439a3370e6397717c1f29061d78ccc4842fce6a9.pdf",
+      "sha256": "c0f0cae67d5e10d69db6848c439a3370e6397717c1f29061d78ccc4842fce6a9",
+      "byte_size": 216075,
+      "page_count": 5,
+      "published_laws": [
+        "The Punjab Prevention of Gambling Ordinance, 1978"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c0\\c0f0cae67d5e10d69db6848c439a3370e6397717c1f29061d78ccc4842fce6a9.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "e2570890-df91-48c0-931c-c6616b3fae74",
+      "original_filename": "362.pdf",
+      "object_key": "c3/c3a04a94aa20e727204b6fc1b8ea484de07c49a4b3844745ddfce19421dcaef5.pdf",
+      "sha256": "c3a04a94aa20e727204b6fc1b8ea484de07c49a4b3844745ddfce19421dcaef5",
+      "byte_size": 143776,
+      "page_count": 3,
+      "published_laws": [
+        "The Public Gambling (Repeal) Act, 1985"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c3\\c3a04a94aa20e727204b6fc1b8ea484de07c49a4b3844745ddfce19421dcaef5.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "8d96b5b2-64ca-44ca-9b5c-5db9913b3ce6",
+      "original_filename": "37.pdf",
+      "object_key": "0c/0c9530e36ee07517e4f3147b400fddad52ddd61c6e952b8029ae0e462a1953d0.pdf",
+      "sha256": "0c9530e36ee07517e4f3147b400fddad52ddd61c6e952b8029ae0e462a1953d0",
+      "byte_size": 283013,
+      "page_count": 5,
+      "published_laws": [
+        "The Good Conduct Prisoners' Probational Release Act, 1926"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\0c\\0c9530e36ee07517e4f3147b400fddad52ddd61c6e952b8029ae0e462a1953d0.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "c7d2e041-27c2-4b77-830b-1c2a59c809b6",
+      "original_filename": "38.pdf",
+      "object_key": "ee/ee5a56bf0f2b4223816bc805068a5ccaf2848902279854ec064118962b0a82f2.pdf",
+      "sha256": "ee5a56bf0f2b4223816bc805068a5ccaf2848902279854ec064118962b0a82f2",
+      "byte_size": 380313,
+      "page_count": 13,
+      "published_laws": [
+        "The Punjab Borstal Act, 1926"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\ee\\ee5a56bf0f2b4223816bc805068a5ccaf2848902279854ec064118962b0a82f2.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "8faaafba-5acd-4d98-859e-3f61c428d45a",
+      "original_filename": "393.pdf",
+      "object_key": "a1/a1000e4b0c37866770fcae1a1aeca99dd6364ba8b899b3a092ee0e72fb4c5e4e.pdf",
+      "sha256": "a1000e4b0c37866770fcae1a1aeca99dd6364ba8b899b3a092ee0e72fb4c5e4e",
+      "byte_size": 160463,
+      "page_count": 3,
+      "published_laws": [
+        "The Punjab Prohibition of Expressing Matters on Walls Act, 1995"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\a1\\a1000e4b0c37866770fcae1a1aeca99dd6364ba8b899b3a092ee0e72fb4c5e4e.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "7b5f50f0-bd6b-4903-80c0-51d43f5ce7d8",
+      "original_filename": "453.pdf",
+      "object_key": "c2/c2b8a85ff08c86bd732361ad7a93d96b0220515ff8ac7eefc7327c862ee04166.pdf",
+      "sha256": "c2b8a85ff08c86bd732361ad7a93d96b0220515ff8ac7eefc7327c862ee04166",
+      "byte_size": 410608,
+      "page_count": 9,
+      "published_laws": [
+        "The Punjab Private Security Companies (Regulation and Control) Ordinance, 2002"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\c2\\c2b8a85ff08c86bd732361ad7a93d96b0220515ff8ac7eefc7327c862ee04166.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "cc1e15e4-17f0-4367-9990-cf059bc7e399",
+      "original_filename": "477.pdf",
+      "object_key": "3d/3d0bd23cda491b299ee4855c99b06d7e0cd5b2900d9bcf12341377d617dff078.pdf",
+      "sha256": "3d0bd23cda491b299ee4855c99b06d7e0cd5b2900d9bcf12341377d617dff078",
+      "byte_size": 367567,
+      "page_count": 13,
+      "published_laws": [
+        "The Punjab Consumer Protection Act 2005"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\3d\\3d0bd23cda491b299ee4855c99b06d7e0cd5b2900d9bcf12341377d617dff078.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "22bad8f4-c1c6-4cd1-bf56-f75d0e2487f5",
+      "original_filename": "483.pdf",
+      "object_key": "86/8685b71ccc7776ef2aaf7f93395f82b45957ae87b0d7005aa1ccb2d5bf056954.pdf",
+      "sha256": "8685b71ccc7776ef2aaf7f93395f82b45957ae87b0d7005aa1ccb2d5bf056954",
+      "byte_size": 303857,
+      "page_count": 9,
+      "published_laws": [
+        "The Punjab Criminal Prosecution Service (Constitution, Functions and Powers) Act 2006"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\86\\8685b71ccc7776ef2aaf7f93395f82b45957ae87b0d7005aa1ccb2d5bf056954.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "ddc4efaf-4ffb-469f-aa6b-6d2f0fc7bf58",
+      "original_filename": "94.pdf",
+      "object_key": "72/72b42aa266749c84b6f80e2c231c60ca029dfcc286ef073bc7dcfff79826504d.pdf",
+      "sha256": "72b42aa266749c84b6f80e2c231c60ca029dfcc286ef073bc7dcfff79826504d",
+      "byte_size": 268653,
+      "page_count": 9,
+      "published_laws": [
+        "The Punjab Vagrancy Ordinance, 1958"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\72\\72b42aa266749c84b6f80e2c231c60ca029dfcc286ef073bc7dcfff79826504d.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "d2a5a821-3b04-4dff-a527-79834cd34a0b",
+      "original_filename": "97.pdf",
+      "object_key": "7b/7b665b8046d1ab5fd6db2afe950f9c43fba47f897a6e0e741a9b0da4ed490598.pdf",
+      "sha256": "7b665b8046d1ab5fd6db2afe950f9c43fba47f897a6e0e741a9b0da4ed490598",
+      "byte_size": 160758,
+      "page_count": 3,
+      "published_laws": [
+        "The Prevention of Corruption Act (West Pakistan Extension) Ordinance, 1958"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\7b\\7b665b8046d1ab5fd6db2afe950f9c43fba47f897a6e0e741a9b0da4ed490598.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    },
+    {
+      "id": "834e10c8-990d-4a1d-82b1-abec590a1a45",
+      "original_filename": "punjab-murderous-outrages-act-1867.pdf",
+      "object_key": "37/37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c.pdf",
+      "sha256": "37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c",
+      "byte_size": 266297,
+      "page_count": 6,
+      "published_laws": [
+        "The Punjab Murderous Outrages Act, 1867"
+      ],
+      "matching_local_paths": [
+        "C:\\Users\\Admin\\Desktop\\FYP\\legalmind-backend\\uploads\\legal\\37\\37fa6ca65a2520ea25e74fa9688f47bbf8cca36ab44d00edb7c929c2c033049c.pdf"
+      ],
+      "status": "matched",
+      "application_object_present": true
+    }
+  ],
+  "summary": {
+    "discovered_pdfs": 23,
+    "registered_files": 23,
+    "unique_pdf_hashes": 23,
+    "restored_originals": 0,
+    "missing_application_objects": 0,
+    "missing_originals": 0
+  },
+  "scope": "Database is read-only. Explicit restoration copies only hash-matched missing originals; existing files, IDs and source copies remain unchanged. This does not reprocess, approve, or certify legal applicability.",
+  "restoration_checks": {
+    "idempotent_repeat_restored": 0,
+    "download_source_hashes_unchanged": 46
+  }
+}

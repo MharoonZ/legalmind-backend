@@ -1,0 +1,15 @@
+{
+  "mode": "real Gemini context selection",
+  "cases": [
+    {
+      "question": "Can I recover the cost of repairing my kitchen?",
+      "context_used": true,
+      "expected": true
+    },
+    {
+      "question": "What are the duties of prison officers under the Prisons Act?",
+      "context_used": false,
+      "expected": false
+    }
+  ]
+}

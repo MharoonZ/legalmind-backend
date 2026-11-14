@@ -28,6 +28,14 @@ class AnswerGenerator:
         self.settings = settings or get_answer_settings()
         self._client = client
         self._gemini_transport = gemini_transport
+        self._gemini_client = None
+
+    async def aclose(self):
+        if self._gemini_client is not None:
+            await self._gemini_client.aclose()
+            self._gemini_client = None
+        if self._client is not None and hasattr(self._client, "close"):
+            await self._client.close()
 
     def _get_client(self):
         if self._client is None:
@@ -42,14 +50,15 @@ class AnswerGenerator:
             )
         return self._client
 
-    async def _generate_gemini(self, packet: PromptPacket, user: str) -> AnswerDraft:
+    async def _generate_gemini(self, packet: PromptPacket, user: str, response_model=AnswerDraft):
         if not self.settings.gemini_api_key or not self.settings.gemini_api_key.get_secret_value():
             raise GenerationUnavailable("The server's GEMINI_API_KEY is not configured.")
         key = self.settings.gemini_api_key.get_secret_value()
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.settings.gemini_model}:generateContent"
-        schema = AnswerDraft.model_json_schema()
-        schema["required"] = list(AnswerDraft.model_fields)
-        schema["properties"]["clarification_question"].pop("default", None)
+        schema = response_model.model_json_schema()
+        schema["required"] = list(response_model.model_fields)
+        for prop in schema["properties"].values():
+            prop.pop("default", None)
         config = {
             "responseMimeType": "application/json",
             "responseJsonSchema": schema,
@@ -65,13 +74,15 @@ class AnswerGenerator:
 
         # Only connection establishment is retried. A read timeout or an
         # HTTP failure can occur after Gemini already processed the prompt.
-        transport = self._gemini_transport or httpx.AsyncHTTPTransport(retries=1)
         timeout = self.settings.qa_gemini_timeout_seconds
+        if self._gemini_client is None:
+            limits = httpx.Limits(max_connections=8, max_keepalive_connections=4)
+            self._gemini_client = httpx.AsyncClient(
+                transport=self._gemini_transport or httpx.AsyncHTTPTransport(retries=1, limits=limits),
+                timeout=timeout, limits=limits)
         try:
-            async with asyncio.timeout(timeout), httpx.AsyncClient(
-                transport=transport, timeout=timeout,
-            ) as http_client:
-                response = await http_client.post(url, headers={"x-goog-api-key": key}, json=payload)
+            async with asyncio.timeout(timeout):
+                response = await self._gemini_client.post(url, headers={"x-goog-api-key": key}, json=payload)
         except (TimeoutError, httpx.RequestError):
             raise GenerationUnavailable("The Gemini answer provider timed out or could not be reached.") from None
 
@@ -89,7 +100,7 @@ class AnswerGenerator:
                 raise GenerationInvalid("Gemini did not complete the structured answer.")
             parts = candidate["content"]["parts"]
             raw_text = "".join(part["text"] for part in parts if not part.get("thought") and "text" in part)
-            draft = AnswerDraft.model_validate_json(raw_text, strict=True)
+            draft = response_model.model_validate_json(raw_text, strict=True)
             usage = data.get("usageMetadata") or {}
             logger.info("qa_gemini_usage model=%s input_tokens=%s output_tokens=%s thinking_tokens=%s",
                         self.settings.gemini_model, usage.get("promptTokenCount"),
@@ -107,8 +118,12 @@ class AnswerGenerator:
                 + "\nCorrect the draft using only the supplied evidence. If that is impossible, return insufficient_evidence."
             )
 
+        return await self.generate_structured(packet, AnswerDraft, user=user)
+
+    async def generate_structured(self, packet, response_model, *, user=None):
+        user = packet.user if user is None else user
         if self.settings.use_gemini:
-            return await self._generate_gemini(packet, user)
+            return await self._generate_gemini(packet, user, response_model)
 
         client = self._get_client()
         try:
@@ -118,7 +133,7 @@ class AnswerGenerator:
                     {"role": "system", "content": packet.system},
                     {"role": "user", "content": user},
                 ],
-                text_format=AnswerDraft,
+                text_format=response_model,
                 max_output_tokens=self.settings.qa_openai_max_output_tokens,
                 store=False,
             )
@@ -153,7 +168,7 @@ class AnswerGenerator:
         try:
             # Pydantic can otherwise trust an existing model instance without
             # checking changes made by model_copy/model_construct or adapters.
-            data = draft.model_dump(warnings=False) if isinstance(draft, AnswerDraft) else draft
-            return AnswerDraft.model_validate(data, strict=True)
+            data = draft.model_dump(warnings=False) if isinstance(draft, response_model) else draft
+            return response_model.model_validate(data, strict=True)
         except Exception as exc:
             raise GenerationInvalid("The answer provider returned an invalid structured answer.") from exc

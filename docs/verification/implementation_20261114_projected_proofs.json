@@ -1,0 +1,7 @@
+{
+  "mode": "real database, projected proof payloads",
+  "claims_checked": 4,
+  "source_proofs": 10,
+  "seconds": 22.38,
+  "all_passed": true
+}

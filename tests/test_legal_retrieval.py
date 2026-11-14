@@ -94,6 +94,15 @@ def test_differently_worded_questions_take_semantic_path(settings):
     assert repo.calls[0]["query_vector"] is not None
 
 
+def test_conceptual_question_can_search_two_explicitly_named_published_laws(settings):
+    repo = Repository(([], [], [candidate(vector_score=.7)]))
+    response = run({"query": "Compare duties under Consumer Protection Act and under Prevention of Gambling Ordinance."},
+                   repo, settings)
+    assert response.status == "ok"
+    assert set(repo.calls[0]["instrument_ids"]) == {CONSUMER, GAMBLING}
+    assert repo.calls[0]["instrument_id"] is None
+
+
 def test_no_publication_does_not_load_encoder(settings):
     async def forbidden(*a, **k): pytest.fail("No corpus: must not load model")
     response = run({"query": "consumer receipts"}, Repository(catalog=None), settings, forbidden)
