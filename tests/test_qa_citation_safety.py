@@ -6,13 +6,12 @@ import pytest
 
 from app.repositories.qa_context_repository import ContextCatalog, ContextScopeError
 from app.schemas.qa import AskIn
-from app.services.qa_answer import QuestionAnswerService
-from app.services.qa_citations import CitationVerificationError, CitationVerifier, _quote_span
-from app.services.qa_source_verification import SourceProof
+from app.services.qa.answer import QuestionAnswerService
+from app.services.qa.citations import CitationVerificationError, CitationVerifier, _quote_span
+from app.services.qa.source_verification import SourceProof
 from tests.qa_fixtures import identity
 from tests.test_qa_answer import FakeGenerator, FakePrep
 from tests.test_qa_citations import FakeSource, setup
-from tests.test_qa_gate_safety import fact_decision
 from tests.test_qa_source_verification import FakeSession, prepared_source
 
 
@@ -175,14 +174,6 @@ def test_incomplete_source_coverage_is_repaired_only_within_existing_limit():
     assert len(generator.calls) == 2 and generator.calls[1][1] == "source_span_gap"
 
 
-def test_pre_ai_fact_question_also_requires_complete_verified_condition_coverage():
-    decision = fact_decision()
-    unit = next(u for u in decision.context.units if u.evidence_id == decision.clarification_evidence_id)
-    generator = FakeGenerator([])
-    result = asyncio.run(QuestionAnswerService(FakePrep(decision), generator,
-        CitationVerifier(FakeSource([proof_for(unit, end=5)]))).ask(AskIn(question="May I act under this section?")))
-    assert result.status == "insufficient_evidence" and result.clarification_question is None
-    assert not result.citations and generator.calls == []
 
 
 def test_fresh_source_failure_is_a_service_error_with_no_generation_retry_or_private_details():

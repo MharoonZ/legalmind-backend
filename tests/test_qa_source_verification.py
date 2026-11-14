@@ -6,8 +6,8 @@ from types import SimpleNamespace as Row
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from app.services.qa_citations import CitationVerificationError
-from app.services.qa_source_verification import QaSourceVerifier
+from app.services.qa.citations import CitationVerificationError
+from app.services.qa.source_verification import QaSourceVerifier
 from tests.qa_fixtures import identity
 from tests.test_qa_context import expand, graph
 

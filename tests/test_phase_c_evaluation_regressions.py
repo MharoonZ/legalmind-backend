@@ -14,13 +14,13 @@ from app.api.routes.qa import get_question_answer_service
 from app.core.qa_config import RerankerSettings
 from app.main import create_app
 from app.schemas.qa_generation import AnswerDraft, DraftClaim
-from app.services.qa_answer import QuestionAnswerService
-from app.services.qa_citations import CitationVerificationError, CitationVerifier
-from app.services.qa_context import ContextExpander
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_preparation import QuestionPreparationService
-from app.services.qa_prompt import build_prompt
-from app.services.qa_reranker import CandidateReranker
+from app.services.qa.answer import QuestionAnswerService
+from app.services.qa.citations import CitationVerificationError, CitationVerifier
+from app.services.qa.context import ContextExpander
+from tests.qa_fixtures import prepared_context
+from app.services.qa.preparation import QuestionPreparationService
+from app.services.qa.prompt import build_prompt
+from app.services.qa.reranker import CandidateReranker
 from tests.qa_fixtures import FakeScorer
 from tests.test_qa_answer import FakeGenerator
 from tests.test_qa_citations import FakeSource, setup
@@ -95,7 +95,7 @@ def test_a_known_but_unsupplied_evidence_id_is_rejected():
 
 def test_each_of_two_claims_retains_its_own_source_link():
     catalog, reranked = graph(qualifier=True)
-    decision = EvidenceGate().decide(expand(catalog, reranked))
+    decision = prepared_context(expand(catalog, reranked))
     source = next(unit for unit in decision.context.units if unit.relation == "retrieved")
     qualifier = next(unit for unit in decision.context.units if unit.relation == "qualification")
     draft = AnswerDraft(outcome="answered", answer="", claims=[
@@ -112,7 +112,7 @@ def test_prompt_does_not_import_server_secrets(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-secret-never-send")
     monkeypatch.setenv("DATABASE_URL", "postgresql://synthetic-secret-never-send@localhost/test")
     catalog, reranked = graph()
-    packet = build_prompt(EvidenceGate().decide(expand(catalog, reranked)))
+    packet = build_prompt(prepared_context(expand(catalog, reranked)))
     assert "synthetic-secret-never-send" not in packet.system + packet.user
 
 
@@ -127,8 +127,7 @@ def test_public_ask_requests_a_missing_fact_with_verified_supporting_condition()
 
     prepared = QuestionPreparationService(
         Search(), CandidateReranker(RerankerSettings(), scorer=FakeScorer([1.0])),
-        ContextExpander(FakeRepo(catalog), token_counter=lambda value: len(value.split())),
-        EvidenceGate())
+        ContextExpander(FakeRepo(catalog), token_counter=lambda value: len(value.split())))
     # After the source/relevance gate, the structured answer step identifies
     # the missing fact. Its supporting condition must pass source verification
     # before the public API can ask the question; no static legal rules added.

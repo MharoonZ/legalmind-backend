@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_prompt import build_prompt
+from tests.qa_fixtures import prepared_context
+from app.services.qa.prompt import build_prompt
 from tests.test_qa_context import expand, graph
 from tests.qa_fixtures import identity
 
@@ -21,7 +21,7 @@ def test_prompt_contains_pinned_evidence_and_cannot_promote_source_instructions(
     context = context.model_copy(update={"units": (altered, *context.units[1:]), "reranked": reranked,
         "char_count": context.char_count + len(altered.text) - len(unit.text),
         "token_count": context.token_count + len(altered.text.split()) - len(unit.text.split())})
-    decision = EvidenceGate().decide(context)
+    decision = prepared_context(context)
     packet = build_prompt(decision)
     payload = json.loads(packet.user.split("\n", 1)[1])
     assert payload["question"] == reranked.retrieval.query
@@ -38,7 +38,7 @@ def test_prompt_contains_pinned_evidence_and_cannot_promote_source_instructions(
 def test_prompt_rejects_gate_rejection_and_wrong_publication():
     catalog, reranked = graph()
     context = expand(catalog, reranked)
-    decision = EvidenceGate().decide(context)
+    decision = prepared_context(context)
     with pytest.raises(ValueError):
         build_prompt(decision.model_copy(update={"outcome": "insufficient_evidence"}))
     wrong = context.units[0].model_copy(update={"publication_id": __import__("uuid").uuid4()})
@@ -53,7 +53,7 @@ def test_followup_prompt_contains_the_resolved_question_as_well_as_current_input
         "query": "Yes, I have a signed permit.",
         "retrieval_query": "May I act under this section? Yes, I have a signed permit.",
     })})
-    packet = build_prompt(EvidenceGate().decide(expand(catalog, reranked)))
+    packet = build_prompt(prepared_context(expand(catalog, reranked)))
     payload = json.loads(packet.user.split("\n", 1)[1])
     assert payload["question"] == "Yes, I have a signed permit."
     assert payload["resolved_question"] == reranked.retrieval.retrieval_query
@@ -63,7 +63,7 @@ def test_omitted_definition_is_disclosed_but_not_available_as_citable_evidence()
     catalog, reranked = graph(definition=True)
     definition_id = identity("definitions-seven")
     catalog.references[definition_id] = [SimpleNamespace(resolution_status="unresolved")]
-    packet = build_prompt(EvidenceGate().decide(expand(catalog, reranked)))
+    packet = build_prompt(prepared_context(expand(catalog, reranked)))
     payload = json.loads(packet.user.split("\n", 1)[1])
     assert all(item["evidence_id"] != f"chunk:{identity('definition-chunk')}"
                for item in payload["evidence"])

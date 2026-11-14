@@ -1,4 +1,4 @@
-"""Compare retrieval and the answer gate through the actual ASGI routes."""
+"""Benchmark retrieval and source preparation through actual ASGI routes."""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,7 @@ from time import perf_counter
 
 import httpx
 
-from app.services.qa_generation import GenerationUnavailable
+from app.services.qa.generation import GenerationUnavailable
 
 
 def relevance(candidates, expected, k):
@@ -57,16 +57,6 @@ def summary(results):
         if values:
             metrics[name] = {"p50": statistics.median(values),
                              "p95": values[math.ceil(.95 * len(values)) - 1]}
-    for expected_ready, key in ((True, "false_rejection"), (False, "false_acceptance")):
-        rows = [row for row in results if row.get("expected_gate")
-                and (row["expected_gate"] == "ready_for_prompt") == expected_ready]
-        if rows:
-            metrics[key] = {"count": sum((row["gate"] == "ready_for_prompt") != expected_ready
-                                         for row in rows), "total": len(rows)}
-    absent = [row for row in results if row.get("expected_gate") == "insufficient_evidence"]
-    if absent:
-        metrics["no_evidence_detection"] = {"correct": sum(row["gate"] == "insufficient_evidence"
-                                                           for row in absent), "total": len(absent)}
     exact = [row for row in results if row["category"] == "exact" and row["expected"]]
     if exact:
         metrics["exact_top_1"] = sum(bool(sum(relevance(row["retrieval"], row["expected"], 1)))
@@ -81,9 +71,9 @@ def candidate_rows(rows):
     return [{key: row.get(key) for key in keys} for row in rows]
 
 
-class GateOnly:
+class PreparationOnly:
     async def generate(self, *args, **kwargs):
-        raise GenerationUnavailable("Generation disabled in gate-only benchmark.")
+        raise GenerationUnavailable("Generation disabled in preparation-only benchmark.")
 
 
 async def run(args):
@@ -108,9 +98,9 @@ async def run(args):
     decisions = ContextVar("decisions")
 
     def capture_service():
-        service = get_question_answer_service(app.state.db, get_settings(), None)
+        service = get_question_answer_service(app.state.db, get_settings())
         if not args.gemini:
-            service.generator = GateOnly()
+            service.generator = PreparationOnly()
         prepare = service.preparation.prepare
 
         async def capture(*args, **kwargs):
@@ -138,8 +128,8 @@ async def run(args):
                               search_http=response.status_code, search_status=body.get("status"),
                               publication_id=body.get("publication_id"), warnings=body.get("warnings", []),
                               retrieval=candidate_rows(body.get("results", [])))
-                result["expected_gate"] = result.pop("gate", None)
-                if result["expected_gate"] or args.all_answers:
+                result["expected_preparation"] = result.pop("expected_preparation", None)
+                if result["expected_preparation"] or args.all_answers:
                     captured = []
                     token = decisions.set(captured)
                     try:
@@ -150,8 +140,8 @@ async def run(args):
                     result.update(ask_seconds=round(perf_counter() - started, 3),
                                   ask_http=answer.status_code, answer=answer.json())
                     decision = captured[-1] if captured else None
-                    result["gate"] = decision.outcome if decision else None
-                    result["gate_reason"] = decision.reason if decision else None
+                    result["preparation"] = decision.outcome if decision else None
+                    result["preparation_reason"] = decision.reason if decision else None
                     result["limited_source_context"] = bool(getattr(decision, "limited_source_context", False))
                     if decision and decision.context:
                         reranked = decision.context.reranked
@@ -162,12 +152,12 @@ async def run(args):
                             row.exact_rank is None, row.exact_rank or 0, -ranks.get(row.chunk_id, 0), row.rank))
                         result["reranked"] = candidate_rows([row.model_dump(mode="json") for row in ranked])
                         result["context_issues"] = [issue.model_dump(mode="json") for issue in decision.context.issues]
-                print(case["id"], result["search_status"], result.get("gate"), result.get("gate_reason"), flush=True)
+                print(case["id"], result["search_status"], result.get("preparation"), result.get("preparation_reason"), flush=True)
                 return result
 
         results = await asyncio.gather(*(run_case(case) for case in cases
                                          if not args.only or case["id"] in args.only))
-    report = {"mode": "gemini" if args.gemini else "gate_only", "parallel": args.parallel,
+    report = {"mode": "gemini" if args.gemini else "preparation_only", "parallel": args.parallel,
               "cases": results, "metrics": summary(results)}
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report["metrics"], indent=2))

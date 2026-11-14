@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 import re
 
-from app.services.qa_references import mentions, reference_lookups
+from app.services.qa.references import mentions, reference_lookups
 
 
 _QUALIFIER = re.compile(

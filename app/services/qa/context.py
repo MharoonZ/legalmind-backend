@@ -10,8 +10,8 @@ from app.core.qa_context_config import ContextSettings, get_context_settings
 from app.repositories.qa_context_repository import ContextScopeError
 from app.schemas.qa_context import ContextIssue, ContextReference, ContextResult, ContextUnit
 from app.schemas.qa_evidence import RerankResult
-from app.services.qa_references import reference_lookups
-from app.services.qa_context_scope import nested_reference_scope
+from app.services.qa.references import reference_lookups
+from app.services.qa.context_scope import nested_reference_scope
 
 
 class ContextTokenizationError(RuntimeError):

@@ -4,8 +4,8 @@ from types import SimpleNamespace as Row
 import pytest
 
 from app.core.qa_context_config import ContextSettings
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_references import reference_lookups
+from tests.qa_fixtures import prepared_context
+from app.services.qa.references import reference_lookups
 from app.schemas.qa_evidence import RerankedCandidate
 from tests.qa_fixtures import INSTRUMENT, identity
 from tests.test_qa_context import FakeCatalog, chunk, expand, graph, node
@@ -36,7 +36,7 @@ def text_ids(context):
 def test_explicit_subsection_keeps_its_full_text_and_parent_without_unrelated_reference_chain():
     catalog, reranked, root, first, second = scoped_graph()
     context = expand(catalog, reranked)
-    assert EvidenceGate().decide(context).outcome == "ready_for_prompt"
+    assert prepared_context(context).outcome == "ready_for_prompt"
     assert {first.id, root.id} <= text_ids(context)
     assert second.id not in text_ids(context)
     assert not any(u.chunk_id == identity("target-chunk") for u in context.units)
@@ -56,7 +56,7 @@ def test_explicit_subsection_keeps_its_full_text_and_parent_without_unrelated_re
 def test_possible_section_wide_qualifiers_and_back_references_remain_complete(text):
     catalog, reranked, _, first, _ = scoped_graph(sibling_text=text)
     result = expand(catalog, reranked)
-    assert EvidenceGate().decide(result).outcome == "ready_for_prompt"
+    assert prepared_context(result).outcome == "ready_for_prompt"
     assert any(text in u.text for u in result.units)
     assert any(first.own_text in u.text for u in result.units)
 
@@ -71,7 +71,7 @@ def test_target_subtree_includes_its_children_and_a_parent_level_explanation():
     catalog._index_graph()
     result = expand(catalog, reranked)
     assert {first.id, child.id, explanation.id, root.id} <= text_ids(result)
-    assert EvidenceGate().decide(result).outcome == "ready_for_prompt"
+    assert prepared_context(result).outcome == "ready_for_prompt"
 
 
 def test_an_appeal_subsection_also_pulls_in_the_subsection_it_refers_back_to():
@@ -87,7 +87,7 @@ def test_a_qualifier_cannot_hide_its_missing_dependency():
     catalog, reranked, _, _, _ = scoped_graph(
         sibling_text="Provided that the exception in section 99 applies.")
     result = expand(catalog, reranked)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
     assert any(i.code == "unresolved_reference" and i.critical for i in result.issues)
 
 
@@ -105,7 +105,7 @@ def test_uncertain_legal_scope_retains_the_existing_full_section_behavior(fault)
     result = expand(catalog, reranked)
     assert any(u.chunk_id == identity("target-chunk") for u in result.units)
     if fault != "ambiguous_selector":
-        assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+        assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 @pytest.mark.parametrize("missing", ["scope-one", "target", "scope-qualification"])
@@ -117,7 +117,7 @@ def test_missing_scoped_source_or_qualification_proof_is_critical(missing):
     catalog.missing.add(identity(missing))
     catalog._index_graph()
     result = expand(catalog, reranked)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
     assert any(i.code == "source_missing" and i.critical for i in result.issues)
 
 
@@ -134,7 +134,7 @@ def test_later_whole_section_reference_is_not_satisfied_by_a_scoped_cache_entry(
         target_instrument_id=INSTRUMENT, target_reference_path=root.reference_path))
     result = expand(catalog, reranked)
     assert any(u.chunk_id == identity("target-chunk") for u in result.units)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_scoped_group_budget_failure_keeps_no_partial_target_or_audit_link():
@@ -246,7 +246,7 @@ def test_a_nested_target_split_across_chunks_retains_its_entire_provision_text()
     catalog.members[extra.id] = {first.id,second.id}
     catalog._index_graph()
     result = expand(catalog,reranked)
-    assert EvidenceGate().decide(result).outcome == "ready_for_prompt"
+    assert prepared_context(result).outcome == "ready_for_prompt"
     assert any(u.provision_id==first.id and u.text==first.own_text for u in result.units)
 
 
@@ -258,7 +258,7 @@ def test_a_proviso_inside_an_otherwise_independent_power_cannot_be_excluded():
     catalog._index_graph()
     result = expand(catalog,reranked)
     assert any(u.provision_id==proviso.id and u.text==proviso.own_text for u in result.units)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_explicit_nested_reference_still_obeys_the_configured_depth_limit():
@@ -281,7 +281,7 @@ def test_a_full_section_selected_by_retrieval_is_never_narrowed():
         "retrieval":reranked.retrieval.model_copy(update={"results":[*reranked.retrieval.results,candidate]})})
     result = expand(catalog,reranked)
     assert any(u.chunk_id==part.id and u.relation=="retrieved" for u in result.units)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_optional_definition_keeps_full_group_policy_and_rolls_back_its_failure():
@@ -297,7 +297,7 @@ def test_optional_definition_keeps_full_group_policy_and_rolls_back_its_failure(
     catalog.missing.add(first.id)
     catalog._index_graph()
     result = expand(catalog,reranked)
-    assert EvidenceGate().decide(result).outcome == "ready_for_prompt"
+    assert prepared_context(result).outcome == "ready_for_prompt"
     assert first.id not in text_ids(result)
     assert not any(u.chunk_id==part.id for u in result.units)
     assert not any(link.target_provision_id==first.id for link in result.reference_links)
@@ -315,7 +315,7 @@ def test_failed_optional_whole_group_preserves_a_shared_required_scoped_group():
         target_reference_path=first.reference_path)]
     catalog._index_graph()
     result = expand(catalog,reranked)
-    assert EvidenceGate().decide(result).outcome == "ready_for_prompt"
+    assert prepared_context(result).outcome == "ready_for_prompt"
     assert first.id in text_ids(result)
     assert any(link.target_provision_id==first.id and link.source_provision_id==identity("provision-1")
                for link in result.reference_links)
@@ -335,6 +335,6 @@ def test_same_section_numbered_dependencies_do_not_consume_an_extra_depth(addres
         catalog.members[identity("target-chunk")].add(inner.id)
     catalog._index_graph()
     result=expand(catalog,reranked,settings=ContextSettings(max_reference_depth=1))
-    assert EvidenceGate().decide(result).outcome=="ready_for_prompt"
+    assert prepared_context(result).outcome=="ready_for_prompt"
     assert {first.id,second.id} <= text_ids(result)
     assert not any(i.code=="reference_depth_limit" and i.critical for i in result.issues)

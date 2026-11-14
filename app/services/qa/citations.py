@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import re
 
-from app.schemas.qa_decision import EvidenceDecision
+from app.schemas.qa_decision import PreparedQuestion
 from app.schemas.qa_generation import AnswerDraft
 from app.schemas.qa_verified import VerifiedCitation, VerifiedClaim, VerifiedDraft
-from app.services.qa_source_proofs import CitationVerificationError, covered_proofs
+from app.services.qa.source_proofs import CitationVerificationError, covered_proofs
 
 
 def _quote_span(text: str, quote: str) -> tuple[int, int] | None:
@@ -27,17 +27,9 @@ class CitationVerifier:
     def __init__(self, source_verifier):
         self.source_verifier = source_verifier
 
-    async def verify(self, draft: AnswerDraft, decision: EvidenceDecision) -> VerifiedDraft:
-        fact = decision.clarification_fact
-        gate_question = (decision.outcome == "clarification_needed" and fact is not None and
-                         decision.clarification_evidence_id in fact.evidence_ids)
-        if (decision.outcome != "ready_for_prompt" and not gate_question) or decision.context is None:
-            raise CitationVerificationError("gate_not_ready")
-        if gate_question and (
-                draft.outcome != "clarification_needed" or draft.clarification_question != fact.question or
-                len(draft.claims) != 1 or draft.claims[0].evidence_id != decision.clarification_evidence_id or
-                " ".join(draft.claims[0].quote.split()) != " ".join(fact.quote.split())):
-            raise CitationVerificationError("gate_clarification_mismatch")
+    async def verify(self, draft: AnswerDraft, decision: PreparedQuestion) -> VerifiedDraft:
+        if decision.outcome != "ready_for_prompt" or decision.context is None:
+            raise CitationVerificationError("context_not_ready")
         context = decision.context
         publication_id = context.reranked.retrieval.publication_id
         units = {unit.evidence_id: unit for unit in context.units}

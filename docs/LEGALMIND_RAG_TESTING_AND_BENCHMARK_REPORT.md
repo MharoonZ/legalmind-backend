@@ -1,3 +1,5 @@
+> Historical report from 11 November 2026. See [the 14 November implemented architecture and validation review](LEGALMIND_REVIEW_2026-11-14.md) for the current answer pipeline.
+
 # LegalMind RAG testing and benchmark report
 
 **11 November 2026** · Baseline `4026c8b` · Active pilot

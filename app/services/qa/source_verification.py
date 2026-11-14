@@ -11,7 +11,7 @@ from app.db.legal_corpus_models import (
 )
 from app.repositories.qa_context_repository import QaContextRepository
 from app.schemas.qa_context import ContextUnit
-from app.services.qa_source_proofs import (
+from app.services.qa.source_proofs import (
     CitationVerificationError, SourceProof, covered_proofs, valid_text_range,
 )
 

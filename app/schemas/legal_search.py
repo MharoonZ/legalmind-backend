@@ -39,7 +39,13 @@ class LegalSearchIn(BaseModel):
     context: SearchContextIn | None = None
     # Only /ask can opt in to its explicit follow-up semantics.
     _explicit_followup: bool = PrivateAttr(default=False)
-    _prefer_semantic_alternative: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="after")
+    def bounded_followup(self):
+        previous = self.context.previous_query if self.context else None
+        if previous and len(previous) + 1 + len(self.query) > 4000:
+            raise ValueError("The query and previous question together must fit within 4000 characters")
+        return self
 
     @field_validator("query")
     @classmethod
@@ -92,4 +98,3 @@ class LegalSearchOut(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     missing_references: list[str] = Field(default_factory=list)
     results: list[CandidateOut] = Field(default_factory=list)
-    _has_semantic_alternative: bool = PrivateAttr(default=False)

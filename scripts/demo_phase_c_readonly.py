@@ -11,11 +11,12 @@ from app.repositories.legal_search_repository import LegalSearchRepository
 from app.repositories.qa_context_repository import QaContextRepository
 from app.schemas.legal_search import LegalSearchIn
 from app.services.legal_retrieval import LegalRetrievalService
-from app.services.qa_context import ContextExpander
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_preparation import QuestionPreparationService
-from app.services.qa_reranker import CandidateReranker
-from app.services.qa_source_verification import QaSourceVerifier
+from app.services.qa.context import ContextExpander
+from app.schemas.qa_decision import PreparedQuestion
+from app.services.qa.context_validation import validate_context
+from app.services.qa.preparation import QuestionPreparationService
+from app.services.qa.reranker import CandidateReranker
+from app.services.qa.source_verification import QaSourceVerifier
 
 
 async def main():
@@ -24,12 +25,12 @@ async def main():
     try:
         service = QuestionPreparationService(
             LegalRetrievalService(LegalSearchRepository(db), settings),
-            CandidateReranker(), ContextExpander(QaContextRepository(db)), EvidenceGate())
+            CandidateReranker(), ContextExpander(QaContextRepository(db)))
         decision = await service.prepare(LegalSearchIn(
             query="Section 19 of the Consumer Protection Act", limit=10))
-        print("Evidence decision:", decision.outcome)
+        print("Preparation status:", decision.outcome)
         if decision.outcome != "ready_for_prompt":
-            raise SystemExit("The evidence gate did not approve this smoke-test question.")
+            raise SystemExit("The source context could not be prepared.")
         if decision.context:
             print("First-stage candidates:", len(decision.context.reranked.retrieval.results))
             print("Reranked candidates:", len(decision.context.reranked.candidates))

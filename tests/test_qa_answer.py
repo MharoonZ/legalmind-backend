@@ -9,10 +9,10 @@ from app.main import create_app
 from app.schemas.qa import AskIn, AskOut
 from app.schemas.legal_search import SearchContextIn
 from app.schemas.qa_generation import AnswerDraft, DraftClaim
-from app.services.qa_answer import QuestionAnswerService
-from app.services.qa_citations import CitationVerifier
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_generation import GenerationUnavailable
+from app.services.qa.answer import QuestionAnswerService
+from app.services.qa.citations import CitationVerifier
+from tests.qa_fixtures import prepared_context
+from app.services.qa.generation import GenerationUnavailable
 from tests.test_qa_citations import FakeSource
 from tests.test_qa_context import expand, graph
 
@@ -42,7 +42,7 @@ class FakeGenerator:
 
 def ready():
     catalog, reranked = graph()
-    decision = EvidenceGate().decide(expand(catalog, reranked))
+    decision = prepared_context(expand(catalog, reranked))
     unit = decision.context.units[0]
     draft = AnswerDraft(outcome="answered", answer="The model invented a separate conclusion.",
                         claims=[DraftClaim(evidence_id=unit.evidence_id,
@@ -83,7 +83,7 @@ def test_partial_answer_is_open_about_uncertainty():
 
 def test_missing_fact_returns_verified_rule_and_a_followup_question():
     catalog, reranked = graph(qualifier=True)
-    decision = EvidenceGate().decide(expand(catalog, reranked))
+    decision = prepared_context(expand(catalog, reranked))
     rule = next(unit for unit in decision.context.units if unit.relation == "qualification")
     draft = AnswerDraft(outcome="clarification_needed", answer="Untrusted conclusion.",
                         missing_support="Whether the user has a signed permit.",
@@ -129,6 +129,19 @@ def test_provider_failure_is_not_a_false_insufficient_evidence_result():
     result, _, _ = answer(decision, [GenerationUnavailable("private")])
     assert result.status == "service_unavailable"
     assert "private" not in result.answer
+
+
+def test_optional_recording_failure_preserves_a_verified_answer():
+    class FailedRecorder:
+        async def record(self, *args):
+            raise RuntimeError("Private database detail")
+
+    decision, draft = ready()
+    service = QuestionAnswerService(FakePrep(decision), FakeGenerator([draft]),
+        CitationVerifier(FakeSource()), recorder=FailedRecorder())
+    result = asyncio.run(service.ask(AskIn(question="What does the provision say?")))
+    assert result.status == "answered" and result.citations
+    assert "Private" not in result.answer
 
 
 def test_invalid_citation_gets_one_bounded_repair():
@@ -213,7 +226,7 @@ def test_partial_exact_answer_reports_the_missing_reference_from_the_server():
         update={"exact_rank": 1, "matched_reference_paths": [path]})})
     reranked = reranked.model_copy(update={"candidates": (row,), "retrieval": reranked.retrieval.model_copy(
         update={"missing_references": ["section 999"]})})
-    decision = EvidenceGate().decide(expand(catalog, reranked))
+    decision = prepared_context(expand(catalog, reranked))
     assert decision.missing_references == ("section 999",)
     unit = decision.context.units[0]
     claim = DraftClaim(evidence_id=unit.evidence_id, quote=unit.text, claim_text=unit.text)

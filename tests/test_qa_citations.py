@@ -4,9 +4,9 @@ import asyncio
 import pytest
 
 from app.schemas.qa_generation import AnswerDraft, DraftClaim
-from app.services.qa_citations import CitationVerificationError, CitationVerifier
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_source_verification import SourceProof, covered_proofs
+from app.services.qa.citations import CitationVerificationError, CitationVerifier
+from tests.qa_fixtures import prepared_context
+from app.services.qa.source_verification import SourceProof, covered_proofs
 from tests.qa_fixtures import identity
 from tests.test_qa_context import expand, graph
 
@@ -31,7 +31,7 @@ class FakeSource:
 
 def setup():
     catalog, reranked = graph()
-    decision = EvidenceGate().decide(expand(catalog, reranked))
+    decision = prepared_context(expand(catalog, reranked))
     unit = decision.context.units[0]
     quote = unit.text
     draft = AnswerDraft(outcome="answered", answer="Untrusted model prose.",
@@ -57,7 +57,7 @@ def test_subsection_lookup_cannot_be_answered_by_only_quoting_a_sibling():
     wanted = original.candidate.reference_path + "/ss:2"
     row = original.model_copy(update={"candidate": original.candidate.model_copy(
         update={"exact_rank": 1, "matched_reference_paths": [wanted]})})
-    decision = EvidenceGate().decide(expand(catalog, reranked.model_copy(update={"candidates": (row,)})))
+    decision = prepared_context(expand(catalog, reranked.model_copy(update={"candidates": (row,)})))
     unit = decision.context.units[0]
     draft = AnswerDraft(outcome="answered", answer="", missing_support="",
         claims=[DraftClaim(evidence_id=unit.evidence_id, quote=unit.text, claim_text=unit.text)])
@@ -67,7 +67,7 @@ def test_subsection_lookup_cannot_be_answered_by_only_quoting_a_sibling():
 
 def test_limited_source_context_cannot_return_a_complete_answer():
     decision, draft = setup()
-    limited = EvidenceGate().decide(decision.context.model_copy(update={"coverage_limited": True}))
+    limited = prepared_context(decision.context.model_copy(update={"coverage_limited": True}))
     source = FakeSource()
     with pytest.raises(CitationVerificationError, match="limited_source_context"):
         asyncio.run(CitationVerifier(source).verify(draft, limited))

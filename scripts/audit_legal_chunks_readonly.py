@@ -17,6 +17,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.core.config import get_settings
 from app.db.session import Database
+from app.db.streaming import fetch_rows
 
 
 async def audit(revision_id: UUID | None = None) -> dict:
@@ -25,7 +26,7 @@ async def audit(revision_id: UUID | None = None) -> dict:
         if not await db.connect():
             raise RuntimeError("Database unavailable")
         async with db.session() as session:
-            await session.execute(text("SET TRANSACTION READ ONLY"))
+            await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
             revisions = (await session.execute(text("""
                 SELECT r.id, r.legal_version_id, r.revision_number, r.review_state,
                        r.content_sha256, i.canonical_title, v.edition_key
@@ -46,17 +47,17 @@ async def audit(revision_id: UUID | None = None) -> dict:
                 WHERE CAST(:rid AS uuid) IS NULL OR s.revision_id = CAST(:rid AS uuid)
                 GROUP BY s.id
             """), {"rid": revision_id})).mappings().all()
-            chunks = (await session.execute(text("""
+            chunks = await fetch_rows(session, text("""
                 SELECT c.id, c.chunk_set_id, c.revision_id, c.root_provision_id,
                        c.ordinal, c.chunk_key, c.prefix, c.chunk_text, c.chunk_text_sha256,
                        c.search_text, c.char_count, c.label,
-                       s.chunk_report, r.review_state, r.content_sha256 AS revision_hash,
+                       r.review_state, r.content_sha256 AS revision_hash,
                        s.content_sha256 AS set_hash
                 FROM legal_chunks c JOIN chunk_sets s ON s.id = c.chunk_set_id
                 JOIN corpus_revisions r ON r.id = s.revision_id
                 WHERE CAST(:rid AS uuid) IS NULL OR c.revision_id = CAST(:rid AS uuid)
-            """), {"rid": revision_id})).mappings().all()
-            links = (await session.execute(text("""
+            """), {"rid": revision_id}, mappings=True, batch_size=500)
+            links = await fetch_rows(session, text("""
                 SELECT l.chunk_id, c.chunk_set_id, l.revision_id, l.provision_id, l.ordinal,
                        l.source_span_id, l.provision_char_start, l.provision_char_end,
                        l.chunk_char_start, l.chunk_char_end,
@@ -66,15 +67,15 @@ async def audit(revision_id: UUID | None = None) -> dict:
                 JOIN legal_chunks c ON c.id = l.chunk_id
                 JOIN provisions p ON p.id = l.provision_id
                 WHERE CAST(:rid AS uuid) IS NULL OR l.revision_id = CAST(:rid AS uuid)
-            """), {"rid": revision_id})).mappings().all()
-            provisions = (await session.execute(text("""
+            """), {"rid": revision_id}, mappings=True, batch_size=500)
+            provisions = await fetch_rows(session, text("""
                 SELECT p.id, p.revision_id, p.parent_id, p.kind, p.source_status,
                        p.ordinal, p.own_text
                 FROM provisions p JOIN corpus_revisions r ON r.id = p.revision_id
                 WHERE r.review_state = 'approved' AND
                     (CAST(:rid AS uuid) IS NULL OR p.revision_id = CAST(:rid AS uuid))
-            """), {"rid": revision_id})).mappings().all()
-            source_positions = (await session.execute(text("""
+            """), {"rid": revision_id}, mappings=True, batch_size=500)
+            source_positions = await fetch_rows(session, text("""
                 SELECT ps.id, ps.provision_id, ps.extraction_id, fp.page_index,
                        b.block_ordinal, ps.block_char_start,
                        ps.provision_char_start, ps.provision_char_end
@@ -83,7 +84,7 @@ async def audit(revision_id: UUID | None = None) -> dict:
                 LEFT JOIN file_blocks b ON b.id = ps.block_id
                 WHERE r.review_state = 'approved' AND
                     (CAST(:rid AS uuid) IS NULL OR ps.revision_id = CAST(:rid AS uuid))
-            """), {"rid": revision_id})).mappings().all()
+            """), {"rid": revision_id}, mappings=True, batch_size=500)
             span_issues = (await session.execute(text("""
                 SELECT count(*) FILTER (WHERE substring(p.own_text from
                     ps.provision_char_start + 1 for

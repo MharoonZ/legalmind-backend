@@ -11,6 +11,8 @@ and this module makes no LLM calls.
 
 from __future__ import annotations
 
+import asyncio
+
 import hashlib
 import importlib.metadata
 import logging
@@ -409,11 +411,11 @@ class ContractExtractionService:
         path = Path(source.storage_path)
         await self.repository.mark_extracting(version_id)
         try:
-            if _sha256_file(path) != source.pdf_sha256:
+            if await asyncio.to_thread(_sha256_file, path) != source.pdf_sha256:
                 raise ContractExtractionError(
                     "Stored contract hash does not match the uploaded file record."
                 )
-            extraction = extract_contract(
+            extraction = await asyncio.to_thread(extract_contract,
                 path,
                 document_version_id=version_id,
                 engine=self.engine,

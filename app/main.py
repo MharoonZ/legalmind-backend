@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await db.connect()
 
     if settings.legal_search_enabled:
-        from app.services.qa_reranker import warm_reranker
+        from app.services.qa.reranker import warm_reranker
         await warm_reranker()
 
     logger.info(

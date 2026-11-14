@@ -36,10 +36,11 @@ from app.repositories.legal_search_repository import LegalSearchRepository  # no
 from app.repositories.qa_context_repository import QaContextRepository  # noqa: E402
 from app.schemas.legal_search import LegalSearchIn  # noqa: E402
 from app.services.legal_retrieval import LegalRetrievalService  # noqa: E402
-from app.services.qa_context import ContextExpander  # noqa: E402
-from app.services.qa_evidence_gate import EvidenceGate  # noqa: E402
-from app.services.qa_reranker import CandidateReranker, FlagEmbeddingScorer  # noqa: E402
-from app.services.qa_source_verification import QaSourceVerifier  # noqa: E402
+from app.services.qa.context import ContextExpander  # noqa: E402
+from app.schemas.qa_decision import PreparedQuestion
+from app.services.qa.context_validation import validate_context  # noqa: E402
+from app.services.qa.reranker import CandidateReranker, FlagEmbeddingScorer  # noqa: E402
+from app.services.qa.source_verification import QaSourceVerifier  # noqa: E402
 
 
 class Timings:
@@ -186,9 +187,10 @@ async def main(database_only=False):
         context_repository = MeasuredContextRepository(db)
         context = await timings.run("context_expansion", ContextExpander(context_repository).expand(reranked))
         report["context_catalog_counts"] = context_repository.counts
-        with timings.measure("evidence_gate"):
-            decision = EvidenceGate().decide(context)
-        report["gate_outcome"] = decision.outcome
+        with timings.measure("source_preparation"):
+            validate_context(context)
+            decision = PreparedQuestion(outcome="ready_for_prompt", reason="Prepared context", context=context, evidence_ids=tuple(u.evidence_id for u in context.units))
+        report["preparation_outcome"] = decision.outcome
         report["context_units"] = len(context.units)
         report["context_critical_issues"] = sum(issue.critical for issue in context.issues)
         proof_ranges = list((

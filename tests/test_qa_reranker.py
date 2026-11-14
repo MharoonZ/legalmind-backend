@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from app.core.qa_config import RerankerSettings
 from app.schemas.legal_search import LegalSearchIn
 from app.services.legal_retrieval import LegalRetrievalService
-from app.services.qa_reranker import (
+from app.services.qa.reranker import (
     CandidateReranker, EvidenceContractError, FlagEmbeddingScorer,
     RerankerInputTooLong, RerankerUnavailable, get_flag_scorer,
 )
@@ -88,13 +88,13 @@ def test_invalid_upstream_identity_is_rejected_before_model_use(changes):
     assert scorer.calls == []
 
 
-@pytest.mark.parametrize("top_k", [5, 8, 10])
+@pytest.mark.parametrize("top_k", [1, 4, 5, 8, 10])
 def test_top_k_is_configurable(top_k):
     result, _ = run(top_k=top_k)
     assert len(result.candidates) == top_k
 
 
-@pytest.mark.parametrize("top_k", [4, 11])
+@pytest.mark.parametrize("top_k", [0, 11])
 def test_top_k_cannot_leave_the_assigned_range(top_k):
     with pytest.raises(ValidationError):
         RerankerSettings(top_k=top_k)
@@ -130,7 +130,7 @@ def test_lazy_loading_and_raw_scores_with_no_silent_token_truncation():
 
 
 def test_startup_warmup_loads_the_same_model_used_by_requests_once(monkeypatch):
-    from app.services import qa_reranker
+    from app.services.qa import reranker as qa_reranker
     loads = []
     class Model:
         tokenizer = type("Tokenizer", (), {"encode": lambda *a, **k: [1, 2]})()
@@ -149,7 +149,7 @@ def test_startup_warmup_loads_the_same_model_used_by_requests_once(monkeypatch):
 
 
 def test_failed_or_disabled_warmup_never_fabricates_scores(monkeypatch):
-    from app.services import qa_reranker
+    from app.services.qa import reranker as qa_reranker
     def fail():
         raise RuntimeError("simulated model failure")
     scorer = FlagEmbeddingScorer(RerankerSettings(), loader=fail)

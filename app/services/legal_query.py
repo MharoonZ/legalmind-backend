@@ -219,6 +219,8 @@ def explicit_law_mentions(query):
         if match.start() < consumed:
             continue
         raw_name = match[1].strip()
+        if re.search(r"\b(?:this|that|same)\s+(?:act|ordinance|rules|code)\b", raw_name, re.I):
+            continue
         # Strip leading question words or reference words
         words = raw_name.split()
         while words and (words[0].casefold() in _QUESTION_WORDS or re.match(r"^(?:sections?|sec\.?|s\.|rules?|articles?|art\.?|\d+)$", words[0], re.I)):

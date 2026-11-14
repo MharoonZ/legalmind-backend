@@ -12,10 +12,10 @@ from app.api.routes.qa import get_question_answer_service
 from app.core.qa_generation_config import AnswerSettings
 from app.main import create_app
 from app.schemas.qa_generation import AnswerDraft, DraftClaim
-from app.services.qa_answer import QuestionAnswerService
-from app.services.qa_citations import CitationVerifier
-from app.services.qa_generation import AnswerGenerator, GenerationInvalid, GenerationUnavailable
-from app.services.qa_prompt import PromptPacket
+from app.services.qa.answer import QuestionAnswerService
+from app.services.qa.citations import CitationVerifier
+from app.services.qa.generation import AnswerGenerator, GenerationInvalid, GenerationUnavailable
+from app.services.qa.prompt import PromptPacket
 from tests.test_qa_answer import FakePrep, ready
 from tests.test_qa_citations import FakeSource
 from tests.test_qa_generation import FakeResponses

@@ -9,7 +9,7 @@ import pytest
 from app.core.qa_context_config import ContextSettings
 from app.repositories.qa_context_repository import ContextCatalog, ContextScopeError, PublishedItem
 from app.schemas.qa_evidence import RerankResult, RerankedCandidate
-from app.services.qa_context import ContextExpander
+from app.services.qa.context import ContextExpander
 from tests.qa_fixtures import CHUNK_SET, INSTRUMENT, PUBLICATION, REVISION, VERSION, candidate, identity, retrieval
 
 
@@ -130,6 +130,19 @@ def test_expands_complete_root_parent_qualification_and_definition():
     assert any("exception applies" in unit.text for unit in result.units)
     assert any(unit.label == "7" and unit.relation == "definition" for unit in result.units)
     assert any(issue.code == "definition_heuristic" for issue in result.issues)
+
+
+def test_default_budget_retains_a_root_with_many_required_qualifications():
+    catalog, reranked = graph(qualifier=True)
+    root = reranked.candidates[0].candidate.root_provision_id
+    for index in range(6):
+        qualifier = node(f"required-explanation-{index}", parent=root, kind="other",
+                         heading="Explanation", text=f"This condition applies in circumstance {index}.")
+        catalog.nodes[qualifier.id] = qualifier
+    catalog._index_graph()
+    result = expand(catalog, reranked)
+    assert len(result.units) == 9
+    assert not any(issue.critical for issue in result.issues)
     assert not any(issue.critical for issue in result.issues)
     assert len({unit.evidence_id for unit in result.units}) == len(result.units)
     assert reranked.candidates[0].candidate.rrf_score == result.reranked.candidates[0].candidate.rrf_score
@@ -296,7 +309,7 @@ def test_definition_is_omitted_as_a_whole_when_its_exception_does_not_fit():
 
 
 def test_reference_with_missing_exception_source_blocks_the_gate():
-    from app.services.qa_evidence_gate import EvidenceGate
+    from tests.qa_fixtures import prepared_context
     catalog, reranked = graph(reference=True)
     target = catalog.nodes[identity("target")]
     proviso = node("reference-proviso", parent=target.id, kind="other", heading="Proviso",
@@ -305,18 +318,18 @@ def test_reference_with_missing_exception_source_blocks_the_gate():
                           catalog.members, catalog.references, missing={proviso.id})
     result = expand(catalog, reranked)
     assert any(issue.code == "source_missing" and issue.critical for issue in result.issues)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_unresolved_reference_blocks_a_complete_answer():
-    from app.services.qa_evidence_gate import EvidenceGate
+    from tests.qa_fixtures import prepared_context
     catalog, reranked = graph(unresolved=True)
-    assert EvidenceGate().decide(expand(catalog, reranked)).outcome == "insufficient_evidence"
+    assert prepared_context(expand(catalog, reranked)).outcome == "insufficient_evidence"
 
 
 @pytest.mark.parametrize("failure", ["unresolved", "unpublished", "missing_target", "missing_source", "depth", "budget"])
 def test_incomplete_optional_definition_dependencies_are_omitted_together(failure):
-    from app.services.qa_evidence_gate import EvidenceGate
+    from tests.qa_fixtures import prepared_context
     catalog, reranked = graph(reference=True, definition=True)
     definition_id = identity("definitions-seven")
     catalog.references[definition_id] = catalog.references.pop(identity("provision-1"))
@@ -345,7 +358,7 @@ def test_incomplete_optional_definition_dependencies_are_omitted_together(failur
     assert (result.token_count, result.char_count) == (baseline.token_count, baseline.char_count)
     assert any(issue.code == "optional_context_omitted" for issue in result.issues)
     assert not any(issue.critical for issue in result.issues)
-    assert EvidenceGate().decide(result).outcome == "ready_for_prompt"
+    assert prepared_context(result).outcome == "ready_for_prompt"
 
 
 def test_optional_rollback_preserves_shared_required_parents_and_references():
@@ -365,7 +378,7 @@ def test_optional_rollback_preserves_shared_required_parents_and_references():
 
 
 def test_definition_required_by_retrieved_section_cannot_be_silently_omitted():
-    from app.services.qa_evidence_gate import EvidenceGate
+    from tests.qa_fixtures import prepared_context
     catalog, reranked = graph(reference=True, definition=True)
     definition = catalog.nodes[identity("definitions-seven")]
     catalog.references[identity("provision-1")][0].target_reference_path = definition.reference_path
@@ -374,7 +387,7 @@ def test_definition_required_by_retrieved_section_cannot_be_silently_omitted():
     result = expand(catalog, reranked)
     assert any(issue.code == "unresolved_reference" and issue.critical for issue in result.issues)
     assert not any(issue.code == "optional_context_omitted" for issue in result.issues)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_failed_optional_branch_does_not_poison_a_later_complete_definition():

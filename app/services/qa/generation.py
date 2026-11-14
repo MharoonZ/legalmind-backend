@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from app.core.qa_generation_config import AnswerSettings, get_answer_settings
 from app.schemas.qa_generation import AnswerDraft
-from app.services.qa_prompt import PromptPacket
+from app.services.qa.prompt import PromptPacket
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +53,13 @@ class AnswerGenerator:
         config = {
             "responseMimeType": "application/json",
             "responseJsonSchema": schema,
-            "maxOutputTokens": 2048,
+            "maxOutputTokens": self.settings.qa_gemini_max_output_tokens,
         }
         if self.settings.qa_gemini_thinking_level is not None:
             config["thinkingConfig"] = {"thinkingLevel": self.settings.qa_gemini_thinking_level.upper()}
-        prompt_content = f"{packet.system}\n\nTask and Evidence Data:\n{user}"
         payload = {
-            "contents": [{"role": "user", "parts": [{"text": prompt_content}]}],
+            "systemInstruction": {"parts": [{"text": packet.system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": config,
         }
 
@@ -72,8 +72,7 @@ class AnswerGenerator:
                 transport=transport, timeout=timeout,
             ) as http_client:
                 response = await http_client.post(url, headers={"x-goog-api-key": key}, json=payload)
-        except (TimeoutError, httpx.RequestError) as exc:
-            logger.warning("Gemini request failed: %s", exc)
+        except (TimeoutError, httpx.RequestError):
             raise GenerationUnavailable("The Gemini answer provider timed out or could not be reached.") from None
 
         if response.status_code == 429:
@@ -81,35 +80,23 @@ class AnswerGenerator:
         if response.status_code in {401, 403}:
             raise GenerationUnavailable("The Gemini answer provider rejected the server credential.")
         if response.status_code != 200:
-            logger.warning("Gemini returned HTTP %s: %s", response.status_code, response.text)
             raise GenerationUnavailable(f"The Gemini answer provider returned HTTP {response.status_code}.")
 
         try:
             data = response.json()
             candidate = (data.get("candidates") or [{}])[0]
-            finish_reason = candidate.get("finishReason")
-            if finish_reason != "STOP" or data.get("promptFeedback", {}).get("blockReason"):
-                logger.warning("Gemini candidate did not complete cleanly: finishReason=%s, data=%s", finish_reason, data)
+            if candidate.get("finishReason") != "STOP" or data.get("promptFeedback", {}).get("blockReason"):
                 raise GenerationInvalid("Gemini did not complete the structured answer.")
-            parts = candidate.get("content", {}).get("parts", [])
+            parts = candidate["content"]["parts"]
             raw_text = "".join(part["text"] for part in parts if not part.get("thought") and "text" in part)
-            draft = AnswerDraft.model_validate_json(raw_text)
-            # Normalization: ensure claim_text matches quote exactly for verification
-            cleaned_claims = [
-                c.model_copy(update={"claim_text": c.quote})
-                for c in draft.claims
-            ]
-            draft = draft.model_copy(update={"claims": cleaned_claims})
+            draft = AnswerDraft.model_validate_json(raw_text, strict=True)
             usage = data.get("usageMetadata") or {}
             logger.info("qa_gemini_usage model=%s input_tokens=%s output_tokens=%s thinking_tokens=%s",
                         self.settings.gemini_model, usage.get("promptTokenCount"),
                         usage.get("candidatesTokenCount"), usage.get("thoughtsTokenCount"))
             return draft
-        except GenerationInvalid:
-            raise
-        except Exception as exc:
-            logger.exception("Gemini returned an invalid structured answer: %s", exc)
-            raise GenerationInvalid("Gemini returned an invalid structured answer.") from exc
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise GenerationInvalid("Gemini returned an invalid structured answer.") from None
 
     async def generate(self, packet: PromptPacket, *, repair_feedback: str | None = None) -> AnswerDraft:
         user = packet.user

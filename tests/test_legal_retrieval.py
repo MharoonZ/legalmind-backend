@@ -316,3 +316,16 @@ def test_publication_change_is_retried_without_mixing_candidates(settings):
     {"query": "section 19", "reference": {"label": "19()"}}])
 def test_request_rejects_invalid_or_unscoped_inputs(payload):
     with pytest.raises(ValidationError): LegalSearchIn(**payload)
+
+
+def test_search_bounds_combined_followup_before_retrieval():
+    with pytest.raises(ValidationError):
+        LegalSearchIn(query="x" * 2000, context={"previous_query": "x" * 2000})
+
+
+def test_selected_instrument_resolves_a_shared_law_title(settings):
+    other = {**CATALOG[0], "instrument_id": GAMBLING, "canonical_title": "Consumer Protection Act 2005"}
+    repo = Repository(([candidate()], [], []), catalog=[CATALOG[0], other])
+    response = run({"query": "Section 19", "law": "Consumer Protection Act",
+                    "instrument_id": str(CONSUMER)}, repo, settings)
+    assert response.status == "ok" and repo.calls[0]["instrument_id"] == CONSUMER

@@ -67,3 +67,25 @@ class FakeScorer:
         if self.error:
             raise self.error
         return self.scores if self.scores is not None else [float(i) for i in range(len(pairs))]
+
+
+
+def prepared_context(context):
+    """Build a prepared fixture without a relevance classifier."""
+    from app.schemas.qa_decision import PreparedQuestion
+    from app.services.qa.context_validation import validate_context
+    response=context.reranked.retrieval
+    outcome={"no_results":"insufficient_evidence", "needs_clarification":"clarification_needed",
+             "no_active_publication":"service_unavailable", "service_unavailable":"service_unavailable"}.get(
+                 response.status, "ready_for_prompt")
+    try:
+        if outcome == "ready_for_prompt":
+            validate_context(context)
+    except ValueError:
+        outcome="insufficient_evidence"
+    return PreparedQuestion(outcome=outcome, context=context,
+        reason=response.message or "Synthetic source context.",
+        evidence_ids=tuple(unit.evidence_id for unit in context.units),
+        missing_references=tuple(response.missing_references),
+        limited_source_context=context.coverage_limited,
+        clarification_question=response.message if outcome=="clarification_needed" else None)

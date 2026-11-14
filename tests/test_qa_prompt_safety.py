@@ -6,13 +6,12 @@ import pytest
 
 from app.schemas.qa import AskIn
 from app.schemas.qa_context import ContextIssue
-from app.schemas.qa_decision import NecessaryFact
 from app.schemas.qa_generation import AnswerDraft, DraftClaim
-from app.services.qa_answer import QuestionAnswerService
-from app.services.qa_citations import CitationVerifier
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_prompt import MAX_PROMPT_BYTES, SYSTEM_INSTRUCTIONS, build_prompt
-from app.services.qa_source_verification import SourceProof
+from app.services.qa.answer import QuestionAnswerService
+from app.services.qa.citations import CitationVerifier
+from tests.qa_fixtures import prepared_context
+from app.services.qa.prompt import MAX_PROMPT_BYTES, SYSTEM_INSTRUCTIONS, build_prompt
+from app.services.qa.source_verification import SourceProof
 from tests.qa_fixtures import identity
 from tests.test_qa_answer import FakeGenerator, FakePrep
 from tests.test_qa_citations import FakeSource
@@ -21,7 +20,7 @@ from tests.test_qa_context import expand, graph
 
 def ready(**options):
     catalog, reranked = graph(**options)
-    decision = EvidenceGate().decide(expand(catalog, reranked))
+    decision = prepared_context(expand(catalog, reranked))
     assert decision.outcome == "ready_for_prompt"
     return decision
 
@@ -208,15 +207,6 @@ def test_invalid_serialization_limits_are_refused(limit):
         build_prompt(ready(), max_prompt_bytes=limit)
 
 
-def test_fact_clarification_cannot_be_relabelled_as_ready():
-    decision = ready(qualifier=True)
-    unit = next(u for u in decision.context.units if u.relation == "qualification")
-    fact = NecessaryFact(key="permit", question="Do you have a signed permit?",
-                         quote=unit.text, evidence_ids=(unit.evidence_id,))
-    decision = decision.model_copy(update={"clarification_fact": fact, "clarification_evidence_id": unit.evidence_id})
-    with pytest.raises(ValueError):
-        build_prompt(decision)
-    assert_no_generation(decision)
 
 
 def test_question_headings_and_omission_notes_cannot_change_the_system_message():

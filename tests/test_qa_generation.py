@@ -6,8 +6,8 @@ import pytest
 
 from app.core.qa_generation_config import AnswerSettings
 from app.schemas.qa_generation import AnswerDraft, DraftClaim
-from app.services.qa_generation import AnswerGenerator, GenerationInvalid, GenerationUnavailable
-from app.services.qa_prompt import PromptPacket
+from app.services.qa.generation import AnswerGenerator, GenerationInvalid, GenerationUnavailable
+from app.services.qa.prompt import PromptPacket
 
 
 PACKET = PromptPacket(system="Use evidence only.", user="Synthetic question and passage.",

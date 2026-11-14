@@ -17,7 +17,7 @@ from app.db.legal_corpus_models import (
 )
 from app.db.publication_models import CorpusPublication, PublicationItem
 from app.repositories.legal_chunk_repository import LegalChunkRepository
-from app.services.qa_source_proofs import valid_text_range
+from app.services.qa.source_proofs import valid_text_range
 
 
 class ContextScopeError(RuntimeError):

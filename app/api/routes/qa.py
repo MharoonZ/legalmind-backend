@@ -4,7 +4,7 @@ import logging
 from functools import lru_cache
 from time import perf_counter
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.api.deps import DatabaseDep, SettingsDep
@@ -13,14 +13,13 @@ from app.repositories.legal_search_repository import LegalSearchRepository
 from app.repositories.qa_context_repository import QaContextRepository
 from app.schemas.qa import AskIn, AskOut
 from app.services.legal_retrieval import LegalRetrievalService
-from app.services.qa_answer import QuestionAnswerService
-from app.services.qa_citations import CitationVerifier
-from app.services.qa_context import ContextExpander
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_generation import AnswerGenerator
-from app.services.qa_preparation import QuestionPreparationService
-from app.services.qa_reranker import CandidateReranker
-from app.services.qa_source_verification import QaSourceVerifier
+from app.services.qa.answer import QuestionAnswerService
+from app.services.qa.citations import CitationVerifier
+from app.services.qa.context import ContextExpander
+from app.services.qa.generation import AnswerGenerator
+from app.services.qa.preparation import QuestionPreparationService
+from app.services.qa.reranker import CandidateReranker
+from app.services.qa.source_verification import QaSourceVerifier
 
 
 router = APIRouter(tags=["legal answers"])
@@ -32,22 +31,13 @@ def _generator():
     return AnswerGenerator(get_answer_settings())
 
 
-def get_fact_requirement_provider(request: Request):
-    # Server configuration only; /ask cannot submit its own rule requirements.
-    return getattr(request.app.state, "qa_fact_requirement_provider", None)
-
-
-def get_question_answer_service(db: DatabaseDep, settings: SettingsDep,
-                               fact_provider=Depends(get_fact_requirement_provider)):
+def get_question_answer_service(db: DatabaseDep, settings: SettingsDep):
     if not settings.legal_search_enabled:
         raise HTTPException(404, detail="Not found")
-    if not hasattr(fact_provider, "assess"):
-        fact_provider = None
     answer_settings = get_answer_settings()
     retrieval = LegalRetrievalService(LegalSearchRepository(db), settings)
     preparation = QuestionPreparationService(
-        retrieval, CandidateReranker(), ContextExpander(QaContextRepository(db)), EvidenceGate(),
-        fact_provider=fact_provider)
+        retrieval, CandidateReranker(), ContextExpander(QaContextRepository(db)))
     recorder = None
     if answer_settings.qa_record_runs:
         from app.repositories.qa_record_repository import QaRecordRepository

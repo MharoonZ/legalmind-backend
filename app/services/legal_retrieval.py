@@ -76,6 +76,8 @@ class LegalRetrievalService:
             if explicit_law and not matches:
                 return LegalSearchOut(status="no_results", **response,
                     message="The specified law was not resolved in this publication.")
+            if instrument_id is not None and any(row["instrument_id"] == instrument_id for row in matches):
+                matches = [row for row in matches if row["instrument_id"] == instrument_id]
             if len(matches) > 1:
                 return LegalSearchOut(status="needs_clarification", **response,
                     message="More than one published law matches; specify an instrument ID.",
@@ -110,8 +112,7 @@ class LegalRetrievalService:
             try:
                 if prepared.references:
                     return await self._exact_lookup(prepared.references, response, common)
-                return await self._hybrid_lookup(prepared, response, common,
-                                                 prefer_alternative=request._prefer_semantic_alternative)
+                return await self._hybrid_lookup(prepared, response, common)
             except PublicationChanged:
                 if attempt == 0:
                     continue
@@ -164,16 +165,15 @@ class LegalRetrievalService:
         logger.info("legal_query_encoding elapsed_ms=%.0f", (perf_counter() - started) * 1000)
         return vector
 
-    async def _hybrid_lookup(self, prepared, response, common, *, prefer_alternative=False):
+    async def _hybrid_lookup(self, prepared, response, common):
         primary_keyword = keyword_text(prepared.text)
         alternative = keyword_text(prepared.alternative) if prepared.alternative else None
-        semantic_query = prepared.alternative if prefer_alternative and prepared.alternative else prepared.text
-        query_vector = await self._query_vector(semantic_query)
+        query_vector = await self._query_vector(prepared.text)
         started = perf_counter()
         _, keyword, vector = await self.repository.retrieve(response["publication_id"], **common,
             query=primary_keyword, alternative_keyword=alternative, reference=None, query_vector=query_vector)
         fallback = False
-        if (not (keyword or vector) and query_vector is not None and not prefer_alternative
+        if (not (keyword or vector) and query_vector is not None
                 and (prepared.alternative or common["instrument_id"] or common["jurisdiction"])):
             # Keep the original query independent. Re-encode only a bounded,
             # materially different alternative when the first pass found nothing.
@@ -194,8 +194,6 @@ class LegalRetrievalService:
                                   message="Semantic search was unavailable and keyword search found no candidates.")
         if results and fallback:
             warnings.append("Evidence was found by the wider retrieval pass.")
-        result = LegalSearchOut(status="ok" if results else "no_results", **response,
+        return LegalSearchOut(status="ok" if results else "no_results", **response,
             warnings=warnings, results=results,
             message=None if results else "No relevant candidates were found in the selected published corpus.")
-        result._has_semantic_alternative = bool(results and prepared.alternative and not fallback and not prefer_alternative)
-        return result

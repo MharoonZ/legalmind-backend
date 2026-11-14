@@ -4,8 +4,8 @@ from types import SimpleNamespace as Row
 import pytest
 
 from app.core.qa_context_config import ContextSettings
-from app.services.qa_evidence_gate import EvidenceGate
-from app.services.qa_references import mentions
+from tests.qa_fixtures import prepared_context
+from app.services.qa.references import mentions
 from tests.qa_fixtures import INSTRUMENT, identity
 from tests.test_qa_context import FakeCatalog, chunk, expand, graph, node
 
@@ -114,7 +114,7 @@ def test_missing_middle_member_of_a_list_blocks_answer_generation():
                                         targets=("4", "6"), raw="sections 4")
     result = expand(catalog, reranked)
     assert any(i.code == "unresolved_reference" and i.critical for i in result.issues)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_numbered_dependency_is_detected_even_if_no_ingestion_reference_row_was_saved():
@@ -152,7 +152,7 @@ def test_explicit_internal_reference_remains_separate_from_external_reference_in
         "Apply section 4 of this Act, and section 5 of the Foreign Act.", targets=("4", "5"))
     result = expand(catalog, reranked)
     assert {link.target_provision_id for link in result.reference_links} == {identity("lookup-4")}
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 @pytest.mark.parametrize("status", ["ambiguous", "rejected"])
@@ -160,7 +160,7 @@ def test_existing_review_decision_is_not_overridden_by_automatic_lookup(status):
     catalog, reranked = reference_graph("Apply section 4 of this Act.", status=status)
     result = expand(catalog, reranked)
     assert not result.reference_links
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 @pytest.mark.parametrize("tail", ["3[59]", "4 to 6", "4 through 6", "4-6", "4\u20136", "4[59]"])
@@ -169,7 +169,7 @@ def test_amendment_markers_and_ranges_are_not_silently_reduced_to_the_first_numb
     catalog, reranked = reference_graph(f"Apply section {tail} of this Act.", targets=(first,), raw="section " + first)
     result = expand(catalog, reranked)
     assert not result.reference_links
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_nested_subsection_uses_exact_target_and_preserves_selector_in_source_audit():
@@ -188,7 +188,7 @@ def test_nested_subsection_uses_exact_target_and_preserves_selector_in_source_au
 
 def test_missing_explicit_subsection_is_not_replaced_by_its_parent_section():
     catalog, reranked = reference_graph("Apply section 4(2) of this Act.", raw="section 4(2)")
-    assert EvidenceGate().decide(expand(catalog, reranked)).outcome == "insufficient_evidence"
+    assert prepared_context(expand(catalog, reranked)).outcome == "insufficient_evidence"
 
 
 @pytest.mark.parametrize("reference", [
@@ -203,7 +203,7 @@ def test_unsupported_compound_selectors_do_not_silently_become_the_parent_sectio
     catalog, reranked = reference_graph(f"Apply {reference} of this Act.", raw=None)
     result = expand(catalog, reranked)
     assert not result.reference_links
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_stored_reviewed_external_target_is_preserved_even_with_same_number_in_current_act():
@@ -238,18 +238,18 @@ def test_target_requires_unique_operative_identity_in_the_pinned_revision(fault)
     else:
         target.source_status = "repealed"
     catalog._index_graph()
-    assert EvidenceGate().decide(expand(catalog, reranked)).outcome == "insufficient_evidence"
+    assert prepared_context(expand(catalog, reranked)).outcome == "insufficient_evidence"
 
 
 def test_exact_label_does_not_match_inserted_section_with_similar_number():
     catalog, reranked = reference_graph("Apply section 4 of this Act.", targets=("4A",))
-    assert EvidenceGate().decide(expand(catalog, reranked)).outcome == "insufficient_evidence"
+    assert prepared_context(expand(catalog, reranked)).outcome == "insufficient_evidence"
 
 
 def test_ancestor_external_law_context_prevents_unqualified_same_number_guess():
     catalog, reranked = reference_graph("Apply section 4.")
     catalog.nodes[identity("part")].own_text = "The Foreign Act applies to the following."
-    assert EvidenceGate().decide(expand(catalog, reranked)).outcome == "insufficient_evidence"
+    assert prepared_context(expand(catalog, reranked)).outcome == "insufficient_evidence"
 
 
 def test_external_law_in_a_sibling_clause_prevents_implicit_current_law_lookup():
@@ -303,7 +303,7 @@ def test_derived_dependencies_keep_existing_budget_depth_and_source_guards(failu
     else:
         catalog.missing.add(identity("lookup-chunk-4"))
     result = expand(catalog, reranked, settings=settings, token_counter=counter)
-    assert EvidenceGate().decide(result).outcome == "insufficient_evidence"
+    assert prepared_context(result).outcome == "insufficient_evidence"
 
 
 def test_failed_optional_lookup_group_rolls_back_units_and_reference_audit_together():
@@ -328,4 +328,4 @@ def test_conflicting_reviewed_target_and_explicit_same_law_text_are_not_combined
     row = catalog.references[identity("provision-1")][0]
     row.target_instrument_id = INSTRUMENT
     row.target_reference_path = catalog.nodes[identity("lookup-5")].reference_path
-    assert EvidenceGate().decide(expand(catalog, reranked)).outcome == "insufficient_evidence"
+    assert prepared_context(expand(catalog, reranked)).outcome == "insufficient_evidence"

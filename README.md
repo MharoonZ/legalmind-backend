@@ -11,6 +11,8 @@ For the `feature/ask` audit and current runbook, see the
 [database audit](docs/DATABASE_DATA_QUALITY_AUDIT.md) and
 [RAG benchmark report](docs/LEGALMIND_RAG_TESTING_AND_BENCHMARK_REPORT.md).
 
+Current architecture, stage contracts, diagrams and review results are in [the 14 November system review](docs/LEGALMIND_REVIEW_2026-11-14.md). The answer implementation is grouped under app/services/qa.
+
 ## Legal-PDF flow
 
 1. Register an Act or Rules PDF and its law/edition metadata through the local admin API.

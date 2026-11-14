@@ -6,13 +6,13 @@ import httpx
 import pytest
 
 from app.core.qa_generation_config import AnswerSettings
-from app.services.qa_generation import AnswerGenerator, GenerationInvalid, GenerationUnavailable
+from app.services.qa.generation import AnswerGenerator, GenerationInvalid, GenerationUnavailable
 from tests.test_qa_generation import PACKET
 
 
 def generator(handler, **settings):
     return AnswerGenerator(AnswerSettings(_env_file=None, llm_provider="gemini",
-        gemini_api_key="private-test-key", **settings), gemini_transport=httpx.MockTransport(handler))
+        gemini_api_key="private-test-key", gemini_model="gemini-3.1-flash-lite", **settings), gemini_transport=httpx.MockTransport(handler))
 
 
 def draft_response(**candidate):
@@ -57,7 +57,7 @@ def test_gemini_incomplete_blocked_or_invalid_output_is_rejected(candidate):
 
 
 @pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
-def test_gemini_errors_do_not_echo_provider_details_or_retry_generation(status):
+def test_gemini_errors_do_not_echo_provider_details_or_retry_generation(status, caplog):
     calls = []
 
     def handler(request):
@@ -67,6 +67,7 @@ def test_gemini_errors_do_not_echo_provider_details_or_retry_generation(status):
     with pytest.raises(GenerationUnavailable) as failure:
         asyncio.run(generator(handler).generate(PACKET))
     assert "private" not in str(failure.value)
+    assert "private provider diagnostic" not in caplog.text
     assert len(calls) == 1
 
 
