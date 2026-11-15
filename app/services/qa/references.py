@@ -260,6 +260,8 @@ def reference_lookups(node, instrument_id, catalog):
                 result.append(ReferenceLookup(group.text, row.target_instrument_id, row.target_reference_path,
                     problem="Stored target conflicts with the numbered same-law source mention." if conflict else None))
                 continue
+            if not same_law and not reviewed:
+                continue
             target = _target(group.kind, label, item, catalog) if same_law and not reviewed else None
             result.append(ReferenceLookup(
                 group.text, instrument_id if target else None, target.reference_path if target else None,

@@ -4,6 +4,7 @@ No LLM, inferred case facts, or invented Act aliases are involved.
 """
 from __future__ import annotations
 
+import difflib
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -152,7 +153,55 @@ def resolve_laws(text, instruments, *, explicit=False):
     if explicit and not matches:
         corrected = correct_legal_spelling(text)
         if corrected != text:
-            return _match_laws(corrected, instruments, explicit=True)
+            matches = _match_laws(corrected, instruments, explicit=True)
+    if not matches:
+        matches = _fuzzy_match_laws(text, instruments, explicit=explicit)
+    return matches
+
+
+def _fuzzy_token_match(token: str, candidate_tokens: list[str]) -> bool:
+    if token in candidate_tokens:
+        return True
+    if token.isdigit():
+        return False
+    if len(token) >= 4:
+        for ct in candidate_tokens:
+            if not ct.isdigit() and len(ct) >= 4 and _one_edit(token, ct):
+                return True
+    if len(token) >= 5:
+        matches = difflib.get_close_matches(token, [c for c in candidate_tokens if not c.isdigit()], n=1, cutoff=0.8)
+        if matches:
+            return True
+    return False
+
+
+def _fuzzy_match_laws(text: str, instruments: list[dict], *, explicit: bool) -> list[dict]:
+    needle = normalized(text)
+    if not needle:
+        return []
+    needle_tokens = [w for w in needle.split() if w not in _GENERIC]
+    if not needle_tokens:
+        return []
+
+    needle_years = [w for w in needle_tokens if w.isdigit() and len(w) == 4]
+    matches = []
+    for instrument in instruments:
+        names = [instrument["canonical_title"], instrument["citation_key"],
+                 *[a for a in instrument["aliases"] if isinstance(a, str)]]
+        for name in names:
+            candidate = normalized(name)
+            candidate_tokens = [w for w in candidate.split() if w not in _GENERIC]
+            if needle_years and not all(y in candidate_tokens for y in needle_years):
+                continue
+            matched_count = sum(1 for nt in needle_tokens if _fuzzy_token_match(nt, candidate_tokens))
+            if explicit:
+                if matched_count == len(needle_tokens) and matched_count >= 2:
+                    matches.append(instrument)
+                    break
+            else:
+                if matched_count >= 2 and matched_count >= len(needle_tokens) * 0.7:
+                    matches.append(instrument)
+                    break
     return matches
 
 
@@ -190,6 +239,9 @@ def keyword_text(query):
     return " ".join(t for t in tokens if t.casefold() not in _QUESTION_WORDS)
 
 
+_LAW_TYPE_PATTERN = r"(?:act|acts|ordinance|ordinence|ordninance|ordinace|rules|code|regulations?|constitution|contsitution|order)"
+
+
 def explicit_law_mentions(query):
     """Read named laws from query (with prepositions of/under/from/in, or standalone title references)."""
     names = []
@@ -199,8 +251,8 @@ def explicit_law_mentions(query):
         if part.start() < consumed:
             continue
         match = re.match(
-            r"\s*(?:the\s+)?((?:(?!\b(?:under|from)\b)[^?;.\n]){1,230}?"
-            r"\b(?:act|ordinance|rules|code|regulations?|constitution|order)\b(?:[,\s]+\d{4})?)",
+            rf"\s*(?:the\s+)?((?:(?!\b(?:under|from)\b)[^?;.\n]){{1,230}}?"
+            rf"\b{_LAW_TYPE_PATTERN}\b(?:[,\s]+\d{{4}})?)",
             query[part.end():], re.I)
         if not match:
             continue
@@ -212,8 +264,8 @@ def explicit_law_mentions(query):
 
     # Direct/trailing mentions without preposition: "Section 19 Consumer Protection Act"
     for match in re.finditer(
-        r"\b(?:the\s+)?((?:[a-zA-Z0-9\'-]+\s+){1,6}"
-        r"(?:act|ordinance|rules|code|regulations?|constitution|order)\b(?:[,\s]+\d{4})?)",
+        rf"\b(?:the\s+)?((?:[a-zA-Z0-9\'-]+\s+){{1,6}}"
+        rf"\b{_LAW_TYPE_PATTERN}\b(?:[,\s]+\d{{4}})?)",
         query, re.I
     ):
         if match.start() < consumed:

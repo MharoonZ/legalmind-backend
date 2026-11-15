@@ -80,11 +80,19 @@ class AnswerGenerator:
             self._gemini_client = httpx.AsyncClient(
                 transport=self._gemini_transport or httpx.AsyncHTTPTransport(retries=1, limits=limits),
                 timeout=timeout, limits=limits)
-        try:
-            async with asyncio.timeout(timeout):
-                response = await self._gemini_client.post(url, headers={"x-goog-api-key": key}, json=payload)
-        except (TimeoutError, httpx.RequestError):
-            raise GenerationUnavailable("The Gemini answer provider timed out or could not be reached.") from None
+        for attempt in range(3):
+            try:
+                async with asyncio.timeout(timeout):
+                    response = await self._gemini_client.post(url, headers={"x-goog-api-key": key}, json=payload)
+                if response.status_code in {502, 503, 504, 429} and attempt < 2:
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                    continue
+                break
+            except (TimeoutError, httpx.RequestError):
+                if attempt < 2:
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                    continue
+                raise GenerationUnavailable("The Gemini answer provider timed out or could not be reached.") from None
 
         if response.status_code == 429:
             raise GenerationUnavailable("The Gemini answer provider's rate limit was reached.")

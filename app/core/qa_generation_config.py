@@ -15,10 +15,10 @@ class AnswerSettings(BaseSettings):
     gemini_model: str = Field(default="gemini-3.5-flash-lite", pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
     llm_provider: Literal["auto", "gemini", "openai"] = "auto"
     qa_gemini_timeout_seconds: float = Field(default=90, gt=0, le=180)
-    qa_gemini_max_output_tokens: int = Field(default=1200, ge=256, le=4000)
+    qa_gemini_max_output_tokens: int = Field(default=4000, ge=256, le=8192)
     qa_gemini_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
     qa_openai_timeout_seconds: float = Field(default=35, gt=0, le=120)
-    qa_openai_max_output_tokens: int = Field(default=1200, ge=256, le=4000)
+    qa_openai_max_output_tokens: int = Field(default=4000, ge=256, le=8192)
     qa_repair_attempts: int = Field(default=1, ge=0, le=2)
     qa_record_runs: bool = False  # Enable only after the Phase C migration is applied.
 

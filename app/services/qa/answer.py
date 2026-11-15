@@ -75,8 +75,8 @@ class QuestionAnswerService:
                                     len(verified.analysis), (perf_counter()-started)*1000)
                         break
                     except CitationVerificationError as exc:
-                        logger.info("qa_citation_rejected code=%s elapsed_ms=%.0f", exc.code,
-                                    (perf_counter() - started) * 1000)
+                        logger.warning("qa_citation_rejected code=%s feedback=%s elapsed_ms=%.0f", exc.code,
+                                       exc.feedback, (perf_counter() - started) * 1000)
                         if exc.code == "source_verification_unavailable":
                             return self.unavailable(request.question, publication_id)
                         verified = None

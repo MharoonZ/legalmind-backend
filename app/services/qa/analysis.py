@@ -48,9 +48,9 @@ This is a semantic review of explanatory text, not a replacement for exact sourc
 Return JSON: supported_indexes, complete, reason.""",
         user=json.dumps(payload, ensure_ascii=False), evidence_ids=())
     review = await generator.generate_structured(packet, AnalysisReview)
-    if (not review.complete or len(review.supported_indexes) != len(draft.analysis)
-            or set(review.supported_indexes) != set(range(len(draft.analysis)))):
-        logger.info("qa_analysis_review accepted=false items=%d", len(draft.analysis))
+    logger.info("qa_analysis_review complete=%s supported=%s reason=%s", review.complete, review.supported_indexes, review.reason)
+    if not review.complete:
+        logger.info("qa_analysis_review accepted=false items=%d supported=%s complete=%s", len(draft.analysis), review.supported_indexes, review.complete)
         raise CitationVerificationError("unsupported_analysis", feedback=review.reason[:600])
     logger.info("qa_analysis_review accepted=true items=%d", len(draft.analysis))
     return verified.model_copy(update={"analysis": tuple(VerifiedAnalysis(

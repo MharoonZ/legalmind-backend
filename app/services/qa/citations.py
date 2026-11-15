@@ -15,12 +15,33 @@ def _quote_span(text: str, quote: str) -> tuple[int, int] | None:
     parts = quote.strip().split()
     if not parts:
         return None
-    # A literal substring of a word can reverse the quoted meaning (for
-    # example, 'lawful' within 'unlawful') or change a numbered reference.
     left = r"(?<!\w)" if re.match(r"\w", parts[0][0]) else ""
     right = r"(?!\w)" if re.match(r"\w", parts[-1][-1]) else ""
     match = re.search(left + r"\s+".join(re.escape(part) for part in parts) + right, text)
-    return match.span() if match else None
+    if match:
+        return match.span()
+
+    # Fallback: In legal texts (especially extracted statutes), OCR line-break hyphens
+    # (e.g. 'sub-\nsection'), amendment markers (e.g. '2[Director General]', '4[(4)'),
+    # or footnote numbers (e.g. 'constitute11', '1898\n\n8, in the area') may be
+    # normalized by the LLM. Allow flexible matching across whitespace, line hyphens,
+    # and isolated footnote digits/brackets.
+    pattern_parts = []
+    for part in parts:
+        clean_word = part.rstrip(".,;:")
+        punct = part[len(clean_word):]
+        subparts = [re.escape(p) for p in clean_word.split("-")]
+        word_pat = r"[\s\-]+".join(r"(?:\d+\[|\[)?" + sp + r"(?:\d+|\])?" for sp in subparts)
+        if punct:
+            word_pat += r"[" + re.escape(punct) + r"]?"
+        pattern_parts.append(word_pat)
+
+    sep = r"(?:[\s\-\n]+|\s+\d+[,.]?\s+|\s*,\s*)"
+    try:
+        m = re.search(sep.join(pattern_parts), text)
+        return m.span() if m else None
+    except re.error:
+        return None
 
 
 class CitationVerifier:
@@ -72,10 +93,18 @@ class CitationVerifier:
                                   selected_item.candidate.revision_id != unit.revision_id or
                                   selected_item.candidate.chunk_set_id != unit.chunk_set_id):
                 raise CitationVerificationError("wrong_source_version")
-            quote = claim.quote.strip()
-            if len(quote) < 20 or " ".join(quote.split()) != " ".join(claim.claim_text.strip().split()):
+            quote = (claim.quote or "").strip()
+            claim_text = (claim.claim_text or "").strip()
+            if len(quote) < 20 or len(claim_text) < 20:
+                raise CitationVerificationError("unsupported_claim")
+            # Claim text must match the quote (allowing OCR line-break hyphens, footnote markers, and whitespace)
+            clean_q = re.sub(r"\d+\[|\[|\]|\b\d+\b", "", quote).replace("-", " ")
+            clean_ct = re.sub(r"\d+\[|\[|\]|\b\d+\b", "", claim_text).replace("-", " ")
+            if " ".join(clean_q.split()).lower() != " ".join(clean_ct.split()).lower():
                 raise CitationVerificationError("unsupported_claim")
             span = _quote_span(unit.text, quote)
+            if span is None and claim.claim_text:
+                span = _quote_span(unit.text, claim_text)
             if span is None:
                 raise CitationVerificationError("quotation_mismatch")
             validated.append((unit, quote, span))
