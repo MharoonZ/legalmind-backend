@@ -183,3 +183,51 @@ def test_same_note_marker_on_different_provisions_is_left_for_review():
     assert not [link for link in parsed.note_links if link.marker_label == "2"]
     assert any(w["code"] == "source_note_marker_ambiguous" for w in parsed.warnings)
     exact(parsed, source)
+
+
+def test_wrapped_schedule_reference_does_not_swallow_the_following_sections():
+    source = document(
+        (90, "1. Short title.– This Act may be called the Example Act.\n"),
+        (150, "2. Definitions.– In this Act, offence means an offence specified in the\n"
+              "First Schedule to this Act.\n"),
+        (220, "3. Punishment.– Whoever commits an offence shall be punished with imprisonment.\n"),
+        (290, "4. Cognizance.– No court shall take cognizance except on a complaint.\n"),
+    )
+    parsed = parse_structure([source])
+    assert [n.label for n in parsed.nodes if n.kind == "section"] == ["1", "2", "3", "4"]
+    assert not [n for n in parsed.nodes if n.kind == "schedule"]
+    assert "First Schedule to this Act." in unique(parsed, "section", "2").own_text
+    assert "wrapped_reference_not_child" in {warning["code"] for warning in parsed.warnings}
+    exact(parsed, source)
+
+
+def test_a_real_schedule_heading_after_a_finished_sentence_still_opens_a_schedule():
+    source = document(
+        (90, "1. Short title.– This Act may be called the Example Act.\n"),
+        (150, "2. Offences.– The offences are those specified in the First Schedule.\n"),
+        (220, "FIRST SCHEDULE\n(See section 2)\n"),
+        (290, "1. Theft of an example.\n2. Damage to an example.\n"),
+    )
+    parsed = parse_structure([source])
+    assert [n.label for n in parsed.nodes if n.kind == "section"] == ["1", "2"]
+    schedules = [n for n in parsed.nodes if n.kind == "schedule"]
+    assert len(schedules) == 1 and "Theft of an example" in "".join(
+        n.own_text for n in parsed.nodes if n is schedules[0] or n.parent_id == schedules[0].id)
+    exact(parsed, source)
+
+
+def test_wrapped_rule_reference_is_not_a_new_rule():
+    file_id, extraction_id, page_id = uuid4(), uuid4(), uuid4()
+    texts = ("1. Short title.– These rules may be called the Example Rules, 2001.\n",
+             "2. Application.– An application shall be made in the form prescribed under\n"
+             "rule 5 of the Example Procedure Rules, 1990 and shall be signed.\n",
+             "3. Fee.– The fee shall be one hundred rupees.\n")
+    blocks = tuple(SourceBlock(uuid4(), page_id, extraction_id, file_id, 1, index, "paragraph", text,
+                               {"x0": 72, "y0": 90 * index, "x1": 520, "y1": 90 * index + 24}, 842)
+                   for index, text in enumerate(texts, 1))
+    page = SourcePage(page_id, extraction_id, file_id, 1, "extracted", [], 842, blocks)
+    source = SourceDocument(file_id, extraction_id, "The Example Rules, 2001", "rule", 1, (page,))
+    parsed = parse_structure([source])
+    assert [n.label for n in parsed.nodes if n.kind == "rule"] == ["1", "2", "3"]
+    assert "rule 5 of the Example Procedure Rules" in unique(parsed, "rule", "2").own_text
+    exact(parsed, source)

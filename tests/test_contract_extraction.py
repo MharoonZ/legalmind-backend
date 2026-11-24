@@ -185,3 +185,54 @@ async def test_service_saves_successful_extraction(tmp_path):
     assert repository.calls == ["get", "extracting", "save"]
     assert repository.saved == result
     assert result.engine_name == "fake-structured"
+
+
+@pytest.mark.anyio
+async def test_unexpected_failures_are_recorded_without_internal_details(tmp_path):
+    pdf_path = tmp_path / "valid.pdf"
+    data = _write_pdf(pdf_path, ["1. Scope\nSome selectable contract text"])
+    source = ExtractionSource(document_id="doc:test", version_id="docver:test", storage_path=str(pdf_path),
+                              pdf_sha256=hashlib.sha256(data).hexdigest(), page_count=1, status="uploaded")
+
+    class Exploding(FakeExtractionRepository):
+        async def replace_extraction(self, extraction):
+            raise RuntimeError("INSERT INTO contract_clauses failed at /srv/secret/path")
+    repository = Exploding(source)
+    engine = FakeEngine([StructuredBlock("section_header", "1. Scope", (1,))])
+    with pytest.raises(ContractExtractionError, match="^Contract extraction failed.$"):
+        await ContractExtractionService(repository, engine).extract(source.version_id)
+    # This message is returned by GET /contracts/{id}.
+    assert repository.failure == "Contract extraction failed."
+
+
+@pytest.mark.anyio
+async def test_an_abandoned_extraction_can_be_claimed_again():
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    from app.repositories.contract_extraction_repository import ContractExtractionRepository
+
+    class Session:
+        def __init__(self, version):
+            self.version, self.commits = version, 0
+
+        async def execute(self, statement):
+            return SimpleNamespace(scalar_one_or_none=lambda: self.version)
+
+        async def commit(self):
+            self.commits += 1
+
+    def version(status, minutes_ago):
+        return SimpleNamespace(status=status, error_message="old", extraction_engine="x",
+                               extraction_engine_version="1", extracted_text_sha256="h",
+                               extraction_started_at=datetime.now(UTC) - timedelta(minutes=minutes_ago),
+                               extraction_completed_at=None)
+    stuck = version("extracting", 45)                     # the earlier run was killed
+    await ContractExtractionRepository(Session(stuck)).mark_extracting("docver:test")
+    assert stuck.status == "extracting" and stuck.error_message is None
+    running = version("extracting", 2)                    # another run is still working
+    with pytest.raises(ContractExtractionError, match="cannot be extracted"):
+        await ContractExtractionRepository(Session(running)).mark_extracting("docver:test")
+    done = version("extracted", 600)                      # a finished version stays immutable
+    with pytest.raises(ContractExtractionError, match="cannot be extracted"):
+        await ContractExtractionRepository(Session(done)).mark_extracting("docver:test")

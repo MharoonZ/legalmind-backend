@@ -18,7 +18,7 @@ from app.services.legal_status import (
     LEGAL_KINDS, direct_source_status, is_star_only, linked_note_status,
 )
 
-PARSER_VERSION = "legal-structure-v12"
+PARSER_VERSION = "legal-structure-v13"
 NORMALIZER_VERSION = "legal-pages-v1"
 
 
@@ -202,6 +202,13 @@ _MIXED_RUNNING_HEADER = re.compile(
 )
 _WRAPPED_REFERENCE = re.compile(
     r"\b(?:of|under|in|by)[ \t]+(?:sub[ \t-]*section|clause|section)[ \t\n]*$",
+    re.IGNORECASE,
+)
+# "...an offence specified in the" / "First Schedule to this Act." and
+# "...prescribed under" / "rule 5 of the Rules": the sentence is still open, so
+# the next line continues it rather than starting a Schedule, Rule or Article.
+_OPEN_SENTENCE = re.compile(
+    r"\b(?:the|in|under|of|to|by|said|see|vide|with|per|any|such|that|this|following)[ \t\n]*$",
     re.IGNORECASE,
 )
 
@@ -460,6 +467,15 @@ def _is_wrapped_reference(block: SourceBlock, position: int,
     if not preceding and previous is not None:
         preceding = previous.own_text.rstrip()
     return bool(_WRAPPED_REFERENCE.search(preceding[-100:]))
+
+
+def _is_wrapped_named_reference(block: SourceBlock, position: int,
+                                previous: DraftNode | None) -> bool:
+    """A Schedule/Rule/Article name that only finishes the preceding sentence."""
+    preceding = block.text[:position].rstrip()
+    if not preceding and previous is not None:
+        preceding = previous.own_text.rstrip()
+    return bool(_OPEN_SENTENCE.search(preceding[-60:]))
 
 
 def _continues_list(previous: str | None, incoming: str | None) -> bool:
@@ -767,6 +783,11 @@ def parse_structure(documents: list[SourceDocument]) -> ParsedStructure:
                             and _is_wrapped_reference(block, start, current)):
                         append(current, block, start, end)
                         flag("wrapped_reference_not_child", "A line-wrapped legal cross-reference was retained as prose.", block=block)
+                        continue
+                    if (current is not None and kind in {"schedule", "rule", "article"}
+                            and _is_wrapped_named_reference(block, start, current)):
+                        append(current, block, start, end)
+                        flag("wrapped_reference_not_child", "A line-wrapped reference to a Schedule, Rule or Article was retained as prose.", block=block)
                         continue
                     if (kind in {"chapter", "part"} and heading
                             and re.match(r"^of\b", heading, re.IGNORECASE)

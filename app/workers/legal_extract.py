@@ -31,10 +31,13 @@ from app.services.legal_extraction import (
     warning,
 )
 
+from app.workers.runner import run_jobs, run_until_stopped
+
 logger = logging.getLogger(__name__)
 
 
-async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, config: ExtractionConfig) -> bool:
+async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, config: ExtractionConfig,
+                      lease_seconds: int = 900) -> bool:
     """Return False when there was no queued/expired job to claim."""
     manifest = config.review_manifest or {}
     target_hash = manifest.get("source_sha256") if manifest else None
@@ -43,7 +46,7 @@ async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, confi
         raise ValueError("A review manifest must identify one registered PDF SHA-256.")
     claim = await repo.claim_next(
         worker_id=f"{socket.gethostname()}:{os.getpid()}", config=config,
-        expected_sha256=target_hash,
+        expected_sha256=target_hash, lease_seconds=lease_seconds,
     )
     if claim is None:
         return False
@@ -78,7 +81,7 @@ async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, confi
                     result = apply_reviewed_edits(
                         result, edits, reviewer=manifest.get("reviewer", ""),
                     )
-                await repo.save_page(claim, result)
+                await repo.save_page(claim, result, lease_seconds=lease_seconds)
                 page_digest = result.digest_payload()
                 digest.update(len(page_digest).to_bytes(8, "big"))
                 digest.update(page_digest)
@@ -88,6 +91,11 @@ async def process_one(repo: LegalExtractionRepository, *, upload_dir: str, confi
                 )
         await repo.complete(claim, digest.hexdigest())
         logger.info("Completed extraction %s", claim.extraction_id)
+    except asyncio.CancelledError:
+        # Stopped mid-job: release it now so it can be retried at once,
+        # rather than staying "running" until the lease runs out.
+        await asyncio.shield(repo.fail(claim, "Worker stopped before the job finished; retry the job."))
+        raise
     except Exception as exc:
         logger.exception("Extraction job %s failed", claim.job_id)
         await repo.fail(claim, str(exc))
@@ -108,12 +116,10 @@ async def _run(*, watch: bool, poll_seconds: float, review_manifest_path: str | 
             dpi=settings.legal_ocr_dpi,
             review_manifest=manifest,
         )
-        while True:
-            worked = await process_one(repo, upload_dir=settings.legal_upload_dir, config=config)
-            if not watch:
-                return
-            if not worked:
-                await asyncio.sleep(poll_seconds)
+        await run_jobs(
+            lambda: process_one(repo, upload_dir=settings.legal_upload_dir, config=config,
+                                lease_seconds=settings.legal_worker_lease_seconds),
+            watch=watch, poll_seconds=poll_seconds)
     finally:
         await db.dispose()
 
@@ -127,8 +133,8 @@ def main() -> None:
     parser.add_argument("--review-manifest", help="JSON source-hash-bound visual corrections for one PDF")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    asyncio.run(_run(watch=args.watch, poll_seconds=max(args.poll_seconds, 0.5),
-                     review_manifest_path=args.review_manifest))
+    run_until_stopped(lambda: _run(watch=args.watch, poll_seconds=max(args.poll_seconds, 0.5),
+                                   review_manifest_path=args.review_manifest))
 
 
 if __name__ == "__main__":

@@ -420,8 +420,12 @@ def extract_page(page: fitz.Page, page_index: int, config: ExtractionConfig) -> 
     try:
         table_regions = _table_regions(page)
     except Exception as exc:
+        # An undetected table would be stored as flat text and skip table
+        # review, so a detector failure sends the page to a person.
         table_regions = []
         warnings.append(warning("table_detection_failed", f"Table layout detection could not run: {exc}"))
+        if outcome == "extracted":
+            outcome = "needs_review"
     if table_regions:
         warnings.append(warning("table_layout_candidate", "Detected table rows and columns require visual review."))
         outcome = "needs_review"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,9 @@ from app.services.contract_extraction import (
 # A successful version is immutable because summaries may already reference its
 # clause IDs. A corrected/reprocessed contract must use a new DocumentVersion.
 _EXTRACTABLE_STATUSES = {"uploaded", "extraction_failed"}
+# A run killed mid-way leaves the version "extracting"; after this long another
+# run may take it over instead of the contract being stuck for good.
+_STALE_EXTRACTION = timedelta(minutes=30)
 
 
 class ContractExtractionRepository:
@@ -59,7 +62,10 @@ class ContractExtractionRepository:
         version = (await self.session.execute(statement)).scalar_one_or_none()
         if version is None:
             raise ContractExtractionError("Document version was not found.")
-        if version.status not in _EXTRACTABLE_STATUSES:
+        started = version.extraction_started_at
+        abandoned = (version.status == "extracting" and started is not None
+                     and datetime.now(UTC) - started > _STALE_EXTRACTION)
+        if version.status not in _EXTRACTABLE_STATUSES and not abandoned:
             raise ContractExtractionError(
                 f"Document version cannot be extracted while status is '{version.status}'."
             )

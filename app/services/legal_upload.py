@@ -30,7 +30,7 @@ class StoredLegalPdf:
     page_count: int
 
 
-def _safe_display_name(filename: str | None) -> str:
+def safe_display_name(filename: str | None) -> str:
     name = PureWindowsPath(filename or "upload.pdf").name
     name = Path(name).name
     name = "".join(char for char in name if char.isprintable()).strip()
@@ -64,7 +64,7 @@ async def store_legal_pdf(
     if max_size_bytes <= 0 or max_pages <= 0:
         raise ValueError("Legal upload limits must be positive.")
 
-    original_filename = _safe_display_name(upload.filename)
+    original_filename = safe_display_name(upload.filename)
     if not original_filename.lower().endswith(".pdf"):
         raise LegalUploadValidationError("Choose a PDF file with a .pdf filename.")
 

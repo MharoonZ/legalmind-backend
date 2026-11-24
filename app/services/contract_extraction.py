@@ -427,7 +427,12 @@ class ContractExtractionService:
             await self.repository.replace_extraction(extraction)
             return extraction
         except Exception as exc:
-            message = str(exc).strip() or "Contract extraction failed."
+            # The stored message is returned by GET /contracts/{id}; unexpected
+            # errors can carry SQL or file paths and are logged instead.
+            expected = isinstance(exc, ContractExtractionError)
+            message = (str(exc).strip() if expected else "") or "Contract extraction failed."
+            if not expected:
+                logger.exception("Contract extraction failed for %s", version_id)
             try:
                 await self.repository.mark_extraction_failed(version_id, message)
             except Exception:  # Preserve the original extraction failure.

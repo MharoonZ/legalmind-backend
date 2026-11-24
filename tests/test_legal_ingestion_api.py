@@ -185,3 +185,34 @@ async def test_invalid_registration_is_rejected_before_storage(tmp_path):
     assert response.status_code == 422
     assert repo.records == []
     assert not list(tmp_path.rglob("*.pdf"))
+
+
+@pytest.mark.anyio
+async def test_source_url_is_validated_and_stored(tmp_path):
+    client, repo = await _client(tmp_path)
+    async with client:
+        accepted = await client.post(
+            "/local-admin/legal/uploads", data={**_form(), "source_url": "https://punjablaws.gov.pk/laws/329.html"},
+            files={"file": ("law.pdf", _pdf_bytes(), "application/pdf")})
+        assert accepted.status_code == 201 and repo.metadata.source_url == "https://punjablaws.gov.pk/laws/329.html"
+        for bad in ("ftp://example.org/law.pdf", "http://[not-an-address", "javascript:alert(1)", "example.org"):
+            rejected = await client.post(
+                "/local-admin/legal/uploads", data={**_form(), "source_url": bad},
+                files={"file": ("law.pdf", _pdf_bytes(), "application/pdf")})
+            assert rejected.status_code == 422, bad
+
+
+@pytest.mark.anyio
+async def test_database_failure_during_registration_is_a_retryable_503(tmp_path):
+    from sqlalchemy.exc import OperationalError
+
+    client, repo = await _client(tmp_path)
+
+    async def failing(metadata, pdf):
+        raise OperationalError("INSERT INTO legal_files ...", {}, Exception("connection reset"))
+    repo.register_upload = failing
+    async with client:
+        response = await client.post("/local-admin/legal/uploads", data=_form(),
+                                     files={"file": ("law.pdf", _pdf_bytes(), "application/pdf")})
+    assert response.status_code == 503 and "INSERT" not in response.text
+    assert response.json()["detail"] == "Could not register the PDF. Please try again."

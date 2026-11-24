@@ -19,6 +19,7 @@ from app.api.deps import DocumentRepositoryDep, SettingsDep, require_local_devel
 from app.core.errors import DocumentStorageError, DocumentValidationError
 from app.repositories.document_repository import DocumentRecord
 from app.schemas.documents import DocumentVersionOut
+from app.services.legal_upload import safe_display_name
 from app.services.document_upload import (
     new_document_id,
     new_version_id,
@@ -118,8 +119,9 @@ async def upload_contract(
         record = await repository.create_upload(
             document_id=document_id,
             version_id=version_id,
-            original_filename=file.filename or "upload.pdf",
-            content_type=file.content_type or "application/pdf",
+            # Client-supplied names and media types are untrusted and unbounded.
+            original_filename=safe_display_name(file.filename),
+            content_type="application/pdf",
             pdf_sha256=validated.sha256,
             size_bytes=validated.size_bytes,
             page_count=validated.page_count,

@@ -62,7 +62,8 @@ class FakeDocumentRepository:
         storage_path,
         question,
     ) -> DocumentRecord:
-        self.created_calls.append({"storage_path": storage_path, "pdf_sha256": pdf_sha256})
+        self.created_calls.append({"storage_path": storage_path, "pdf_sha256": pdf_sha256,
+                                   "original_filename": original_filename, "content_type": content_type})
         record = DocumentRecord(
             document_id=document_id,
             version_id=version_id,

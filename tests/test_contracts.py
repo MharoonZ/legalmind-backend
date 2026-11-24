@@ -106,3 +106,13 @@ def test_contract_upload_and_status_are_disabled_on_hosted_deployments(contracts
     contracts_api.app.dependency_overrides[get_settings] = lambda: production
     assert contracts_api.get("/contracts/doc:any").status_code == 404
     assert contracts_api.post("/contracts").status_code == 404
+
+
+def test_untrusted_filename_and_media_type_are_normalised(contracts_api):
+    from tests.test_document_upload import _pdf_bytes as pdf
+    long_name = "..\\..\\" + "a" * 400 + ".pdf"
+    response = contracts_api.post("/contracts", files={"file": (long_name, pdf(), "text/html; x=" + "y" * 300)})
+    assert response.status_code == 201
+    stored = contracts_api.state["repository"].created_calls[-1]
+    assert len(stored["original_filename"]) <= 255 and ".." not in stored["original_filename"]
+    assert "\\" not in stored["original_filename"] and stored["content_type"] == "application/pdf"

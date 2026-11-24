@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from urllib.parse import urlsplit
 from datetime import date
@@ -9,6 +10,7 @@ from uuid import UUID
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 
 import fitz
@@ -32,6 +34,7 @@ from app.schemas.legal_structure import ApprovalDecisionIn, StructureCreateIn
 from app.services.legal_extraction import SourcePdfError, resolve_source_pdf
 from app.services.legal_upload import store_legal_pdf
 
+logger = logging.getLogger(__name__)
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _CODE = re.compile(r"^[A-Z0-9][A-Z0-9-]*$")
 
@@ -79,7 +82,10 @@ def _clean_metadata(
     if effective_from and effective_to and effective_to <= effective_from:
         raise LegalUploadValidationError("Effective-to date must be later than effective-from date.")
     if source_url:
-        parsed = urlsplit(source_url)
+        try:
+            parsed = urlsplit(source_url)
+        except ValueError:
+            raise LegalUploadValidationError("Source URL must be an HTTP or HTTPS address.") from None
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise LegalUploadValidationError("Source URL must be an HTTP or HTTPS address.")
     return LegalRegistration(
@@ -142,6 +148,11 @@ async def upload_legal_pdf(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except LegalUploadStorageError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (SQLAlchemyError, OSError, TimeoutError) as exc:
+        # The stored PDF is content-addressed, so repeating the upload after a
+        # database failure reuses the same file instead of duplicating it.
+        logger.warning("legal_registration_failed error=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Could not register the PDF. Please try again.") from None
 
     if record.already_registered:
         response.status_code = status.HTTP_200_OK

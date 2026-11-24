@@ -155,7 +155,7 @@ async def test_worker_accounts_for_every_physical_page(tmp_path):
         async def claim_next(self, **kwargs):
             return claim
 
-        async def save_page(self, _claim, page):
+        async def save_page(self, _claim, page, *, lease_seconds=3600):
             self.pages.append(page)
 
         async def complete(self, _claim, digest):
@@ -196,7 +196,7 @@ async def test_page_error_is_recorded_without_skipping_the_next_page(tmp_path, m
         async def claim_next(self, **kwargs):
             return claim
 
-        async def save_page(self, _claim, page):
+        async def save_page(self, _claim, page, *, lease_seconds=3600):
             self.pages.append(page)
 
         async def complete(self, _claim, _digest):
@@ -221,3 +221,19 @@ async def test_page_error_is_recorded_without_skipping_the_next_page(tmp_path, m
     assert [page.outcome for page in repo.pages] == ["failed", "extracted"]
     assert repo.pages[0].warnings[0]["code"] == "page_failed"
     assert repo.completed
+
+
+def test_table_detection_failure_sends_the_page_to_review(monkeypatch):
+    from app.services import legal_extraction
+
+    def broken(page):
+        raise RuntimeError("layout engine crashed")
+    monkeypatch.setattr(legal_extraction, "_table_regions", broken)
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((50, 80), "1. Short title. This Act may be called the Example Act.", fontsize=12)
+    result = extract_page(page, 1, ExtractionConfig(tessdata_dir="unused"))
+    document.close()
+    # An undetected table must not slip through as ordinary extracted text.
+    assert result.outcome == "needs_review" and result.table_regions == []
+    assert "table_detection_failed" in {item["code"] for item in result.warnings}
