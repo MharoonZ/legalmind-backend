@@ -273,3 +273,87 @@ def test_query_vectors_are_cached_and_validated(snapshot):
     assert calls == ["a question", "another", "a third", "a question"]
     wrong_size = QueryEncoder(runtime=InferenceRuntime(), encode=lambda text, profile: np.ones(3))
     assert asyncio.run(wrong_size.encode("x", snapshot.profile)) is None
+
+
+def test_remembered_law_only_breaks_close_ties(snapshot):
+    result = retrieve(snapshot, "And must a seller issue a receipt for the goods?",
+                      history=[("user", "Under the Gambling Ordinance, can police search a house?")])
+    assert labels(result)[0] == (CONSUMER, "19")
+
+
+def test_bare_section_inference_only_counts_the_requested_provisions(monkeypatch):
+    from tests.corpus import LAWS
+    other, pertinent = "Registration Act", "Markets Act"
+    monkeypatch.setitem(LAWS, other, [("section", "3", "Meetings", "The board meets monthly.")] + [
+        ("section", str(n), "Permits", "Orchards need a permit to export cherries.") for n in range(10, 20)])
+    monkeypatch.setitem(LAWS, pertinent, [("section", "3", "Export permits", "A permit is required for cherries.")])
+    snapshot = make_snapshot()
+    result = retrieve(snapshot, "Section 3 export permits cherries")
+    assert labels(result) == [(pertinent, "3")]
+    unrelated = retrieve(snapshot, "Section 3 stellar spectroscopy")
+    assert unrelated.status == "needs_clarification" and not unrelated.candidates
+
+
+def test_a_named_law_is_widened_on_the_topic_alone(snapshot):
+    result = retrieve(snapshot, "Does the Gambling Ordinance require a trader to issue a receipt?")
+    assert labels(result)[0] == (CONSUMER, "19")
+    assert any("other laws" in warning for warning in result.warnings)
+
+
+def test_explicit_lookup_respects_search_limit(snapshot):
+    answer = asyncio.run(service(snapshot).search(LegalSearchIn(
+        query="sections 3 to 5 of the Gambling Ordinance", limit=1)))
+    assert [entry.label for entry in answer.results] == ["3"]
+
+
+def test_reference_question_can_name_numbered_or_unnumbered_schedules(monkeypatch):
+    from tests.corpus import LAWS
+    for name, labels_in_law in (("Lakes Act", ["First", "Second"]), ("Rivers Act", [None])):
+        monkeypatch.setitem(LAWS, name, [("schedule", label, "Listed waters", "The list of waters.")
+                                         for label in labels_in_law])
+    snapshot = make_snapshot()
+    assert labels(retrieve(snapshot, "the Schedule of the Lakes Act")) == [
+        ("Lakes Act", "First"), ("Lakes Act", "Second")]
+    assert labels(retrieve(snapshot, "Schedule 1 of the Rivers Act")) == [("Rivers Act", None)]
+    assert retrieve(snapshot, "Schedule 2 of the Rivers Act").missing_references
+
+
+def test_an_unpublished_law_in_the_last_turn_ends_earlier_law_context(snapshot):
+    history = [("user", "What does the Gambling Ordinance say?"),
+               ("user", "What about the Income Tax Ordinance 2001?")]
+    analysis = analyze(snapshot, "and section 3?", history=history)
+    assert analysis.law.status == "unresolved" and "Income Tax" in analysis.law.mention
+
+
+def test_a_fresh_named_law_question_does_not_import_previous_section(snapshot):
+    analysis = analyze(snapshot, "What does the Consumer Protection Act cover?",
+                       history=[("user", "Section 3 of the Prisons Act?")])
+    assert analysis.scope == (law_id(CONSUMER),) and not analysis.references
+
+
+def test_invalid_explicit_instrument_id_cannot_search_unrelated_laws(snapshot):
+    from uuid import uuid4
+    result = retrieve(snapshot, "section 3 of the gambling ordinance", instrument_id=uuid4())
+    assert result.status == "no_results" and not result.candidates
+
+
+@pytest.mark.parametrize("question", ["and receipts?", "and how can I get a receipt for a purchase?"])
+def test_a_short_new_topic_is_searched_on_its_own(snapshot, question):
+    history = [("user", "Does the Gambling Ordinance punish keeping a common gaming house?")]
+    result = retrieve(snapshot, question, history=history)
+    assert labels(result)[0] == (CONSUMER, "19")
+    assert result.analysis.search_text == question
+
+
+def test_a_numbered_followup_with_a_new_topic_can_switch_laws(snapshot):
+    history = [("user", "Does the Gambling Ordinance punish keeping a common gaming house?")]
+    result = retrieve(snapshot, "section 19 about receipts?", history=history)
+    assert labels(result) == [(CONSUMER, "19")]
+    anchored = retrieve(snapshot, "section 19 of that Act?", history=history)
+    assert anchored.status == "no_results" and anchored.missing_references == ["Section 19"]
+
+
+def test_truncated_exact_search_still_explains_missing_references(snapshot):
+    result = retrieve(snapshot, "Sections 3, 4 and 98 of the Gambling Ordinance", limit=1)
+    assert len(result.candidates) == 1 and result.missing_references == ["Section 98"]
+    assert "Section 98" in result.message

@@ -1,5 +1,6 @@
 """The in-memory publication snapshot, its loader and its cache."""
 import numpy as np
+from pgvector import Vector
 import pytest
 
 from app.retrieval import loader
@@ -108,10 +109,13 @@ def _rows(snapshot):
               "applicability_status": law.applicability_status, "review_state": "approved",
               "revision_hash": "d" * 64, "revision_version": law.legal_version_id, "set_hash": "d" * 64,
               "set_revision": law.revision_id} for law in snapshot.instruments.values()]
+    for item in items:
+        count = sum(c.instrument_id == item["instrument_id"] for c in snapshot.chunks)
+        item.update(pinned_count=count, current_count=count, embedded_count=count)
     chunks = [{"id": c.id, "instrument_id": c.instrument_id, "root_provision_id": c.root_provision_id,
                "ordinal": c.ordinal, "kind": c.kind, "label": c.label, "heading": c.heading,
                "reference_path": c.reference_path, "sequence_in_root": 1, "root_total_chunks": 1,
-               "prefix": c.prefix, "chunk_text": c.text, "embedding": snapshot.vectors[c.index].tolist()}
+               "prefix": c.prefix, "chunk_text": c.text, "embedding": Vector(snapshot.vectors[c.index]).to_binary()}
               for c in snapshot.chunks]
     nodes = [{"id": n.id, "instrument_id": n.instrument_id, "parent_id": n.parent_id, "kind": n.kind,
               "label": n.label, "heading": n.heading, "reference_path": n.reference_path,
@@ -130,6 +134,7 @@ def _rows(snapshot):
 
 def test_database_rows_assemble_into_an_equivalent_snapshot(snapshot):
     built = loader._assemble(*_rows(snapshot))
+    np.testing.assert_allclose(built.vectors, snapshot.vectors, atol=1e-6)
     assert [c.text for c in built.chunks] == [c.text for c in snapshot.chunks]
     assert all(len(c.segments) == 2 for c in built.chunks)
     assert next(iter(built.instruments.values())).aliases == ("Alias",)
@@ -142,7 +147,7 @@ def test_database_rows_assemble_into_an_equivalent_snapshot(snapshot):
     (lambda p, i, c, n, s: i[0].update(set_hash="0" * 64), "approved revision"),
     (lambda p, i, c, n, s: c.pop(), "chunk count"),
     (lambda p, i, c, n, s: c[0].update(embedding=None), "no vector"),
-    (lambda p, i, c, n, s: c[0].update(embedding=[0.1, 0.2]), "no vector"),
+    (lambda p, i, c, n, s: c[0].update(embedding=Vector([0.1, 0.2]).to_binary()), "no vector"),
 ])
 def test_incomplete_or_changed_publications_fail_closed(snapshot, damage, message):
     rows = _rows(snapshot)
@@ -176,3 +181,133 @@ def test_cross_references_link_provisions_in_both_directions(snapshot):
     # A provision never refers to itself, and numbers are resolved inside the same law only.
     assert all(key not in targets and all(target[0] == key[0] for target in targets)
                for key, targets in snapshot.outgoing.items())
+
+
+def test_published_foreign_references_do_not_link_to_namesake_provisions(monkeypatch):
+    from tests.corpus import LAWS
+    title = "Licensing Rules"
+    monkeypatch.setitem(LAWS, title, [
+        ("rule", "5", "Licences", "Issue a licence."),
+        ("rule", "9", "Fees", "A fee is payable."),
+        ("rule", "10", "Appeals", "Apply section 5 of the Act. Also see rule 5 of these Rules."),
+        ("schedule", None, "Table", "Old Rules, 1878 Rule 9; Parent Act, 1878 Section 5.")])
+    snap = make_snapshot()
+    def key(kind, label):
+        return snap.find_root(law_id(title), kind, label)
+
+    assert snap.outgoing.get(key("schedule", ""), ()) == ()
+    assert snap.outgoing[key("rule", "10")] == (key("rule", "5"),)
+
+
+def test_display_removes_identifiable_fused_footnotes_only():
+    from app.retrieval.snapshot import readable
+    assert readable("Code of Procedure, 18988, as amended.") == "Code of Procedure, 1898, as amended."
+    assert readable("five persons1[.]") == "five persons[.]"
+    assert readable("a fine of 18988 rupees, section 3[59]") == "a fine of 18988 rupees, section 3[59]"
+
+
+@pytest.mark.parametrize("which", ["metadata", "vectors"])
+def test_a_truncated_cache_discards_both_files(tmp_path, snapshot, which):
+    loader._write_cache(str(tmp_path), snapshot)
+    meta, vectors = loader._cache_paths(str(tmp_path), snapshot.id, snapshot.manifest_sha256)
+    damaged = meta if which == "metadata" else vectors
+    damaged.write_bytes(damaged.read_bytes()[:12])
+    assert loader._read_cache(str(tmp_path), snapshot.id, snapshot.manifest_sha256) is None
+    assert not meta.exists() and not vectors.exists()
+
+
+def test_cache_files_are_synced_before_replace_and_failed_writes_clean_up(tmp_path, snapshot, monkeypatch):
+    synced = []
+    monkeypatch.setattr(loader.os, "fsync", lambda fd: synced.append(fd))
+
+    def fail(*args):
+        assert synced
+        raise OSError("destination unavailable")
+
+    monkeypatch.setattr(loader.os, "replace", fail)
+    loader._write_cache(str(tmp_path), snapshot)
+    assert synced and not list(tmp_path.iterdir())
+
+
+def test_cache_prunes_only_older_publication_files(tmp_path):
+    from uuid import uuid4
+    keep = tmp_path / "operator-notes.txt"
+    keep.write_text("keep")
+    for _ in range(4):
+        snapshot = make_snapshot()
+        snapshot.id = uuid4()
+        loader._write_cache(str(tmp_path), snapshot)
+    assert keep.is_file() and len(list(tmp_path.glob("*.json.gz"))) <= 2
+    assert loader._read_cache(str(tmp_path), snapshot.id, snapshot.manifest_sha256)
+
+
+def test_load_checks_approved_sources_and_builds_off_the_event_loop(tmp_path, snapshot, monkeypatch):
+    import asyncio
+    import threading
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    pub, items, chunks, nodes, segments = _rows(snapshot)
+    responses = {loader._ACTIVE: [pub], loader._ITEMS: items, loader._CHUNKS: chunks,
+                 loader._NODES: nodes, loader._SEGMENTS: segments}
+    queries, workers = [], []
+
+    async def execute(query, *args):
+        assert query in (loader._ACTIVE, loader._ITEMS)
+        rows = responses[query]
+        queries.append(query)
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: rows[0], all=lambda: rows))
+
+    async def stream(query, params, *, execution_options):
+        assert 0 < execution_options["yield_per"] <= 256
+        queries.append(query)
+
+        async def mappings():
+            for row in responses[query]:
+                yield row
+
+        async def close():
+            pass
+
+        return SimpleNamespace(mappings=mappings, close=close)
+
+    @asynccontextmanager
+    async def session():
+        yield SimpleNamespace(execute=execute, stream=stream)
+
+    def observed(f):
+        def call(*args, **kwargs):
+            workers.append(threading.get_ident())
+            return f(*args, **kwargs)
+        return call
+
+    for name in ("_read_cache", "_assemble", "_write_cache"):
+        monkeypatch.setattr(loader, name, observed(getattr(loader, name)))
+    db = SimpleNamespace(session=session)
+    async def run():
+        assert await loader.load_snapshot(db, cache_dir=str(tmp_path))
+        assert threading.get_ident() not in workers
+        queries.clear()
+        assert await loader.load_snapshot(db, cache_dir=str(tmp_path))
+        assert loader._ITEMS in queries and loader._CHUNKS not in queries
+        items[0]["review_state"] = "draft"
+        with pytest.raises(SnapshotError, match="approved"):
+            await loader.load_snapshot(db, cache_dir=str(tmp_path))
+        items[0]["review_state"] = "approved"
+        items[0]["embedded_count"] -= 1
+        with pytest.raises(SnapshotError):
+            await loader.load_snapshot(db, cache_dir=str(tmp_path))
+    asyncio.run(run())
+
+
+def test_display_separates_prose_footnotes_in_legal_titles_and_sentences():
+    from app.retrieval.snapshot import readable
+
+    source = ("Under the Code of Civil Procedure1, the Government may constitute11 an office "
+              "and make rules2, on such date2 as it prescribes. Under the Northern District4 "
+              "Protection Act the Tribunal10 may act.")
+    assert readable(source) == ("Under the Code of Civil Procedure, the Government may constitute an office "
+                                "and make rules, on such date as it prescribes. Under the Northern District "
+                                "Protection Act the Tribunal may act.")
+    identifiers = "Use form Code4, reference HAL12 and model Delta2 under section 3[59]."
+    assert readable(identifiers) == identifiers

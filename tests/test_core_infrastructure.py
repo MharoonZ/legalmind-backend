@@ -258,3 +258,27 @@ def test_audit_recording_writes_the_run_its_hits_and_cited_evidence():
     assert hit.exact_rank == 1 and hit.chunk_id == result.citations[0].chunk_id
     assert claim.evidence_id == result.citations[0].evidence_id and evidence.page_index == result.citations[0].page_index
     assert AskIn(question="x1").history == []
+
+
+@pytest.mark.parametrize("outcome", [None, ConnectionError("offline"), SnapshotError("incomplete")])
+def test_empty_index_coalesces_failed_loads_and_retries_after_interval(monkeypatch, outcome):
+    calls, now = [], [100.0]
+
+    async def load(db, **kwargs):
+        calls.append(1)
+        await asyncio.sleep(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(index_module, "load_snapshot", load)
+    monkeypatch.setattr(index_module, "monotonic", lambda: now[0])
+    index = PublicationIndex(db=object(), refresh_seconds=5)
+
+    async def scenario():
+        assert await asyncio.gather(*(index.ensure_loaded() for _ in range(6))) == [None] * 6
+        assert len(calls) == 1
+        now[0] += 5
+        await index.ensure_loaded()
+        assert len(calls) == 2
+    asyncio.run(scenario())

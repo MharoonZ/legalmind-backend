@@ -19,6 +19,7 @@ _K1 = 1.2
 _B = 0.75
 _REPAIR_WEIGHT = 0.7
 _MAX_REPAIRS = 2
+_MAX_REPAIR_LOOKUPS = 8
 
 
 class LexicalIndex:
@@ -66,6 +67,11 @@ class LexicalIndex:
             return []
         matches = process.extract(word, self._vocabulary_words, scorer=OSA.distance,
                                   score_cutoff=budget, limit=8)
+        # For short words a single substitution often makes a different real word.
+        # Keep missing/extra letters and adjacent transpositions in this length range.
+        if len(word) < 8:
+            matches = [item for item in matches if len(item[0]) != len(word)
+                       or sorted(item[0]) == sorted(word)]
         ranked = sorted(matches, key=lambda item: (item[1], -self._vocabulary[item[0]], item[0]))
         if not ranked:
             return []
@@ -76,6 +82,7 @@ class LexicalIndex:
         """Weighted index terms for a question and the spelling repairs applied."""
         terms: dict[str, float] = {}
         repairs: dict[str, str] = {}
+        lookups = 0
         for word in dict.fromkeys(words(text)):
             if word in STOPWORDS:
                 continue
@@ -83,6 +90,9 @@ class LexicalIndex:
             if term in self._postings:
                 terms[term] = max(terms.get(term, 0.0), 1.0)
                 continue
+            if lookups >= _MAX_REPAIR_LOOKUPS or not word.isalpha() or len(word) < 4:
+                continue
+            lookups += 1
             candidates = self.repair(word)
             if candidates:
                 repairs[word] = candidates[0]

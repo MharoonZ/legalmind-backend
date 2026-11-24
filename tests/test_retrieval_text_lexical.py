@@ -82,3 +82,16 @@ def test_heading_matches_outrank_body_matches():
         [("Act", 1.0), ("Other matters", 2.5), ("A search may be made of general provisions entirely", 1.0)],
     ])
     assert index.search(index.query_terms("search")[0])[0][0] == 0
+
+
+def test_real_words_outside_the_collection_are_not_short_substitution_repairs():
+    index = LexicalIndex([[("bedding protect gaming public", 1.0)]])
+    assert index.query_terms("wedding protest gamng")[1] == {"gamng": "gaming"}
+
+
+def test_an_unknown_query_has_a_bounded_number_of_spelling_lookups(monkeypatch):
+    index = LexicalIndex(DOCUMENTS)
+    seen = []
+    monkeypatch.setattr(index, "repair", lambda word: seen.append(word) or [])
+    terms, _ = index.query_terms(" ".join("unusual" + chr(97+i) for i in range(26)) + " receipt")
+    assert 0 < len(seen) <= 8 and stem("receipt") in dict(terms)

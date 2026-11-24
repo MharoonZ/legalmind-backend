@@ -94,3 +94,7 @@ def test_lists_may_mix_single_numbers_and_ranges():
     # A sentence length is not the end of a range.
     sentence = parse_references("is the punishment under section 7 to 10 years")
     assert [item.label for item in sentence.references] == ["7"] and not sentence.ranges
+
+
+def test_urdu_decimal_labels_identify_the_same_provision_as_ascii():
+    assert parse_references("دفعہ ۳").references == parse_references("section 3").references

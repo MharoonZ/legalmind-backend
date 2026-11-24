@@ -20,7 +20,7 @@ import numpy as np
 from app.core.inference import InferenceRuntime, runtime as default_runtime
 from app.embeddings.profiles import EmbeddingProfile
 from app.retrieval.index import PublicationIndex
-from app.retrieval.query import QueryAnalysis, analyze, has_topic
+from app.retrieval.query import QueryAnalysis, analyze, has_topic, topic_words
 from app.retrieval.references import Reference
 from app.retrieval.snapshot import Chunk, PublicationSnapshot
 from app.schemas.legal_search import CandidateOut, LegalSearchIn, LegalSearchOut
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_EXACT_ROOTS = 12
 _OVERVIEW_ROOTS = 5
-_CONTEXT_BIAS = 2.0          # extra fusion weight for the law carried over from the conversation
+_CONTEXT_BIAS = 1.005        # break near-ties in favour of the remembered law
 _INFERENCE_MARGIN = 1.5      # how clearly one law must lead before it is assumed
 Status = Literal["ok", "no_results", "needs_clarification", "no_active_publication", "service_unavailable"]
 
@@ -243,6 +243,9 @@ class RetrievalService:
         result = RetrievalResult("ok", question, analysis, snapshot)
         if analysis.law.status == "unresolved":
             result.unknown_law = analysis.law.mention
+            if analysis.law_source == "request":
+                result.status, result.message = "no_results", "The requested law is outside the publication."
+                return result
         if not has_topic(analysis, snapshot) and not analysis.context_used:
             if analysis.hard_scope and len(analysis.scope) == 1:
                 # Only a law was named: show how it opens rather than guess a topic.
@@ -258,14 +261,17 @@ class RetrievalService:
                 return result
         scope = analysis.scope if analysis.hard_scope else None
         bias = analysis.scope if analysis.scope and not analysis.hard_scope else None
+        query = " ".join(topic_words(analysis, snapshot)) if scope else analysis.search_text
         candidates, repairs, semantic = await self._ranked(
-            snapshot, analysis.search_text, scope=scope, bias=bias, limit=limit,
+            snapshot, query, scope=scope, bias=bias, limit=limit,
             jurisdiction=analysis.jurisdiction)
-        if not candidates and scope:
-            # The named law has nothing on this topic: look across the collection.
-            candidates, repairs, semantic = await self._ranked(
-                snapshot, analysis.search_text, scope=None, limit=limit, jurisdiction=analysis.jurisdiction)
-            if candidates:
+        if scope and not any(c.keyword_rank for c in candidates):
+            wider, repairs, semantic = await self._ranked(
+                snapshot, query, scope=None, limit=limit, jurisdiction=analysis.jurisdiction)
+            if wider and wider[0].chunk.instrument_id not in scope and (
+                    not candidates or wider[0].keyword_rank or
+                    (wider[0].vector_score or 0) > (candidates[0].vector_score or 0) + 0.05):
+                candidates = wider
                 result.warnings.append("No matching passage in the named law; showing other laws.")
         result.candidates, result.spelling_repairs = candidates, repairs
         if not semantic:
@@ -289,12 +295,22 @@ class RetrievalService:
             return holders[0], holders
         if not holders or not has_topic(analysis):
             return None, holders
-        ranked, _, _ = await self._ranked(snapshot, analysis.topical_text, scope=holders, limit=20)
+        # Compare the requested provisions themselves. Counting unrelated hits or
+        # summing parts systematically favours longer laws.
+        allowed = np.zeros(len(snapshot.chunks), dtype=bool)
+        for law in holders:
+            for kind, label in wanted:
+                for key in snapshot.matching_roots(law, kind, label):
+                    for part in snapshot.chunks_by_root[key]:
+                        allowed[part.index] = True
+        terms, _ = snapshot.lexical.query_terms(" ".join(topic_words(analysis)))
+        ranked = snapshot.lexical.search(terms, mask=allowed, limit=int(allowed.sum()))
         weight: dict[UUID, float] = {}
-        for candidate in ranked:
-            weight[candidate.chunk.instrument_id] = weight.get(candidate.chunk.instrument_id, 0.0) + candidate.rrf_score
-        order = sorted(weight, key=lambda key: -weight[key])
-        if order and (len(order) == 1 or weight[order[0]] >= _INFERENCE_MARGIN * weight[order[1]]):
+        for index, score in ranked:
+            law = snapshot.chunks[index].instrument_id
+            weight[law] = max(weight.get(law, 0.0), score)
+        order = sorted(holders, key=lambda key: -weight.get(key, 0.0))
+        if weight and weight[order[0]] >= _INFERENCE_MARGIN * weight.get(order[1], 0.0):
             return order[0], order
         return None, order or holders
 
@@ -338,15 +354,15 @@ class RetrievalService:
         law = laws[0]
         roots: list[tuple[tuple[UUID, UUID], tuple[str, ...]]] = []
         for ref in analysis.references:
-            key = snapshot.find_root(law, ref.kind, ref.label)
-            if key is None:
+            matches = snapshot.matching_roots(law, ref.kind, ref.label)
+            if not matches:
                 result.missing_references.append(ref.display)
-                continue
-            path = snapshot.child_path(key[1], ref.children) if ref.children else None
-            root_path = snapshot.chunks_by_root[key][0].reference_path
-            if ref.children and path is None:
-                result.warnings.append(f"{ref.display}: that sub-provision was not found; showing the whole provision.")
-            roots.append((key, (path or root_path,)))
+            for key in matches:
+                path = snapshot.child_path(key[1], ref.children) if ref.children else None
+                root_path = snapshot.chunks_by_root[key][0].reference_path
+                if ref.children and path is None:
+                    result.warnings.append(f"{ref.display}: that sub-provision was not found; showing the whole provision.")
+                roots.append((key, (path or root_path,)))
         for item in analysis.ranges:
             keys = snapshot.roots_between(law, item.kind, item.start, item.end)
             if not keys:
@@ -363,18 +379,20 @@ class RetrievalService:
         seen: dict[tuple[UUID, UUID], tuple[str, ...]] = {}
         for key, paths in roots:
             seen[key] = tuple(dict.fromkeys(seen.get(key, ()) + paths))
+        if not seen:
+            result.status = "no_results"
+        if result.missing_references:
+            title = snapshot.instruments[law].title
+            result.message = f"{', '.join(result.missing_references)} could not be found in {title}."
         if len(seen) > _MAX_EXACT_ROOTS:
             result.warnings.append(f"Only the first {_MAX_EXACT_ROOTS} requested provisions are shown.")
         rank = 0
         for key, paths in list(seen.items())[:_MAX_EXACT_ROOTS]:
             for chunk in snapshot.chunks_by_root[key]:
+                if rank >= limit:
+                    result.warnings.append(f"Only the first {limit} matching passages are shown.")
+                    return result
                 rank += 1
                 result.candidates.append(Candidate(chunk, rank=rank, exact_rank=rank,
                                                    matched_reference_paths=paths))
-        title = snapshot.instruments[law].title
-        if not result.candidates:
-            result.status = "no_results"
-            result.message = f"{', '.join(result.missing_references)} could not be found in {title}."
-        elif result.missing_references:
-            result.message = f"{', '.join(result.missing_references)} could not be found in {title}."
         return result

@@ -20,12 +20,15 @@ _FAREWELL = re.compile(r"^(?:bye+|good\s?bye|see\s+you(?:\s+later)?|(?:khuda|all
 _ABOUT = re.compile(
     r"^(?:who|what)\s+are\s+you\??$|^what(?:'s|\s+is)\s+your\s+name\??$|^what\s+(?:can|do)\s+you\s+do\??$"
     r"|^how\s+(?:can|do)\s+you\s+help(?:\s+me)?\??$|^how\s+does\s+this\s+work\??$|^help[\s!?.]*$", re.I)
+_COLLECTION = r"(?:the|this|your)\s+(?:collection|database|system|corpus)"
+_DOCUMENTS = r"(?:laws?|acts?|ordinances?|documents?|statutes?|pdfs?)"
 _CATALOG = re.compile(
-    r"^(?:(?:can|could)\s+you\s+)?(?:please\s+)?(?:which|what|list|show|tell\s+me|give\s+me)\b.{0,40}\b"
-    r"(?:laws?|acts?|ordinances?|documents?|statutes?|pdfs?)\b.{0,30}\b(?:available|have|has|cover(?:ed|s)?|"
-    r"know|included?|contains?|support(?:ed|s)?|loaded|uploaded|(?:in|of)\s+(?:the|this|your)\s+"
-    r"(?:collection|database|system|corpus))\b[\s?.!]*$"
-    r"|^(?:list|show)(?:\s+me)?(?:\s+all)?(?:\s+the)?(?:\s+available)?\s+(?:laws|acts|documents)[\s?.!]*$", re.I)
+    rf"(?:(?:can|could)\s+you\s+)?(?:please\s+)?(?:"
+    rf"(?:which|what)\s+{_DOCUMENTS}\s+(?:(?:do\s+you|does\s+{_COLLECTION})\s+"
+    rf"(?:have|cover|know|include|contain|support)|(?:are\s+)?(?:available|included|covered|loaded|uploaded)"
+    rf"(?:\s+in\s+{_COLLECTION})?|are\s+in\s+{_COLLECTION})"
+    rf"|(?:list|show|give|tell)(?:\s+me)?(?:\s+all)?(?:\s+the)?(?:\s+available)?\s+{_DOCUMENTS}"
+    rf"(?:\s+(?:you\s+have|in\s+{_COLLECTION}))?)[\s?.!]*", re.I)
 _MAX_LISTED = 60
 
 

@@ -196,6 +196,7 @@ def settings(**overrides):
         qa_context_max_units=12, qa_context_max_chars=24000, qa_context_max_reference_sections=2,
         qa_context_max_referring_sections=2,
         qa_context_max_definition_sections=1, qa_history_max_turns=6, qa_rewrite_enabled=True,
-        qa_rewrite_below_similarity=0.2, qa_repair_attempts=1)
+        qa_rewrite_below_similarity=0.2, qa_rewrite_timeout_seconds=6, qa_request_timeout_seconds=60,
+        qa_repair_attempts=1)
     values.update(overrides)
     return SimpleNamespace(**values)

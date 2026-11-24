@@ -89,8 +89,6 @@ async def run(args) -> int:
     source = _over_http(cases, args.url, args.api_key) if args.url else _in_process(cases)
     rows, failures = [], 0
     async for case, response, seconds, timings in source:
-        if rows and args.pause:
-            await asyncio.sleep(args.pause)         # stay inside the answer model's per-minute quota
         passed, reason = judge(case, response)
         failures += not passed
         rows.append({"id": case["id"], "category": case["category"], "passed": passed, "reason": reason,
@@ -104,6 +102,8 @@ async def run(args) -> int:
         if args.show_answers:
             print("        Q:", case["question"])
             print("        A:", (response.get("answer") or "").replace("\n", "\n           ")[:1500])
+        if args.pause and len(rows) < len(cases):
+            await asyncio.sleep(args.pause)
     answered = [row["seconds"] for row in rows if row["status"] in {"answered", "partial"}]
     summary = {
         "cases": len(rows), "passed": len(rows) - failures, "failed": failures,

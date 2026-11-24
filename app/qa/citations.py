@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
+from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -21,7 +22,7 @@ from rapidfuzz import fuzz
 from app.qa.context import EvidenceUnit
 from app.retrieval.references import parse_references, schedule_number
 from app.retrieval.snapshot import Chunk, PublicationSnapshot, RootKey, Segment
-from app.retrieval.text import STOPWORDS, compact_label, footnote_spans, stem, words
+from app.retrieval.text import STOPWORDS, compact_label, footnote_spans, stem, without_footnote_marks, words
 from app.schemas.qa import VerifiedCitation, VerifiedClaim
 
 _MARKER = re.compile(r"\[\s*((?:E\s?\d+)(?:\s*[,;&]\s*(?:E\s?\d+))*)\s*\]", re.I)
@@ -29,18 +30,52 @@ _KEY = re.compile(r"E\s?(\d+)", re.I)
 _ELLIPSIS = re.compile(r"\.{3,}|…")
 # PDF text wraps mid-sentence, so only sentence punctuation ends a sentence.
 _SENTENCE = re.compile(r".+?(?:[.;](?=\s|$)|\.\u2013|$)", re.S)
-_SPACE_BEFORE_PUNCTUATION = re.compile(r"[ \t]+([.,;:!?])")
+_SPACE_BEFORE_PUNCTUATION = re.compile(r"(?<=\S)[ \t]+([.,;:!?])")
 _PLACEHOLDER = "\x00{}\x01"
 _PLACED = re.compile(r"\x00(\d+)\x01")
-# Where one sentence or list item of an answer ends and the next begins. A full
-# stop inside "Rs. 500" or "s. 5" is not a break: a capital must follow.
+# Placeholders are made of control characters, so the model's text may not contain any.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# "[2]" written for "[E2]", on its own or straight after another marker.
+_BARE_MARKERS = re.compile(rf"(?P<lead>(?i:{_MARKER.pattern}))?(?P<bare>(?:\[\d{{1,2}}\])+)")
+# A citation mark in either form: the model's "[E1]" or the placeholder that replaces it.
+_MARK = rf"(?:{_PLACED.pattern}|(?i:{_MARKER.pattern}))"
+_CITED = re.compile(_MARK)
+# Where one sentence or list item of an answer ends and the next begins: at a line
+# break or after sentence punctuation. A capital must follow a Latin full stop, as
+# the one in "Rs. 500" or "s. 5" ends nothing. Marks written after the full stop
+# ("... one year. [E1] Next ...") stay with the sentence they follow.
+_AFTER_STOP = rf"(?:[\"\u201d\u2019)\]]|[ \t]*(?:(?:and|&|[,;])[ \t]*)?{_MARK})*[ \t]+(?!{_MARK})"
 _ANSWER_BREAK = re.compile(
-    r"(?<=[.!?])(?:[\"\u201d\u2019)\]]|[ \t]*\x00\d+\x01)*[ \t]+(?=[\"\u201c\u2018(\[]?[A-Z])"
-    r"|(?<=\u06d4)[ \t]+"
+    rf"(?<=[.!?]){_AFTER_STOP}(?=[\"\u201c\u2018(\[]?[A-Z])"
+    rf"|(?<=\u06d4){_AFTER_STOP}"
     r"|[ \t]*\n+[ \t]*")
+# The full stop after one of these does not end a sentence: "Act No. II of 2005", "Rs. 500".
+_ABBREVIATIONS = frozenset(
+    "no nos rs s ss sec secs art arts cl para paras sch ch pt reg r rr v vs dr mr mrs ms etc viz cf "
+    "i.e e.g u/s".split())
+# What numbers the items of a list: "1.", "12.", "a.", "iv.".
+_LABEL = r"(?:\d{1,3}(?:\.\d{1,3})*|[a-z]|(?=[ivx])x{0,3}(?:ix|iv|v?i{0,3}))"
+_LIST_LABEL = re.compile(_LABEL, re.I)
+# The bullet and label that open a list item ("- ", "1. ", "(a) "): not part of what the item says.
+_ITEM_START = re.compile(rf"[\s*_\u2022\u2013\u2014-]*(?:\(?{_LABEL}[.)\u06d4][*_]*(?=\s|$)\s*)?", re.I)
+_LABEL_CONTEXT = 200         # characters before a full stop that tell a label or abbreviation from an ending
+_BULLETS = "-*\u2022\u2013\u2014>#\t "
+_OPENING = "([{\"'\u201c\u2018*_"
+_CLOSING = ")]}\"'\u201d\u2019*_"
 # "...other laws:- Under Section 2": a list the model wrote without line breaks.
-_INLINE_BULLET = re.compile(r"(?<=[:.\]])[ \t]*-[ \t]+(?=[A-Z(\[\"\u201c])")
+# A statute's "namely:- (a) ..." is not one, so "(" may not follow.
+_INLINE_BULLET = re.compile(r"(?<=[:.\]])[ \t]*-[ \t]+(?=[A-Z\[\"\u201c])")
 _SPACE = re.compile(r"\s+")
+_UNSPACED = re.compile(r"\S+")
+# English number words, as statutes spell out terms and amounts ("five thousand rupees").
+_NUMBER_WORDS = dict(zip(
+    "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+    "seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety "
+    "hundred thousand lakh crore".split(),
+    [*range(1, 21), *range(30, 100, 10), 100, 1000, 100_000, 10_000_000]))
+_ORDINALS = dict(zip("first second third fourth fifth sixth seventh eighth ninth tenth".split(), range(1, 11)))
+# "5,000" and "1,00,000" are one number each; "sections 18,19,20" are three.
+_GROUPED_NUMBER = re.compile(r"(?<![\d,])\d{1,3}(?:,\d{2,3})*,\d{3}(?![\d,])")
 _MIN_QUOTE = 12              # normalised characters
 _FUZZY_CUTOFF = 88
 _MAX_FALLBACK_CHARS = 320
@@ -139,8 +174,51 @@ def _anchor(chunk: Chunk, start: int, end: int) -> Segment | None:
     return best
 
 
-def _stems(text: str) -> set[str]:
-    return {stem(word) for word in words(text) if word not in STOPWORDS}
+def _ascii_digits(text: str) -> str:
+    """Digits of every script as ASCII digits, so that a number in Urdu digits equals the same number in ours."""
+    return text if text.isascii() else "".join(str(unicodedata.decimal(char, char)) for char in text)
+
+
+def _spelt_numbers(tokens: Sequence[str]) -> set[str]:
+    """Digits for the numbers ``tokens`` spell out in English: "five thousand" gives 5, 1000 and 5000."""
+    found: set[str] = set()
+    amount = part = 0               # of "five thousand two hundred": 5000 and 200
+    for word in (*tokens, ""):
+        value = _NUMBER_WORDS.get(word)
+        # A number word continues the amount being read unless it starts another one ("one, two").
+        continues = value is not None and (
+            value >= 100 or part % 100 == 0 or (value < 10 and part % 100 in range(20, 100, 10)))
+        if not continues:
+            if amount + part:
+                found.add(str(amount + part))
+            amount = part = 0
+        if value is None:
+            if word in _ORDINALS:
+                found.add(str(_ORDINALS[word]))
+            continue
+        found.add(str(value))
+        if value >= 1000:
+            amount, part = amount + max(part, 1) * value, 0
+        elif value == 100:
+            part = max(part, 1) * 100
+        else:
+            part += value
+    return found
+
+
+def _stems(text: str, *, source: bool = False) -> set[str]:
+    """Word stems and numbers of ``text``, for comparing a statement with source wording.
+
+    Numbers count as ASCII digits in whatever script or grouping they are written. ``source``
+    text is English, where terms and amounts are usually spelt out: there the number words
+    count as digits too, so that "3 years" matches "three years", and the footnote number
+    of an amendment ("1[three years]") does not count at all.
+    """
+    if source:
+        text = without_footnote_marks(text)
+    tokens = words(_GROUPED_NUMBER.sub(lambda match: match[0].replace(",", ""), _ascii_digits(text)))
+    found = {stem(word) for word in tokens if word not in STOPWORDS}
+    return found | _spelt_numbers(tokens) if source else found
 
 
 def _wording_start(chunk: Chunk) -> int:
@@ -158,71 +236,196 @@ def _wording_start(chunk: Chunk) -> int:
     return start
 
 
+def _capped(text: str, start: int, end: int, wanted: set[str]) -> tuple[int, int] | None:
+    """``text[start:end]``, or the part of it to quote when it is longer than a fallback quote may be.
+
+    A long sentence is quoted where it supports the statement: the run of whole words, as
+    long as the limit allows, that shares most with ``wanted``, and the earliest such run.
+    """
+    if end - start <= _MAX_FALLBACK_CHARS:
+        return start, end
+    pieces = [match.span() for match in _UNSPACED.finditer(text, start, end)]
+    most = len(wanted & _stems(text[start:end], source=True))
+    best, score, last = None, -1, 0
+    for first, (low, _) in enumerate(pieces):
+        last = max(last, first)
+        while last + 1 < len(pieces) and pieces[last + 1][1] - low <= _MAX_FALLBACK_CHARS:
+            last += 1
+        high = pieces[last][1]
+        if high - low > _MAX_FALLBACK_CHARS:
+            continue                # one unbroken run longer than the limit: nothing to cut it at
+        value = len(wanted & _stems(text[low:high], source=True))
+        if value > score:
+            best, score = (low, high), value
+        if score >= most or last + 1 == len(pieces):
+            break                   # later runs cannot share more
+    return best
+
+
 def _support(chunk: Chunk, claim: str) -> tuple[tuple[int, int] | None, int]:
     """The sentence of a passage that best supports ``claim``, and how many words they share."""
     wanted = _stems(claim)
-    body_start = _wording_start(chunk)
-    best, score, shared = None, 0.0, 0
-    for match in _SENTENCE.finditer(chunk.text, body_start):
+    best, first, score, shared = None, None, 0.0, 0
+    for match in _SENTENCE.finditer(chunk.text, _wording_start(chunk)):
         sentence = match[0].strip()
         if len(sentence) < 20:
             continue
-        found = _stems(sentence)
+        start = match.start() + (len(match[0]) - len(match[0].lstrip()))
+        first = first or (start, start + len(sentence))
+        found = _stems(sentence, source=True)
         common = len(wanted & found)
         value = common / (len(found) ** 0.5 or 1.0)
         if value > score:
-            start = match.start() + (len(match[0]) - len(match[0].lstrip()))
-            best, score, shared = (start, min(start + len(sentence), start + _MAX_FALLBACK_CHARS)), value, common
+            best, score, shared = (start, start + len(sentence)), value, common
+    best = best or first            # nothing in common: the opening sentence of the wording
     if best is None:
-        first = next((m for m in _SENTENCE.finditer(chunk.text, body_start) if len(m[0].strip()) >= 20), None)
-        if first is None:
-            return None, 0
-        start = first.start() + (len(first[0]) - len(first[0].lstrip()))
-        best = (start, min(first.end(), start + _MAX_FALLBACK_CHARS))
-    return best, shared
+        return None, 0
+    return _capped(chunk.text, *best, wanted), shared
+
+
+def _sanitised(answer: str) -> str:
+    """The model's text made safe to mark up: no control characters, and "[2]" read as "[E2]".
+
+    A bare number in brackets is a citation only where it stands free. Statutes print
+    amendments as "1[three years]" and "section 3[59]": brackets that touch the text
+    before them are the law's own wording and are left alone.
+    """
+    def marker(match: re.Match) -> str:
+        before = match.string[match.start() - 1:match.start()]
+        if match["lead"] is None and before and (before.isalnum() or before in "[](){}"):
+            return match[0]
+        return (match["lead"] or "") + _ascii_digits(match["bare"]).replace("[", "[E")
+    return _BARE_MARKERS.sub(marker, _CONTROL.sub("", answer.replace("\r\n", "\n").replace("\r", "\n")))
+
+
+def without_citations(answer: str) -> str:
+    """Remove model citation tokens while preserving statutory bracketed wording."""
+    text = _MARKER.sub("", _sanitised(answer))
+    return _SPACE_BEFORE_PUNCTUATION.sub(r"\1", text).strip()
+
+
+def _abbreviated(token: str) -> bool:
+    """Whether a full stop after ``token`` belongs to it: "No.", "Rs.", "e.g.", or an initial as in "A. Khan"."""
+    token = token.lstrip(_OPENING)
+    return token.casefold() in _ABBREVIATIONS or (len(token) == 1 and token.isupper())
+
+
+def _last_word(text: str) -> str:
+    return text.rsplit(None, 1)[-1] if text.strip() else ""
+
+
+def _ends_sentence(text: str, stop: int) -> bool:
+    """Whether the punctuation at ``stop``, which a new sentence could follow, really ends one.
+
+    The full stop of an abbreviation, of an initial or of a list label does not, so that a
+    citation never lands inside "Act No. II of 2005" or behind the number of "1. Keeping ...".
+    """
+    if text[stop] not in ".\u06d4":
+        return True
+    near = max(stop - _LABEL_CONTEXT, 0)
+    line = _CITED.sub("", text[max(text.rfind("\n", near, stop) + 1, near):stop]).rstrip()
+    token = _last_word(line)
+    if text[stop] == "." and _abbreviated(token):       # the Urdu full stop abbreviates nothing
+        return False
+    if not _LIST_LABEL.fullmatch(token.lstrip(_OPENING)):
+        return True
+    # "1", "a" or "iv" is a label only where a list item can begin: at the start of the line
+    # or right after the previous item ("... keep records. 2. Issue receipts.").
+    head = line[:len(line) - len(token)].rstrip().rstrip(_CLOSING)
+    if not head.strip(_BULLETS) or head[-1] in ":;!?\u06d4":
+        return False
+    return head[-1] != "." or _abbreviated(_last_word(head[:-1]))
 
 
 def _answer_sentences(text: str) -> list[tuple[int, int]]:
-    """Character ranges of the sentences and list items of an answer."""
+    """Character ranges of the sentences and list items of an answer.
+
+    Citation marks written after a full stop lie between two ranges, and no range consists
+    of marks alone: see ``_owner`` for the sentence such a mark belongs to.
+    """
     spans: list[tuple[int, int]] = []
     cursor = 0
     for match in _ANSWER_BREAK.finditer(text):
-        if text[cursor:match.start()].strip():
+        if "\n" not in match[0] and not _ends_sentence(text, match.start() - 1):
+            continue
+        if _CITED.sub("", text[cursor:match.start()]).strip():
             spans.append((cursor, match.start()))
         cursor = match.end()
-    if text[cursor:].strip():
+    if _CITED.sub("", text[cursor:]).strip():
         spans.append((cursor, len(text)))
     return spans
+
+
+def _owner(sentences: Sequence[tuple[int, int]], position: int) -> int:
+    """Index of the sentence that a citation mark at ``position`` supports.
+
+    That is the sentence the mark stands in. A mark written after the full stop
+    ("... one year. [E1] Next ...") stands between two sentences and supports the first.
+    """
+    return max(bisect_right(sentences, position, key=lambda span: span[0]) - 1, 0)
+
+
+def _said(sentence: str) -> str:
+    """What a sentence of the answer says: its text without citation marks, bullet or list label."""
+    text = _CITED.sub("", sentence)
+    return text[_ITEM_START.match(text).end():]
+
+
+def _states(said: str) -> bool:
+    """False for a heading ("Penalties:", "## Penalties") or an empty list item: nothing there needs a source."""
+    said = said.strip(" \t*_")
+    return any(map(str.isalpha, said)) and not said.endswith(":") and not said.startswith("#")
 
 
 def _with_markers(text: str, additions: dict[tuple[int, int], list[int]]) -> str:
     """Append citation placeholders to the given sentences, before their final punctuation."""
     for start, end in sorted(additions, reverse=True):
         body = text[start:end].rstrip()
-        tail = body[-1] if body[-1:] in ".;:!?\u06d4" else ""
+        # The full stop of a bare list label belongs to the label: nothing goes inside "1.".
+        tail = body[-1] if body[-1:] in ".;:!?\u06d4" and any(map(str.isalnum, _said(body))) else ""
         core = body[:-1] if tail else body
         marks = "".join(_PLACEHOLDER.format(index) for index in dict.fromkeys(additions[(start, end)]))
         text = text[:start] + f"{core} {marks}{tail}" + text[start + len(body):]
     return text
 
 
-def _attribute(answer: str, quotes: Sequence[str]) -> str:
+def _attribute(answer: str, quotes: Sequence[str], unmarked: Sequence[int]) -> str:
     """Attach a citation placeholder to the answer sentence each quote supports.
 
     Used only when the model listed quotes but wrote no markers in its text,
-    so every statement still points at its source.
+    so every statement still points at its source. A quote goes to the sentence
+    it shares most words and numbers with. One that shares nothing (the answer is
+    in another language, or paraphrases freely) is placed by its position: quotes
+    are listed in the order of the statements they support, so these go, in order,
+    to the statements still without a source, and any left over to the last one.
     """
     pieces = _answer_sentences(answer)
     if not pieces:
         return answer
-    stems = [_stems(answer[start:end]) for start, end in pieces]
+    said = [_said(answer[start:end]) for start, end in pieces]
+    statements = [item for item, text in enumerate(said) if _states(text)] or list(range(len(pieces)))
+    # Keep explicit attributions. Surplus model quotes have no place in a
+    # response when every statement already identifies its source.
+    occupied = {_owner(pieces, m.start()) for m in _PLACED.finditer(answer)}
+    statements = [item for item in statements if item not in occupied]
+    if not statements:
+        return answer
+    stems = {item: _stems(said[item]) for item in statements}
     additions: dict[tuple[int, int], list[int]] = {}
-    for index, quote in enumerate(quotes):
-        wanted = _stems(quote)
-        scores = [len(wanted & found) / (len(found) ** 0.5 or 1.0) for found in stems]
-        best = max(range(len(pieces)), key=lambda item: scores[item])
+    unplaced: list[int] = []
+    for index in unmarked:
+        quote = quotes[index]
+        wanted = _stems(quote, source=True)
+        scores = {item: len(wanted & found) / (len(found) ** 0.5 or 1.0) for item, found in stems.items()}
+        best = max(statements, key=scores.__getitem__)
         if scores[best] > 0:
             additions.setdefault(pieces[best], []).append(index)
+        else:
+            unplaced.append(index)
+    uncited = [item for item in statements if pieces[item] not in additions]
+    for position, index in enumerate(unplaced):
+        best = uncited[position] if position < len(uncited) else statements[-1]
+        additions.setdefault(pieces[best], []).append(index)
     return _with_markers(answer, additions)
 
 
@@ -258,6 +461,7 @@ def _named_roots(sentence: str, roots: Sequence[RootKey], snapshot: PublicationS
 
 def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[EvidenceUnit],
                   snapshot: PublicationSnapshot) -> GroundedAnswer:
+    answer = _sanitised(answer)
     by_key = {unit.key.upper(): unit for unit in units}
     by_public = {unit.evidence_id: unit for unit in units}
     citations: list[VerifiedCitation] = []
@@ -322,39 +526,47 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
         else:
             fallbacks += 1
     quoted = set(per_unit)          # passages with a usable quote from the model
+    marked: set[int] = set()        # citations a marker has referred to so far
+    settled: dict[tuple[int, str], int | None] = {}     # what a passage's markers cite in one sentence
 
     def numbers_for(match: re.Match) -> list[int]:
         nonlocal fallbacks
         found: list[int] = []
-        sentence = answer[sentence_bounds(match)[0]:match.start()]
+        # Every marker of a sentence supports that sentence, however the markers are spaced or joined.
+        item = _owner(sentences, match.start())
         for key_match in _KEY.finditer(match[1]):
             unit = by_key.get(f"E{key_match[1]}")
             if unit is None:
                 continue
-            if unit.key in quoted:
-                found.append(_closest(per_unit[unit.key], sentence))
-                continue
-            # No usable quote for this passage: cite the sentence of it that
-            # supports each statement, so every marker points at relevant text.
-            located, _ = _support(unit.chunk, sentence)
-            known = len(citations)
-            index = cite(unit, *located) if located is not None else None
-            if index is not None:
+            if (item, unit.key) in settled:
+                index = settled[item, unit.key]
+            elif unit.key in quoted:
+                index = _closest(per_unit[unit.key], said[item])
+            else:
+                # No usable quote for this passage: cite the sentence of it that
+                # supports each statement, so every marker points at relevant text.
+                located, _ = _support(unit.chunk, said[item])
+                known = len(citations)
+                index = cite(unit, *located) if located is not None else None
                 fallbacks += len(citations) - known
+            settled[item, unit.key] = index
+            if index is not None:
                 found.append(index)
+        marked.update(found)
         return list(dict.fromkeys(found))
-
-    def sentence_bounds(match: re.Match) -> tuple[int, int]:
-        start = max(answer.rfind(mark, 0, match.start()) for mark in (". ", "\n", "] ")) + 1
-        return start, match.start()
 
     def _closest(indexes: list[int], sentence: str) -> int:
         """Of several quotes from one passage, the one this sentence is about."""
         if len(indexes) == 1:
             return indexes[0]
-        wanted = {stem(word) for word in words(sentence) if word not in STOPWORDS}
-        return max(indexes, key=lambda index: (len(wanted & {
-            stem(word) for word in words(citations[index].quote) if word not in STOPWORDS}), -index))
+        wanted = _stems(sentence)
+        shared = {index: len(wanted & _stems(citations[index].quote, source=True)) for index in indexes}
+        best = max(indexes, key=lambda index: (shared[index], -index))
+        if not shared[best]:
+            # Nothing in common, as when the answer is not in English: the quotes of a
+            # passage are listed in the order of its statements, so take the next unused one.
+            best = next((index for index in indexes if index not in marked), best)
+        return best
 
     def name_links(text: str) -> str:
         """Link each provision the answer names but never cites to that provision's text."""
@@ -381,7 +593,10 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
 
     # Markers become citation placeholders first; numbering then follows the
     # order in which citations are first used in the text.
-    answer = _INLINE_BULLET.sub("\n- ", answer)
+    if len(_INLINE_BULLET.findall(answer)) > 1:     # one alone is a quoted heading: "Penalty.- Whoever ..."
+        answer = _INLINE_BULLET.sub("\n- ", answer)
+    sentences = _answer_sentences(answer)
+    said = [_said(answer[start:end]) for start, end in sentences] or [""]
     text = _MARKER.sub(lambda match: "".join(_PLACEHOLDER.format(index) for index in numbers_for(match)), answer)
     for unit, start, end in headings.values():
         if unit.key not in per_unit:            # still uncited: its wording, else the title itself
@@ -392,15 +607,16 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
                 verified += 1
             else:
                 dropped += 1
-    if citations and not _PLACED.search(text):
-        text = _attribute(text, [citation.quote for citation in citations])
+    unmarked = [index for index in range(len(citations)) if index not in marked]
+    if unmarked:
+        text = _attribute(text, [citation.quote for citation in citations], unmarked)
     text = name_links(text)
     order: list[int] = list(dict.fromkeys(int(match[1]) for match in _PLACED.finditer(text)))
-    order += [index for index in range(len(citations)) if index not in order]
     position = {old: new for new, old in enumerate(order)}
     text = _PLACED.sub(lambda match: f"[{position[int(match[1])] + 1}]", text)
     text = _SPACE_BEFORE_PUNCTUATION.sub(r"\1", text)
-    text = re.sub(r"[ \t]{2,}", " ", text).strip()
+    # Spaces that open a line are the indentation of a nested list item and stay.
+    text = re.sub(r"(?<=\S)[ \t]{2,}", " ", text).strip()
     ordered = tuple(citations[index] for index in order)
     claims = tuple(VerifiedClaim(text=citation.quote, evidence_id=citation.evidence_id,
                                  citation_indexes=(index,)) for index, citation in enumerate(ordered))

@@ -10,14 +10,14 @@ question: whatever does not fit is simply left out.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
 
 from app.retrieval.query import QueryAnalysis, has_topic
 from app.retrieval.service import Candidate
-from app.retrieval.snapshot import Chunk, PublicationSnapshot, RootKey
+from app.retrieval.snapshot import Chunk, PublicationSnapshot, RootKey, readable
 from app.retrieval.text import STOPWORDS, stem, words
 
 Relation = Literal["requested", "retrieved", "definition", "reference", "referring"]
@@ -29,6 +29,7 @@ class EvidenceUnit:
     key: str                    # the id the model cites: "E1"
     chunk: Chunk
     relation: Relation
+    excerpt: str | None = None  # Only when one published chunk alone exceeds the prompt budget.
 
     @property
     def evidence_id(self) -> str:
@@ -57,17 +58,40 @@ def build_context(snapshot: PublicationSnapshot, candidates: Sequence[Candidate]
     used: set[RootKey] = set()
     size = 0
 
-    def add(key: RootKey, relation: Relation, *, force: bool = False) -> bool:
+    def add(key: RootKey, relation: Relation, *, best: Chunk | None = None) -> bool:
         nonlocal size
         if key in used:
             return True
         parts = snapshot.chunks_by_root.get(key)
         if not parts:
             return False
+        room = settings.qa_context_max_chars - size
+        slots = settings.qa_context_max_units - len(units)
         cost = sum(len(snapshot.display[part.index]) for part in parts)
-        if not force and (len(units) + len(parts) > settings.qa_context_max_units
-                          or size + cost > settings.qa_context_max_chars):
-            return False
+        if len(parts) > slots or cost > room:
+            if best is None:
+                return False
+            center = next(i for i, part in enumerate(parts) if part.id == best.id)
+            selected = []
+            for part in sorted(range(len(parts)), key=lambda i: (abs(i - center), i)):
+                length = len(snapshot.display[parts[part].index])
+                if length > room or len(selected) == slots:
+                    break
+                selected.append(part)
+                room -= length
+            if not selected:
+                # Restrict both the prompt and quote verification to the same raw prefix.
+                body = best.text[best.body_start:best.body_start + room]
+                if " " in body:
+                    body = body.rsplit(" ", 1)[0]
+                bounded = replace(best, text=best.text[:best.body_start] + body)
+                excerpt = readable(body)
+                units.append(EvidenceUnit(f"E{len(units) + 1}", bounded, relation, excerpt))
+                size += len(excerpt)
+                used.add(key)
+                return True
+            parts = [parts[i] for i in sorted(selected)]
+            cost = sum(len(snapshot.display[part.index]) for part in parts)
         used.add(key)
         size += cost
         first = len(units) + 1          # fixed before extending: the list grows as it is filled
@@ -81,8 +105,7 @@ def build_context(snapshot: PublicationSnapshot, candidates: Sequence[Candidate]
     if not exact:
         roots = roots[:settings.qa_rerank_top_k]
     for position, key in enumerate(roots):
-        # The best provision is always shown, even if it alone exceeds the budget.
-        add(key, "requested" if exact else "retrieved", force=position == 0)
+        add(key, "requested" if exact else "retrieved", best=candidates[0].chunk if position == 0 else None)
 
     # Definitions the question depends on.
     question_stems = {stem(word) for word in words(analysis.search_text)}

@@ -254,7 +254,7 @@ class LawResolver:
         return [_Token(match[0], text[match.start():match.end()], match.start(), match.end())
                 for match in _TOKEN.finditer(folded)]
 
-    def resolve(self, text: str, *, loose: bool = False,
+    def resolve(self, text: str, *, loose: bool = False, name_only: bool = False,
                 exclude: Sequence[tuple[int, int]] = ()) -> LawResolution:
         """Find the named law in ``text``.
 
@@ -276,13 +276,15 @@ class LawResolver:
             return cache
 
         best: dict[UUID, tuple[float, _Name]] = {}
+        mentions: dict[UUID, str | None] = {}
         explicit = False
         unresolved_mention: str | None = None
 
-        def keep(scored):
+        def keep(scored, mention=None):
             for score, _, name in scored:
                 if score > best.get(name.instrument_id, (0.0, None))[0]:
                     best[name.instrument_id] = (score, name)
+                    mentions[name.instrument_id] = mention
 
         for position, token in enumerate(tokens):
             is_type, law_type = _type_of(token.text)
@@ -340,22 +342,33 @@ class LawResolver:
                         explicit = True
                         keep((0.7, 1.0, name) for name in hits)
                 continue
-            accepted = []
-            for size in range(1, len(content) + 1):
+            accepted = False
+            anchored = forward or (window and window[0].text in _PREPOSITIONS | {"the"}) or (
+                cursor >= 0 and tokens[cursor].text in _PREPOSITIONS)
+            # In a named instrument, a qualifier such as a jurisdiction is part of
+            # the title. Dropping it can silently substitute another enactment.
+            title_phrase = name_only or anchored or all(item.raw[:1].isupper() for item in content)
+            sizes = [len(content)] if title_phrase else range(1, len(content) + 1)
+            for size in sizes:
                 suffix = [item.text for item in content[-size:]]
-                accepted.extend((score, coverage, name) for score, coverage, name in self._score(
+                scored = [(score, coverage, name) for score, coverage, name in self._score(
                     suffix, year=year, law_type=law_type, matches=matches_for(suffix), loose=False)
-                    if score >= _ACCEPT_EXPLICIT)
+                    if score >= _ACCEPT_EXPLICIT and (not title_phrase or all(
+                        any(part in name.tokens for part in cache[word]) for word in suffix))]
+                if scored:
+                    accepted = True
+                    first = min(content[-size].start, token.start)
+                    last = max(content[-1].end, token.end)
+                    keep(scored, text[first:last])
             if accepted:
                 explicit = True
-                keep(accepted)
                 continue
             # A titled, dated or preposition-led phrase that matches nothing
             # published is a law the collection does not hold.
             titled = any(item.raw[:1].isupper() for item in content
                          if item.start > 0 and not _SENTENCE_BREAK & set(text[max(0, item.start - 2):item.start]))
             led = forward or (cursor >= 0 and tokens[cursor].text in _PREPOSITIONS and len(content) >= 2)
-            if year or titled or led:
+            if name_only or year or titled or led:
                 first = min(content[0].start, token.start)
                 last = max(content[-1].end, token.end)
                 if _is_year(following):
@@ -363,19 +376,19 @@ class LawResolver:
                 unresolved_mention = " ".join(text[first:last].split())
 
         if not best:
+            year = next((other.text for other in tokens if _is_year(other.text)), None)
             for token in tokens:                # initialisms such as "PPGO 1978"
                 if not 3 <= len(token.text) <= 10 or not token.text.isalpha():
                     continue
-                year = next((other.text for other in tokens if _is_year(other.text)), None)
                 if not (token.raw.isupper() or year):
                     continue
                 hits = [name for name in self._names if token.text in name.acronyms
                         and (not year or not name.years or year in name.years)]
                 if hits:
                     explicit = True
-                    keep((0.9 if year else 0.8, 1.0, name) for name in hits)
+                    keep(((0.9 if year else 0.8, 1.0, name) for name in hits), token.raw)
 
-        if not best and loose:
+        if not best and loose and not unresolved_mention:
             window = [token.text for token in tokens
                       if token.text not in _TITLE_STOP and not token.text.isdigit()
                       and not _type_of(token.text)[0]]
@@ -395,17 +408,14 @@ class LawResolver:
         matches = tuple(LawMatch(name.instrument_id, self._laws[name.instrument_id].title, round(score, 4))
                         for score, name in near)
         return LawResolution("resolved" if len(matches) == 1 else "ambiguous", matches,
-                             explicit=explicit)
+                             mention=mentions.get(matches[0].instrument_id), explicit=explicit)
 
     def resolve_name(self, value: str) -> LawResolution:
         """Resolve text that is known to be a law name (an API ``law`` hint,
         or the words after "section 3 of ...")."""
-        resolved = self.resolve(value)
-        if resolved.status in {"resolved", "ambiguous"}:
+        resolved = self.resolve(value, name_only=True)
+        if resolved.status != "none":
             return resolved
-        loose = self.resolve(value, loose=True)
-        if loose.status in {"resolved", "ambiguous"}:
-            return loose
         # Every word is meant as part of the name, so a short name such as
         # "gambling" may match on a single distinctive title word.
         window = [token.text for token in self._tokens(value)
@@ -416,7 +426,8 @@ class LawResolver:
             cache = {word: self._token_matches(word) for word in window}
             scored = [(score, name) for score, _, name in self._score(
                 window, year=year, law_type=None, matches=cache, loose=False,
-                min_coverage=_MIN_COVERAGE_EXPLICIT) if score >= _ACCEPT_NAME]
+                min_coverage=_MIN_COVERAGE_EXPLICIT) if score >= _ACCEPT_NAME
+                and all(any(token in name.tokens for token in cache[word]) for word in window)]
             if scored:
                 best: dict[UUID, tuple[float, _Name]] = {}
                 for score, name in scored:

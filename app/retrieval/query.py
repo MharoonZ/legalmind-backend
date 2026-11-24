@@ -23,6 +23,7 @@ _GENERIC = frozenset({
     "section", "sections", "sec", "act", "acts", "law", "laws", "ordinance", "rule", "rules", "article",
     "articles", "schedule", "clause", "subsection", "provision", "provisions", "state", "states",
     "stated", "says", "said", "written", "read", "reads", "text", "full", "summary", "summarize",
+    "under", "according", "cover", "covers", "regarding",
     "summarise", "details", "detail", "simple", "words", "briefly", "short", "kya", "hai", "ka", "ki",
 })
 _LEAD = re.compile(
@@ -32,6 +33,10 @@ _DEIXIS = re.compile(
     r"sections?|provisions?|offen[cs]e|case|punishment|penalty|one)\b"
     r"|\b(?:it|its|them|they|thereof|therein|thereunder)\b", re.I)
 _BARE_LAW = re.compile(r"\b(?:the|this|that|same)\s+(?:act|ordinance|law|code|rules)\b(?!\s+(?:of|on|for)\b)", re.I)
+_RELATIONAL_TERMS = frozenset({
+    "consequence", "consequences", "exception", "exceptions", "penalty", "penalties",
+    "punishment", "remedy", "remedies",
+})
 _DEFINITION_WORDS = re.compile(
     r"\b(?:defin\w*|meaning of|meant by|interpret\w*)\b|\bwhat\s+(?:does|do)\b.{1,80}\bmeans?\b", re.I)
 # "What is a common gaming house?", "who is a consumer under the Consumer Protection Act"
@@ -145,7 +150,8 @@ def _in_jurisdiction(snapshot: PublicationSnapshot, resolution: LawResolution,
                  if snapshot.instruments[match.instrument_id].jurisdiction_code.casefold() == jurisdiction.casefold())
     if not kept:
         return LawResolution("unresolved", mention=resolution.matches[0].title, explicit=True)
-    return LawResolution("resolved" if len(kept) == 1 else "ambiguous", kept, explicit=resolution.explicit)
+    return LawResolution("resolved" if len(kept) == 1 else "ambiguous", kept,
+                         mention=resolution.mention, explicit=resolution.explicit)
 
 
 def analyze(snapshot: PublicationSnapshot, question: str, *, law_hint: str | None = None,
@@ -169,8 +175,10 @@ def analyze(snapshot: PublicationSnapshot, question: str, *, law_hint: str | Non
     previous = normalize(previous_users[-1]) if previous_users else None
 
     resolution, source = LawResolution("none"), None
-    if instrument_id is not None and instrument_id in snapshot.instruments:
-        resolution, source = _resolved(snapshot, instrument_id), "request"
+    if instrument_id is not None:
+        resolution = (_resolved(snapshot, instrument_id) if instrument_id in snapshot.instruments
+                      else LawResolution("unresolved", mention=str(instrument_id), explicit=True))
+        source = "request"
     elif law_hint:
         resolution, source = resolver.resolve_name(law_hint), "request"
     if resolution.status == "none":
@@ -193,7 +201,8 @@ def analyze(snapshot: PublicationSnapshot, question: str, *, law_hint: str | Non
 
     # A reply that only names a law answers "which law?" for the earlier question.
     if (not merged_previous and previous and not parsed and source == "question"
-            and resolution.status in {"resolved", "ambiguous"} and len(words(text)) <= 10):
+            and resolution.status in {"resolved", "ambiguous"} and len(words(text)) <= 10
+            and not re.match(r"^(?:what|which|who|why|how|when|where|does|is|can|explain|describe)\b", text, re.I)):
         title_words = {word for match in resolution.matches for word in words(match.title)}
         extra = [word for word in _topical(text) if word not in title_words
                  and not any(word[:4] == known[:4] for known in title_words)]
@@ -208,10 +217,11 @@ def analyze(snapshot: PublicationSnapshot, question: str, *, law_hint: str | Non
     deixis = bool(_DEIXIS.search(text) or _BARE_LAW.search(text))
     topical = _topical(_without(text, parsed.spans))
     elliptical = len(topical) <= 2
+    needs_previous = deixis or all(word in _RELATIONAL_TERMS for word in topical)
     followup = merged_previous or bool(previous_users or last_assistant) and (
         lead or deixis or (bool(parsed) and resolution.status == "none") or (elliptical and not parsed))
 
-    if resolution.status in {"none", "unresolved"} and (followup or parsed):
+    if resolution.status == "none" and (followup or parsed) and (not parsed or needs_previous):
         carried = LawResolution("none")
         if context_instrument_id is not None and context_instrument_id in snapshot.instruments:
             carried = _resolved(snapshot, context_instrument_id)
@@ -223,17 +233,17 @@ def analyze(snapshot: PublicationSnapshot, question: str, *, law_hint: str | Non
                 found = resolver.resolve(content)
                 if found.status == "none" and parse_references(content):
                     found = resolver.resolve(content, loose=True)
-                if found.status in {"resolved", "ambiguous"}:
+                if found.status != "none":
                     carried = found
                     break
         # An explicitly named but unknown law is never replaced by a remembered one.
-        if carried.status in {"resolved", "ambiguous"} and resolution.status == "none":
+        if carried.status != "none":
             resolution, source = carried, "context"
 
     resolution = _in_jurisdiction(snapshot, resolution, jurisdiction)
     context_used = merged_previous or source == "context"
     search_text = text
-    if previous and (merged_previous or (followup and (elliptical or deixis or lead))):
+    if previous and (merged_previous or (followup and source not in {"request", "question"} and needs_previous)):
         search_text = f"{previous}\n{text}"[-_MAX_SEARCH_CHARS:]
         context_used = True
     topical_text = _without(search_text if merged_previous else text, parse_references(
@@ -245,12 +255,22 @@ def analyze(snapshot: PublicationSnapshot, question: str, *, law_hint: str | Non
         jurisdiction=jurisdiction)
 
 
-def has_topic(analysis: QueryAnalysis, snapshot: PublicationSnapshot | None = None) -> bool:
-    """Whether the question says anything beyond a provision number and a law's name."""
+def topic_words(analysis: QueryAnalysis, snapshot: PublicationSnapshot | None = None) -> list[str]:
+    """Searchable words beyond a provision number and the named law's title or aliases."""
     topic = _topical(analysis.topical_text)
-    if snapshot is not None and analysis.scope:
-        titled = {word for key in analysis.scope for word in words(snapshot.instruments[key].title)}
+    if snapshot is not None and analysis.hard_scope:
+        mention = analysis.law.mention
+        if mention:
+            return _topical(re.sub(re.escape(mention), " ", analysis.topical_text, count=1, flags=re.I))
+        if analysis.law_source == "request":
+            return topic
+        titled = {word for key in analysis.scope for law in (snapshot.instruments[key],)
+                  for name in (law.title, *law.aliases) for word in words(name)}
         stems = {stem(word) for word in titled}
         topic = [word for word in topic if stem(word) not in stems
                  and not any(typo_distance(word, known) is not None for known in titled if len(known) > 3)]
-    return bool(topic)
+    return topic
+
+
+def has_topic(analysis: QueryAnalysis, snapshot: PublicationSnapshot | None = None) -> bool:
+    return bool(topic_words(analysis, snapshot))

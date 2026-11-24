@@ -30,8 +30,21 @@ _DEFINED_TERM = re.compile(
     r"[\"“]([^\"”]{2,80})[\"”]\s*(?:means|includes|shall mean|has the same meaning|refers to)", re.I)
 _HEADING_WEIGHT = 2.5
 # "section 5 of the Code": a provision of some other law, not of the one being read.
+_INSTRUMENT_TYPE = r"(?:act|ordinance|rules|code|regulations|order|constitution)"
 _OTHER_LAW = re.compile(
-    r"\s*,?\s*(?:of|in|under)\s+(?:the\s+|that\s+|any\s+other\s+)?(?!this\b|said\b|same\b)\S", re.I)
+    rf"\s*,?\s*(?:of|in|under)\s+(?!(?:this|these|the\s+same)\b)"
+    rf"(?:[\w'-]+\s+){{0,9}}{_INSTRUMENT_TYPE}\b", re.I)
+_PRECEDING_INSTRUMENT = re.compile(
+    rf"\b{_INSTRUMENT_TYPE}\b[\s,:(–—-]*(?:(?:1[6-9]|20)\d{{2}}[\s,):–—-]*)?$", re.I)
+_SELF_INSTRUMENT = re.compile(rf"\b(?:this|these|the same)\s+{_INSTRUMENT_TYPE}\b", re.I)
+_YEAR_WITH_NOTE = re.compile(r"(,\s*)((?:1[6-9]|20)\d{2})\d{1,2}(?=\s*[,.;)]|$)")
+_WORD_WITH_NOTE = re.compile(r"(?<=[^\W\d_])\d{1,2}(?=\[(?!\d+\]))")
+_FUSED_NUMBER = re.compile(r"\b([A-Z]?[a-z]{3,})\d{1,2}\b")
+_IDENTIFIER_PREFIX = re.compile(r"\b(?:form|model|version|identifier|reference|serial|type|class|code)\s+$", re.I)
+_PROSE_PREFIX = re.compile(r"\b(?:shall|may|must|should|make|makes|such)\s+$", re.I)
+_LEGAL_NOUNS = {"Act", "Code", "Court", "Ordinance", "Procedure", "Regulations", "Rules", "Tribunal"}
+_TITLE_TAIL = re.compile(r"\s+(?:[A-Z][a-z]+|of|the|and)(?:\s+(?:[A-Z][a-z]+|of|the|and)){0,5}"
+                         r"\s+(?:Act|Ordinance|Code|Rules|Regulations)\b")
 _NUMBERED_LABEL = re.compile(r"(\d+)([a-z]*)")
 RootKey = tuple[UUID, UUID]         # (instrument id, root provision id)
 
@@ -135,6 +148,19 @@ def _label_position(label: str) -> tuple[int, str] | None:
 
 def readable(text: str) -> str:
     """Model-facing rendering: PDF line wrapping and footnote numbers removed."""
+    def prose_word(match: re.Match) -> str:
+        word = match[1]
+        before = match.string[max(0, match.start() - 40):match.start()]
+        if not _IDENTIFIER_PREFIX.search(before):
+            if word.islower() and _PROSE_PREFIX.search(before):
+                return word
+            if word.istitle() and (word in _LEGAL_NOUNS or _TITLE_TAIL.match(match.string, match.end())):
+                return word
+        return match[0]
+
+    text = _YEAR_WITH_NOTE.sub(r"\1\2", text)
+    text = _WORD_WITH_NOTE.sub("", text)
+    text = _FUSED_NUMBER.sub(prose_word, text)
     return _SPACE.sub(" ", without_footnote_marks(text)).strip()
 
 
@@ -174,10 +200,13 @@ class PublicationSnapshot:
         self.chunks_by_root = {key: tuple(sorted(parts, key=lambda c: c.sequence_in_root))
                                for key, parts in roots.items()}
         self.root_order: dict[UUID, list[tuple[UUID, UUID]]] = defaultdict(list)
+        self.schedules: dict[UUID, list[RootKey]] = defaultdict(list)
         self._labels: dict[tuple[UUID, str], list[tuple[str, UUID]]] = defaultdict(list)
         for key, parts in sorted(self.chunks_by_root.items(), key=lambda item: item[1][0].ordinal):
             first = parts[0]
             self.root_order[first.instrument_id].append(key)
+            if first.kind == "schedule":
+                self.schedules[first.instrument_id].append(key)
             label = schedule_number(first.label) if first.kind == "schedule" else compact_label(first.label)
             self._labels[(first.instrument_id, label)].append((first.kind, first.root_provision_id))
         children: dict[UUID, list[ProvisionNode]] = defaultdict(list)
@@ -228,15 +257,20 @@ class PublicationSnapshot:
                 for part in self.chunks_by_root[key]:
                     text = self.display[part.index]
                     for start, end in parse_references(text).spans:
-                        if _OTHER_LAW.match(text, end):
+                        before = text[max(0, start - 140):start]
+                        preceding = _PRECEDING_INSTRUMENT.search(before)
+                        if _OTHER_LAW.match(text, end) or (preceding and not _SELF_INSTRUMENT.search(
+                                before[max(0, preceding.start() - 10):])):
                             continue
                         named = parse_references(text[start:end])
                         for reference in named.references:
                             target = self.find_root(instrument_id, reference.kind, reference.label)
-                            if target is not None:
+                            if target is not None and self.chunks_by_root[target][0].kind == reference.kind:
                                 targets.append(target)
                         for item in named.ranges:
-                            targets.extend(self.roots_between(instrument_id, item.kind, item.start, item.end))
+                            targets.extend(target for target in self.roots_between(
+                                instrument_id, item.kind, item.start, item.end)
+                                if self.chunks_by_root[target][0].kind == item.kind)
                 unique = tuple(target for target in dict.fromkeys(targets) if target != key)
                 if unique:
                     outgoing[key] = unique
@@ -260,6 +294,12 @@ class PublicationSnapshot:
         The stated kind is preferred, but "article 5" of an Act that only has
         sections still finds section 5: users mix these words freely.
         """
+        if kind == "schedule":
+            schedules = self.schedules.get(instrument_id, ())
+            if schedules and not label:
+                return schedules[0]
+            if label == "1" and len(schedules) == 1 and not self.chunks_by_root[schedules[0]][0].label:
+                return schedules[0]
         rows = self._labels.get((instrument_id, label), ())
         if not rows:
             return None
@@ -274,6 +314,12 @@ class PublicationSnapshot:
         elif preferred:
             return instrument_id, preferred[0]      # duplicated label: first in document order
         return None
+
+    def matching_roots(self, instrument_id: UUID, kind: str, label: str) -> Sequence[RootKey]:
+        if kind == "schedule" and not label:
+            return self.schedules.get(instrument_id, ())
+        root = self.find_root(instrument_id, kind, label)
+        return (root,) if root else ()
 
     def roots_between(self, instrument_id: UUID, kind: str, start: str, end: str) -> list[tuple[UUID, UUID]]:
         """Every root from ``start`` to ``end`` in document order ("sections 3 to 5")."""

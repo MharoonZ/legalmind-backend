@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class PublicationIndex:
     """One shared, atomically replaced snapshot per process.
 
-    ``refresh`` costs one small query when nothing changed. A failed refresh
+    A refresh checks the active manifest and its approved sources. A failed refresh
     keeps serving the snapshot that is already loaded; only a publication the
     database reports as active is ever loaded.
     """
@@ -41,17 +41,20 @@ class PublicationIndex:
     def snapshot(self) -> PublicationSnapshot | None:
         return self._snapshot
 
-    async def refresh(self, *, force: bool = False) -> bool:
+    async def refresh(self, *, force: bool = False, loading: bool = False) -> bool:
         """Load the active publication if it differs from the one in memory."""
         if self._db is None:
             return False
         async with self._lock:
+            if loading and (self._snapshot is not None or (
+                    self._checked_at is not None and monotonic() - self._checked_at < (self._refresh_seconds or 60))):
+                return False
             try:
                 current = self._snapshot
                 if current is not None and not force:
                     identity = await active_identity(self._db)
                     if identity == (current.id, current.manifest_sha256):
-                        self._checked_at, self._last_error = monotonic(), None
+                        self._last_error = None
                         return False
                 snapshot = await load_snapshot(self._db, cache_dir=self._cache_dir)
             except SnapshotError as exc:
@@ -64,7 +67,9 @@ class PublicationIndex:
                 self._last_error = type(exc).__name__
                 logger.warning("publication_refresh_failed error=%s", type(exc).__name__)
                 return False
-            self._checked_at, self._last_error = monotonic(), None
+            finally:
+                self._checked_at = monotonic()
+            self._last_error = None
             changed = (snapshot is None) != (current is None) or (
                 snapshot is not None and current is not None and
                 (snapshot.id, snapshot.manifest_sha256) != (current.id, current.manifest_sha256))
@@ -75,7 +80,7 @@ class PublicationIndex:
 
     async def ensure_loaded(self) -> PublicationSnapshot | None:
         if self._snapshot is None:
-            await self.refresh()
+            await self.refresh(loading=True)
         return self._snapshot
 
     async def _watch(self) -> None:

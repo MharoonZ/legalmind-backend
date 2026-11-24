@@ -3,9 +3,11 @@
 One shared HTTP client is reused across requests. A model exchange is bounded
 by one deadline. Inside it, a call that fails (timeout, 429/5xx, malformed
 output) is replaced after a short growing pause, a call that is slow gets
-another call racing beside it, and a model that has just reported overload is
-avoided for a while in favour of the fallback model. The first valid reply
-wins. Provider credentials and prompt contents are never logged or returned.
+another call racing beside it, a model that has just reported overload is
+avoided for a while in favour of the fallback model, and a model that turns
+the request down is left out of the rest of the exchange. The first valid
+reply wins. Provider credentials and prompt contents are never logged or
+returned.
 """
 from __future__ import annotations
 
@@ -29,8 +31,11 @@ _JSON_OBJECT = re.compile(r"\{.*\}", re.S)
 _RETRY_DELAY = re.compile(r"(\d+(?:\.\d+)?)s")
 _MAX_PARALLEL = 3            # calls racing for one answer
 _COOLDOWN_SECONDS = 20.0     # how long an overloaded model is avoided when another one is available
-_MAX_COOLDOWN_SECONDS = 120.0
+# A stated wait is obeyed for at most this long, so a model whose daily quota
+# is used up is still probed a few times an hour.
+_MAX_COOLDOWN_SECONDS = 900.0
 _MAX_PAUSE_SECONDS = 3.0     # longest wait before a failed call is replaced
+_MIN_CALL_SECONDS = 1.0      # least time before the deadline that makes one more attempt worth starting
 
 
 class GenerationUnavailable(RuntimeError):
@@ -39,6 +44,10 @@ class GenerationUnavailable(RuntimeError):
 
 class GenerationInvalid(RuntimeError):
     """The provider answered, but not with usable structured output."""
+
+
+class _CredentialRejected(GenerationUnavailable):
+    """Stop the exchange immediately when the provider rejects its credential."""
 
 
 def _parse_object(text: str) -> dict:
@@ -78,6 +87,26 @@ def _pause(failures: int) -> float:
     return min(_MAX_PAUSE_SECONDS, 0.3 * 2 ** max(0, failures - 1)) + random.uniform(0, 0.15)
 
 
+def _reading_order(call: asyncio.Task) -> int:
+    """Order in which calls that finished in the same moment are read.
+
+    Failures the exchange survives come first, so the limits they report are
+    not lost when an answer arrived with them; an error that ends the exchange
+    comes last, because an answer in hand is worth more.
+    """
+    error = call.exception()
+    return 0 if isinstance(error, _Retryable) else 1 if error is None else 2
+
+
+def _about(seconds: float) -> str:
+    """A wait in the unit a reader expects: seconds, minutes from two minutes on, hours from two hours on."""
+    for unit, size in (("hours", 3600), ("minutes", 60)):
+        # A wait is quoted a moment after it was stated: 7199.9 s left of two hours is still "2 hours".
+        if seconds > 2 * size - 1:
+            return f"{seconds / size:.0f} {unit}"
+    return f"{math.ceil(seconds)} seconds"
+
+
 class AnswerGenerator:
     def __init__(self, settings, *, transport: httpx.AsyncBaseTransport | None = None, openai_client=None,
                  sleep=asyncio.sleep):
@@ -90,6 +119,9 @@ class AnswerGenerator:
         # model -> (loop time until which it is avoided, whether the provider stated that wait).
         # A stated wait (rate limit) is obeyed; an assumed one (overload) only orders the models.
         self._avoid: dict[str, tuple[float, bool]] = {}
+        # model -> loop time at which the wait its provider stated is over. ``_avoid`` holds the
+        # capped time the model is next tried; this one is only quoted to the caller.
+        self._asked: dict[str, float] = {}
 
     @property
     def provider(self) -> str:
@@ -112,21 +144,37 @@ class AnswerGenerator:
             await client.close()
 
     async def generate_json(self, system: str, user: str, schema: dict, *,
-                            max_output_tokens: int | None = None, purpose: str = "answer") -> dict:
-        """Return one JSON object that follows ``schema``."""
+                            max_output_tokens: int | None = None, purpose: str = "answer",
+                            timeout: float | None = None) -> dict:
+        """Return one JSON object that follows ``schema``.
+
+        ``timeout`` caps the whole exchange in seconds, failover included. Each
+        provider's configured time limit applies as well.
+        """
         started = perf_counter()
+        loop = asyncio.get_running_loop()
+        ends = math.inf if timeout is None else loop.time() + timeout
+
+        def left() -> float:
+            return ends - loop.time()
+
         try:
+            if left() <= 0:
+                raise GenerationUnavailable("No time was left to ask the answer model.")
             if self.settings.use_gemini:
                 try:
-                    result, calls = await self._race(system, user, schema, max_output_tokens)
+                    result, calls = await self._race(system, user, schema, max_output_tokens, left())
+                except _CredentialRejected:
+                    raise
                 except (GenerationUnavailable, GenerationInvalid):
-                    if not self._openai_ready():
+                    if not self._openai_ready() or left() < _MIN_CALL_SECONDS:
                         raise
                     # Gemini is down for this request: use the configured OpenAI model.
                     logger.warning("llm_failover purpose=%s from=gemini to=openai", purpose)
-                    result, calls = await self._openai_with_retries(system, user, schema, max_output_tokens)
+                    result, calls = await self._openai_with_retries(system, user, schema, max_output_tokens,
+                                                                    left())
             else:
-                result, calls = await self._openai_with_retries(system, user, schema, max_output_tokens)
+                result, calls = await self._openai_with_retries(system, user, schema, max_output_tokens, left())
         except (GenerationUnavailable, GenerationInvalid) as exc:
             logger.warning("llm_call_failed purpose=%s provider=%s error=%s elapsed_ms=%.0f", purpose,
                            self.provider, type(exc).__name__, (perf_counter() - started) * 1000)
@@ -141,15 +189,30 @@ class AnswerGenerator:
             return [primary]
         return [primary, fallback]
 
-    def _rate_limited_until(self, now: float) -> float:
-        """0 when some model may be called now, else when the first rate limit ends."""
-        waits = [until for model in self._gemini_models()
-                 for until, stated in (self._avoid.get(model, (0.0, False)),) if stated and until > now]
-        return min(waits) if len(waits) == len(self._gemini_models()) else 0.0
+    def _stated_wait(self, model: str, now: float) -> float:
+        """When the wait the provider stated for ``model`` ends, or 0 when none is running."""
+        until, stated = self._avoid.get(model, (0.0, False))
+        return until if stated and until > now else 0.0
 
-    def _next_model(self, now: float, in_flight: Counter) -> str:
+    def _obey(self, model: str, now: float, wait: float) -> None:
+        """Avoid ``model`` for the wait its provider stated.
+
+        A stated wait that is still running is only ever extended. No call to the
+        model starts during it, so whatever arrives meanwhile answers an older
+        call and says nothing newer about the limit; only time ends the wait.
+        """
+        until, asked = now + min(_MAX_COOLDOWN_SECONDS, wait), now + wait
+        if self._stated_wait(model, now):
+            until, asked = max(until, self._avoid[model][0]), max(asked, self._asked.get(model, 0.0))
+        self._avoid[model], self._asked[model] = (until, True), asked
+
+    def _rate_limited_until(self, now: float, models: list[str]) -> float:
+        """0 when one of ``models`` may be called now, else when the first rate limit ends."""
+        waits = [self._stated_wait(model, now) for model in models]
+        return min(waits) if waits and all(waits) else 0.0
+
+    def _next_model(self, now: float, in_flight: Counter, models: list[str]) -> str:
         """The model for the next call: one that is not being avoided, with the fewest calls in flight."""
-        models = self._gemini_models()
         avoided = {model: self._avoid.get(model, (0.0, False)) for model in models}
         healthy = [model for model in models if avoided[model][0] <= now]
         if healthy:
@@ -159,7 +222,8 @@ class AnswerGenerator:
         open_models = [model for model in models if not avoided[model][1]] or models
         return min(open_models, key=lambda model: (in_flight[model], avoided[model][0]))
 
-    async def _race(self, system, user, schema, max_output_tokens) -> tuple[dict, int]:
+    async def _race(self, system, user, schema, max_output_tokens,
+                    timeout: float = math.inf) -> tuple[dict, int]:
         """One answer from the configured models, inside a single deadline.
 
         The first call goes to the primary model unless it has just reported
@@ -168,24 +232,33 @@ class AnswerGenerator:
         ``qa_llm_hedge_seconds`` gets another call racing beside it (at most
         ``_MAX_PARALLEL`` in flight). The first valid reply wins and the rest
         are cancelled, so a stalled or overloaded model cannot hold a question
-        hostage. When every model is rate limited past the deadline, the
-        exchange ends at once instead of spending the quota on doomed calls;
-        a model whose stated rate-limit wait ends before the deadline gets one
-        more call after that wait, even when the retries are used up.
+        hostage. A model that turns the request down is not called again, but
+        the calls in flight and the other model keep their chance to answer;
+        only a rejected credential, which no model would accept, ends the
+        exchange at once. When every model is rate limited past the deadline,
+        the exchange ends at once instead of spending the quota on doomed
+        calls; a model whose stated rate-limit wait ends before the deadline
+        gets one more call after that wait, once in an exchange, even when the
+        retries are used up.
         """
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.settings.qa_gemini_timeout_seconds
+        deadline = loop.time() + min(self.settings.qa_gemini_timeout_seconds, timeout)
         hedge = self.settings.qa_llm_hedge_seconds
         retries = self.settings.qa_llm_max_retries
         pending: dict[asyncio.Task, str] = {}
         launched = failures = replaced = hedges = 0
+        attempted: set[str] = set()
         replace_at = hedge_at = loop.time()
-        limited: dict[str, float] = {}      # models that stated a rate-limit wait during this exchange
+        limited: set[str] = set()       # models that stated a rate-limit wait and were not called since
+        waited: set[str] = set()        # models that already had their one call after such a wait
+        refused: set[str] = set()       # models that turned this request down
+        refusal: Exception | None = None
         failure: Exception = GenerationUnavailable("The answer model did not respond in time.")
 
         def launch(model: str, now: float) -> None:
             nonlocal launched, hedge_at
-            limited.pop(model, None)
+            limited.discard(model)
+            attempted.add(model)
             pending[asyncio.create_task(self._gemini(
                 system, user, schema, max_output_tokens, model, max(1.0, deadline - now)))] = model
             launched += 1
@@ -196,51 +269,62 @@ class AnswerGenerator:
                 now = loop.time()
                 if now >= deadline:
                     raise failure
-                room = len(pending) < _MAX_PARALLEL
+                models = [model for model in self._gemini_models() if model not in refused]
+                if not models and not pending:
+                    raise refusal or failure
+                room = bool(models) and len(pending) < _MAX_PARALLEL
                 replacing = room and failures > replaced and replaced < retries
                 hedging = room and hedge > 0 and bool(pending) and hedges < _MAX_PARALLEL - 1
-                due = now if not launched else min(
+                # An untried alternative may use an unused hedge slot after a refusal,
+                # including when timed hedging and ordinary retries are disabled.
+                alternate = (room and refused and not pending and not replacing and
+                             hedges < _MAX_PARALLEL - 1 and any(model not in attempted for model in models))
+                due = now if not launched or alternate else min(
                     (moment for wanted, moment in ((replacing, replace_at), (hedging, hedge_at)) if wanted),
                     default=None)
+                # A rate limit with a stated wait is obeyed, not hammered.
+                limit_ends = self._rate_limited_until(now, models)
+                extra = None
                 if due is not None:
-                    # A rate limit with a stated wait is obeyed, not hammered.
-                    limit_ends = self._rate_limited_until(now)
                     due = max(due, limit_ends)
-                    if due >= deadline and not pending:
-                        if limit_ends >= deadline:
-                            raise GenerationUnavailable(
-                                "The answer model's rate limit was reached; it asked callers to wait "
-                                f"about {math.ceil(limit_ends - now)} seconds.")
-                        raise failure
+                elif not pending:
+                    # The retries are used up. A model that asked for a wait which ends in
+                    # time is still worth one call after it. Only one: a provider that answers
+                    # every call with another short wait would otherwise be called until the
+                    # deadline.
+                    waits = sorted((max(now, self._stated_wait(model, now)), model)
+                                   for model in limited - waited if model in models)
+                    if waits and waits[0][0] < deadline - _MIN_CALL_SECONDS:
+                        due, extra = waits[0]
+                if not pending and (due is None or due >= deadline):
+                    if limit_ends >= deadline:
+                        asked = min(self._asked.get(model, limit_ends) for model in models)
+                        raise GenerationUnavailable(
+                            "The answer model's rate limit was reached; it asked callers to wait "
+                            f"about {_about(asked - now)}.")
+                    raise failure
                 if due is not None and now >= due:
-                    if launched and replacing and now >= replace_at:
+                    if extra is not None:
+                        waited.add(extra)
+                    elif launched and replacing and now >= replace_at:
                         replaced += 1
                     elif launched:
                         hedges += 1
-                    launch(self._next_model(now, Counter(pending.values())), now)
+                    launch(extra or self._next_model(now, Counter(pending.values()), models), now)
                     continue
                 if not pending:
-                    if due is None:
-                        # The retries are used up. A model that asked for a wait
-                        # which ends in time is still worth one call after it.
-                        waits = sorted((until, model) for model, until in limited.items()
-                                       if until < deadline - 1.0)
-                        if not waits:
-                            raise failure
-                        until, model = waits[0]
-                        if until > now:
-                            await self._sleep(until - now)
-                        if loop.time() < until:
-                            raise failure           # an injected clock did not advance
-                        launch(model, loop.time())
-                        continue
-                    await self._sleep(min(due, deadline) - now)
-                    replace_at = min(replace_at, loop.time())    # an injected clock may not advance
+                    if extra is not None or due == limit_ends:
+                        # A stated wait is waited out on the loop's own clock: an injected
+                        # sleep that returns at once must neither skip it nor spin here.
+                        await asyncio.sleep(due - now)
+                    else:
+                        await self._sleep(due - now)
+                        replace_at = min(replace_at, loop.time())    # an injected clock may not advance
                     continue
                 done, _ = await asyncio.wait(
                     pending, timeout=max(0.0, min(deadline, deadline if due is None else due) - now),
                     return_when=asyncio.FIRST_COMPLETED)
-                for task in done:
+                for task in sorted(done, key=_reading_order):
                     model = pending.pop(task)
                     try:
                         result = task.result()
@@ -248,14 +332,20 @@ class AnswerGenerator:
                         failure, failures = exc.error, failures + 1
                         if exc.missing_model:
                             self._fallback_missing = True
+                        elif exc.refused:
+                            refused.add(model)
+                            refusal = exc.error
                         elif exc.retry_after:
-                            limited[model] = loop.time() + min(_MAX_COOLDOWN_SECONDS, exc.retry_after)
-                            self._avoid[model] = (limited[model], True)
-                        elif exc.overloaded and len(self._gemini_models()) > 1:
+                            self._obey(model, loop.time(), exc.retry_after)
+                            limited.add(model)
+                        elif (exc.overloaded and len(self._gemini_models()) > 1
+                              and not self._stated_wait(model, loop.time())):
                             self._avoid[model] = (loop.time() + _COOLDOWN_SECONDS, False)
                         replace_at = loop.time() + _pause(failures)
                     else:
-                        self._avoid.pop(model, None)
+                        # Good news clears a cool-down that was only assumed, never a stated wait.
+                        if not self._stated_wait(model, loop.time()):
+                            self._avoid.pop(model, None)
                         return result, launched
         finally:
             for task in pending:
@@ -267,15 +357,16 @@ class AnswerGenerator:
         key = self.settings.openai_api_key
         return self._openai is not None or bool(key and key.get_secret_value())
 
-    async def _openai_with_retries(self, system, user, schema, max_output_tokens) -> tuple[dict, int]:
+    async def _openai_with_retries(self, system, user, schema, max_output_tokens,
+                                   timeout: float = math.inf) -> tuple[dict, int]:
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.settings.qa_openai_timeout_seconds
+        deadline = loop.time() + min(self.settings.qa_openai_timeout_seconds, timeout)
         attempts = 1 + self.settings.qa_llm_max_retries
         failure: Exception = GenerationUnavailable("The answer model did not respond in time.")
         for attempt in range(attempts):
             remaining = deadline - loop.time()
-            if remaining <= 0:
-                break
+            if remaining < _MIN_CALL_SECONDS:
+                break               # too late for a call to answer, and none may outlive the deadline
             try:
                 return await self._openai_call(system, user, schema, max_output_tokens, remaining), attempt + 1
             except _Retryable as exc:
@@ -324,18 +415,23 @@ class AnswerGenerator:
                 f"The answer model is temporarily unavailable (HTTP {response.status_code})."),
                 overloaded=response.status_code in _OVERLOADED, retry_after=wait)
         if response.status_code in {401, 403}:
-            raise GenerationUnavailable("The answer model rejected the server credential.")
+            # Every model is called with the same key, so no other call would fare better.
+            raise _CredentialRejected("The answer model rejected the server credential.")
         if response.status_code == 404 and model != self.settings.gemini_model:
             # The fallback model is not offered to this key: stop using it.
             raise _Retryable(GenerationUnavailable("The fallback answer model is not available."),
                              missing_model=True)
         if response.status_code != 200:
-            raise GenerationUnavailable(f"The answer model returned HTTP {response.status_code}.")
+            # This model will not take the request as it is; another one may.
+            logger.info("llm_attempt_failed model=%s status=%d", model, response.status_code)
+            raise _Retryable(GenerationUnavailable(f"The answer model returned HTTP {response.status_code}."),
+                             refused=True)
         try:
             data = response.json()
             candidate = (data.get("candidates") or [{}])[0]
             if data.get("promptFeedback", {}).get("blockReason"):
-                raise GenerationInvalid("The answer model declined this request.")
+                logger.info("llm_attempt_failed model=%s error=blocked", model)
+                raise _Retryable(GenerationInvalid("The answer model declined this request."), refused=True)
             reason = candidate.get("finishReason")
             parts = (candidate.get("content") or {}).get("parts") or []
             text = "".join(part.get("text", "") for part in parts if not part.get("thought"))
@@ -366,7 +462,8 @@ class AnswerGenerator:
     async def _openai_call(self, system, user, schema, max_output_tokens, timeout: float) -> dict:
         client = self._openai_client()
         try:
-            response = await client.responses.create(
+            # The SDK applies its timeout to each network phase; the call as a whole is bounded here.
+            response = await asyncio.wait_for(client.responses.create(
                 model=self.settings.openai_model,
                 input=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                 text={"format": {"type": "json_schema", "name": "legalmind_response",
@@ -374,8 +471,8 @@ class AnswerGenerator:
                 max_output_tokens=max_output_tokens or self.settings.qa_openai_max_output_tokens,
                 temperature=self.settings.qa_llm_temperature,
                 store=False,
-                timeout=max(1.0, timeout),
-            )
+                timeout=timeout,
+            ), timeout)
         except Exception as exc:
             # Never include exception text: SDK errors may contain request details.
             name = type(exc).__name__
@@ -397,10 +494,17 @@ class AnswerGenerator:
 
 
 class _Retryable(Exception):
+    """A call that failed without ending the exchange: another call may still answer.
+
+    ``refused`` marks a model that will not take this request, ``missing_model``
+    one that the key cannot use at all; neither is called again.
+    """
+
     def __init__(self, error: Exception, *, overloaded: bool = False, missing_model: bool = False,
-                 retry_after: float | None = None):
+                 retry_after: float | None = None, refused: bool = False):
         self.error = error
         self.overloaded = overloaded
         self.missing_model = missing_model
         self.retry_after = retry_after
+        self.refused = refused
         super().__init__(str(error))

@@ -104,7 +104,7 @@ def build_answer_prompt(snapshot: PublicationSnapshot, retrieval: RetrievalResul
             "law": snapshot.instruments[chunk.instrument_id].title,
             "provision": chunk.citation,
             "heading": chunk.heading,
-            "text": snapshot.display[chunk.index],
+            "text": unit.excerpt if unit.excerpt is not None else snapshot.display[chunk.index],
         }
         if chunk.root_total_chunks > 1:
             item["part"] = f"{chunk.sequence_in_root} of {chunk.root_total_chunks}"

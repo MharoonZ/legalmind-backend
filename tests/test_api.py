@@ -250,3 +250,59 @@ def test_unhandled_errors_do_not_leak_details(api):
         quiet.app.dependency_overrides = api.app.dependency_overrides
         response = quiet.post("/ask", json=QUESTION)
     assert response.status_code == 500 and response.json() == {"detail": "Internal server error"}
+
+
+def test_public_rate_limiter_keys_on_the_connected_client(monkeypatch, settings):
+    from types import SimpleNamespace
+    from starlette.requests import Request
+    seen = []
+    monkeypatch.setattr(deps, "_limiter", SimpleNamespace(allow=lambda key, limit: (seen.append(key) or True, 0)))
+    request = Request({"type": "http", "client": ("127.0.0.1", 7251), "headers": []})
+    deps.enforce_rate_limit(request, settings)
+    assert seen == ["127.0.0.1"]
+
+
+def test_streamed_body_limit_has_the_same_response_as_a_declared_body(api, monkeypatch):
+    from app.api import middleware
+    monkeypatch.setattr(middleware, "_JSON_LIMIT", 12)
+    response = api.post("/ask", content=iter([b'{"question":', b'"hello"}']),
+                        headers={"Content-Type": "application/json"})
+    assert response.status_code == 413 and response.json()["detail"] == "Request body is too large."
+
+
+def test_key_comparison_supports_configured_header_text(settings):
+    from starlette.requests import Request
+    configured = settings.model_copy(update={"api_keys": SecretStr("clé-test")})
+    request = Request({"type": "http", "headers": [(b"x-api-key", "clé-test".encode("latin-1"))]})
+    deps.require_api_key(request, configured)
+
+
+def test_unmatched_paths_are_grouped_in_access_logs(api, caplog):
+    with caplog.at_level("INFO", logger="app.access"):
+        assert api.get("/missing-resource").status_code == 404
+    assert any("GET <unmatched>" in record.getMessage() for record in caplog.records)
+
+
+def test_cancelling_an_admitted_question_releases_its_slot(settings):
+    from types import SimpleNamespace
+    from app.api.routes import qa
+    from app.schemas.qa import AskIn
+
+    async def exercise():
+        started = asyncio.Event()
+        slots = asyncio.BoundedSemaphore(1)
+
+        async def pending(_payload):
+            started.set()
+            await asyncio.Future()
+
+        services = SimpleNamespace(ask_slots=slots, qa=SimpleNamespace(ask=pending))
+        task = asyncio.create_task(qa.ask(AskIn(**QUESTION), settings, services))
+        await asyncio.wait_for(started.wait(), 1)
+        assert slots.locked()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not slots.locked()
+
+    asyncio.run(exercise())

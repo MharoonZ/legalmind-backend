@@ -208,3 +208,36 @@ def test_evidence_ids_are_consecutive_when_a_provision_is_split(snapshot):
                           result.analysis, settings())
     assert [unit.key for unit in units] == [f"E{n}" for n in range(1, len(units) + 1)]
     assert [unit.chunk.label for unit in units][:4] == ["3", "3", "3", "4"]
+
+
+def test_oversized_split_provision_uses_a_bounded_window_around_the_hit(snapshot):
+    from dataclasses import replace
+    from uuid import uuid4
+
+    import numpy as np
+
+    from app.retrieval.service import Candidate
+    from app.retrieval.snapshot import PublicationSnapshot
+
+    hit = retrieve(snapshot, "section 3 of the Gambling Ordinance")
+    original = hit.candidates[0].chunk
+    parts = [replace(original, index=i, id=uuid4(), root_total_chunks=60, sequence_in_root=i+1)
+             for i in range(60)]
+    split = PublicationSnapshot(publication_id=snapshot.id, name="long", manifest_sha256="c"*64,
+                                profile=snapshot.profile, instruments=snapshot.instruments.values(),
+                                chunks=parts, vectors=np.repeat(snapshot.vectors[[original.index]], 60, axis=0),
+                                nodes=snapshot.nodes.values())
+    settings_ = settings(qa_context_max_units=3, qa_context_max_chars=len(split.display[0])*3)
+    units = build_context(split, [Candidate(parts[40], rank=1)], hit.analysis, settings_)
+    assert [unit.chunk.index for unit in units] == [39, 40, 41]
+
+
+def test_one_oversized_chunk_also_bounds_the_text_sent_to_the_model(snapshot):
+    import json
+    from app.qa.prompt import build_answer_prompt
+    result = retrieve(snapshot, "section 3 of the Gambling Ordinance")
+    budget = 100
+    units = build_context(snapshot, result.candidates, result.analysis, settings(qa_context_max_chars=budget))
+    evidence = json.loads(build_answer_prompt(snapshot, result, units, result.query))["evidence"]
+    assert 0 < sum(len(item["text"]) for item in evidence) <= budget
+    assert units[0].chunk.text.endswith(evidence[0]["text"]) or evidence[0]["text"] in snapshot.display[units[0].chunk.index]

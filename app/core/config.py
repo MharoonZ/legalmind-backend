@@ -112,6 +112,8 @@ class Settings(BaseSettings):
     # (non-English, heavy slang or very garbled wording), then search again.
     qa_rewrite_enabled: bool = True
     qa_rewrite_below_similarity: float = Field(default=0.45, ge=0, le=1)
+    # The restatement is optional, so it may use only this much of the request's time.
+    qa_rewrite_timeout_seconds: float = Field(default=6, gt=0, le=60)
 
     # Cross-encoder reranking. "auto" runs it only when the hardware can score
     # the candidates inside qa_rerank_budget_ms; otherwise fused ranks are used.

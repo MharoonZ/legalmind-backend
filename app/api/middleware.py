@@ -22,10 +22,6 @@ _UPLOAD_PREFIXES = ("/local-admin/legal/uploads", "/contracts")
 _JSON_LIMIT = 1024 * 1024
 
 
-class _BodyTooLarge(Exception):
-    pass
-
-
 class RequestContextMiddleware:
     """Assigns a request id, enforces body limits, and writes one access-log line.
 
@@ -72,7 +68,8 @@ class RequestContextMiddleware:
                     return
             limit = settings.max_request_bytes if path.startswith(_UPLOAD_PREFIXES) else _JSON_LIMIT
             declared = headers.get(b"content-length")
-            if declared and declared.isdigit() and int(declared) > limit:
+            if declared and declared.isdigit() and (
+                    len(declared.lstrip(b"0")) > len(str(limit)) or int(declared.lstrip(b"0") or b"0") > limit):
                 await reject(413, "Request body is too large.")
                 return
             received = 0
@@ -83,15 +80,13 @@ class RequestContextMiddleware:
                 if message["type"] == "http.request":
                     received += len(message.get("body", b""))
                     if received > limit:
-                        raise _BodyTooLarge()
+                        raise HTTPException(status_code=413, detail="Request body is too large.")
                 return message
 
-            try:
-                await self.app(scope, receive_wrapper, send_wrapper)
-            except _BodyTooLarge:
-                await reject(413, "Request body is too large.")
+            await self.app(scope, receive_wrapper, send_wrapper)
         finally:
             if path not in {"/health", "/health/live", "/health/ready"}:
-                logger.info("%s %s -> %d in %.0f ms", scope.get("method"), path, status_code,
+                route = getattr(scope.get("route"), "path", "<unmatched>")
+                logger.info("%s %s -> %d in %.0f ms", scope.get("method"), route, status_code,
                             (perf_counter() - started) * 1000)
             request_id.reset(token)

@@ -2,25 +2,32 @@
 
 Reads are plain SELECTs over the existing schema (no migration is required).
 A publication is immutable and identified by its manifest hash, so a loaded
-snapshot is also written to a local cache; later starts read the cache after
-one small identity query instead of transferring the corpus again.
+snapshot is also written to a local cache. Subsequent starts verify the active
+manifest and its pinned sources before reading that cache.
 """
 from __future__ import annotations
 
+import asyncio
 import gzip
+import hashlib
 import json
 import logging
 import os
+import re
 import tempfile
+import zlib
 from collections import defaultdict
+from contextlib import suppress
 from dataclasses import asdict
 from pathlib import Path
 from time import perf_counter
 from uuid import UUID
 
 import numpy as np
+from pgvector import Vector
 from sqlalchemy import text
 
+from app.db.streaming import fetch_rows
 from app.embeddings.profiles import EmbeddingProfile
 from app.retrieval.snapshot import (
     Chunk, Instrument, ProvisionNode, PublicationSnapshot, Segment, SnapshotError,
@@ -28,7 +35,8 @@ from app.retrieval.snapshot import (
 
 logger = logging.getLogger(__name__)
 
-_CACHE_FORMAT = 2
+_CACHE_FORMAT = 3
+_CACHE_FILE = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-[0-9a-f]{16}-v\d+\.(?:json\.gz|npy)")
 
 _ACTIVE = text("""
     SELECT p.id, p.name, p.manifest_sha256, p.chunk_count,
@@ -45,13 +53,21 @@ _ITEMS = text("""
            j.code AS jurisdiction_code, v.edition_key, v.applicability_status,
            rev.review_state, rev.content_sha256 AS revision_hash,
            rev.legal_version_id AS revision_version, cs.content_sha256 AS set_hash,
-           cs.revision_id AS set_revision
+           cs.revision_id AS set_revision, pi.chunk_count AS pinned_count,
+           counts.current_count, counts.embedded_count
     FROM publication_items pi
     JOIN corpus_revisions rev ON rev.id = pi.revision_id
     JOIN chunk_sets cs ON cs.id = pi.chunk_set_id
     JOIN legal_versions v ON v.id = pi.legal_version_id
     JOIN legal_instruments i ON i.id = pi.instrument_id
     JOIN jurisdictions j ON j.id = i.jurisdiction_id
+    CROSS JOIN LATERAL (
+        SELECT count(*) AS current_count, count(e.chunk_id) AS embedded_count
+        FROM legal_chunks c
+        LEFT JOIN legal_chunk_embeddings e ON e.chunk_id = c.id AND e.revision_id = c.revision_id
+            AND e.profile_id = :profile_id
+        WHERE c.chunk_set_id = pi.chunk_set_id AND c.revision_id = pi.revision_id
+    ) counts
     WHERE pi.publication_id = :publication_id
     ORDER BY i.canonical_title, pi.instrument_id
 """)
@@ -59,7 +75,7 @@ _ITEMS = text("""
 _CHUNKS = text("""
     SELECT c.id, pi.instrument_id, c.root_provision_id, c.ordinal, c.kind, c.label, c.heading,
            c.reference_path, c.sequence_in_root, c.root_total_chunks, c.prefix, c.chunk_text,
-           e.embedding::real[] AS embedding
+           vector_send(e.embedding) AS embedding
     FROM legal_chunks c
     JOIN publication_items pi ON pi.chunk_set_id = c.chunk_set_id AND pi.revision_id = c.revision_id
     LEFT JOIN legal_chunk_embeddings e ON e.chunk_id = c.id AND e.revision_id = c.revision_id
@@ -100,9 +116,11 @@ _SEGMENTS = text("""
 
 
 async def active_identity(db) -> tuple[UUID, str] | None:
-    """The active publication's identity; a single small read."""
+    """The identity of a publication whose sources are still approved and complete."""
     async with db.session() as session:
         row = (await session.execute(_ACTIVE)).mappings().first()
+        if row:
+            await _approved_items(session, row)
     return (row["id"], row["manifest_sha256"]) if row else None
 
 
@@ -113,34 +131,51 @@ async def load_snapshot(db, *, cache_dir: str | None = None) -> PublicationSnaps
         publication = (await session.execute(_ACTIVE)).mappings().first()
         if publication is None:
             return None
-        cached = _read_cache(cache_dir, publication["id"], publication["manifest_sha256"])
-        if cached is not None:
+        items = await _approved_items(session, publication)
+        cached = await asyncio.to_thread(_read_cache, cache_dir, publication["id"], publication["manifest_sha256"])
+        if (cached is not None and len(cached.chunks) == publication["chunk_count"]
+                and set(cached.instruments) == {item["instrument_id"] for item in items}):
             logger.info("publication_snapshot source=cache publication=%s chunks=%d elapsed_ms=%.0f",
                         cached.id, len(cached.chunks), (perf_counter() - started) * 1000)
             return cached
         params = {"publication_id": publication["id"], "profile_id": publication["profile_id"]}
-        items = (await session.execute(_ITEMS, params)).mappings().all()
-        chunk_rows = (await session.execute(_CHUNKS, params)).mappings().all()
-        node_rows = (await session.execute(_NODES, params)).mappings().all()
-        segment_rows = (await session.execute(_SEGMENTS, params)).mappings().all()
-    snapshot = _assemble(publication, items, chunk_rows, node_rows, segment_rows)
-    _write_cache(cache_dir, snapshot)
+        chunk_rows = await fetch_rows(session, _CHUNKS, params, batch_size=40, mappings=True)
+        node_rows = await fetch_rows(session, _NODES, params, batch_size=128, mappings=True)
+        segment_rows = await fetch_rows(session, _SEGMENTS, params, batch_size=192, mappings=True)
+    snapshot = await asyncio.to_thread(_assemble, publication, items, chunk_rows, node_rows, segment_rows)
+    await asyncio.to_thread(_write_cache, cache_dir, snapshot)
     logger.info("publication_snapshot source=database publication=%s laws=%d chunks=%d nodes=%d elapsed_ms=%.0f",
                 snapshot.id, len(snapshot.instruments), len(snapshot.chunks), len(snapshot.nodes),
                 (perf_counter() - started) * 1000)
     return snapshot
 
 
-def _assemble(publication, items, chunk_rows, node_rows, segment_rows) -> PublicationSnapshot:
+async def _approved_items(session, publication):
+    params = {"publication_id": publication["id"], "profile_id": publication["profile_id"]}
+    items = (await session.execute(_ITEMS, params)).mappings().all()
+    _validate_items(publication, items)
+    return items
+
+
+def _validate_items(publication, items) -> None:
     if not items:
         raise SnapshotError("The active publication has no pinned sources.")
-    instruments = []
     for item in items:
         if (item["review_state"] != "approved" or item["revision_hash"] != item["content_sha256"]
                 or item["set_hash"] != item["content_sha256"]
                 or item["set_revision"] != item["revision_id"]
                 or item["revision_version"] != item["legal_version_id"]):
             raise SnapshotError("A published source no longer matches its approved revision.")
+        if item["current_count"] != item["pinned_count"] or item["embedded_count"] != item["pinned_count"]:
+            raise SnapshotError("A published chunk set is incomplete.")
+    if sum(item["pinned_count"] for item in items) != publication["chunk_count"]:
+        raise SnapshotError("The active publication is incomplete: its chunk count changed.")
+
+
+def _assemble(publication, items, chunk_rows, node_rows, segment_rows) -> PublicationSnapshot:
+    _validate_items(publication, items)
+    instruments = []
+    for item in items:
         aliases = item["aliases"] if isinstance(item["aliases"], list) else []
         instruments.append(Instrument(
             id=item["instrument_id"], title=item["canonical_title"], citation_key=item["citation_key"],
@@ -175,9 +210,9 @@ def _assemble(publication, items, chunk_rows, node_rows, segment_rows) -> Public
     chunks = []
     for index, row in enumerate(chunk_rows):
         embedding = row["embedding"]
-        if embedding is None or len(embedding) != dimension:
+        if embedding is None or len(embedding) != 4 + 4 * dimension:
             raise SnapshotError("A published chunk has no vector for the publication's embedding profile.")
-        vectors[index] = embedding
+        vectors[index] = Vector.from_binary(embedding).to_numpy()
         chunks.append(Chunk(
             index=index, id=row["id"], instrument_id=row["instrument_id"],
             root_provision_id=row["root_provision_id"], ordinal=row["ordinal"], kind=row["kind"],
@@ -219,24 +254,49 @@ def _write_cache(cache_dir: str | None, snapshot: PublicationSnapshot) -> None:
     if paths is None:
         return
     meta_path, vector_path = paths
+    staged = {}
     try:
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "format": _CACHE_FORMAT, "id": snapshot.id, "name": snapshot.name,
             "manifest_sha256": snapshot.manifest_sha256, "profile": asdict(snapshot.profile),
+            "vectors_sha256": hashlib.sha256(snapshot.vectors.tobytes()).hexdigest(),
             "instruments": [asdict(item) for item in snapshot.instruments.values()],
             "chunks": [asdict(chunk) for chunk in snapshot.chunks],
             "nodes": [asdict(node) for node in snapshot.nodes.values()],
         }
-        for target, writer in ((meta_path, lambda handle: handle.write(gzip.compress(
-                json.dumps(payload, default=_plain, ensure_ascii=False).encode("utf-8")))),
-                               (vector_path, lambda handle: np.save(handle, snapshot.vectors, allow_pickle=False))):
+        for target in (vector_path, meta_path):
             with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
-                writer(handle)
-                temporary = handle.name
+                staged[target] = Path(handle.name)
+                if target == vector_path:
+                    np.save(handle, snapshot.vectors, allow_pickle=False)
+                else:
+                    handle.write(gzip.compress(json.dumps(payload, default=_plain, ensure_ascii=False).encode()))
+                handle.flush()
+                os.fsync(handle.fileno())
+        for target, temporary in staged.items():
             os.replace(temporary, target)
+        _prune_cache(meta_path)
     except OSError as exc:      # a cache is an optimisation; never fail a request for it
         logger.warning("publication_cache_write_failed error=%s", type(exc).__name__)
+    finally:
+        for temporary in staged.values():
+            with suppress(OSError):
+                temporary.unlink(missing_ok=True)
+
+
+def _prune_cache(current: Path) -> None:
+    """Keep this publication and one previous generation. Ignore unrelated files."""
+    generations: dict[str, list[Path]] = defaultdict(list)
+    for path in current.parent.iterdir():
+        if _CACHE_FILE.fullmatch(path.name):
+            generations[path.name.split(".", 1)[0]].append(path)
+    generations.pop(current.name.split(".", 1)[0], None)
+    previous = sorted(generations.values(), key=lambda files: max(p.stat().st_mtime_ns for p in files),
+                      reverse=True)
+    for files in previous[1:]:
+        for path in files:
+            path.unlink(missing_ok=True)
 
 
 def _read_cache(cache_dir: str | None, publication_id, manifest: str) -> PublicationSnapshot | None:
@@ -248,8 +308,10 @@ def _read_cache(cache_dir: str | None, publication_id, manifest: str) -> Publica
         payload = json.loads(gzip.decompress(meta_path.read_bytes()).decode("utf-8"))
         if (payload.get("format") != _CACHE_FORMAT or payload["id"] != str(publication_id)
                 or payload["manifest_sha256"] != manifest):
-            return None
+            raise ValueError("Cache identity mismatch")
         vectors = np.load(vector_path, allow_pickle=False)
+        if hashlib.sha256(vectors.tobytes()).hexdigest() != payload["vectors_sha256"]:
+            raise ValueError("Vector checksum mismatch")
 
         def identities(row, *names):
             return {**row, **{name: UUID(row[name]) for name in names if row.get(name) is not None}}
@@ -267,6 +329,9 @@ def _read_cache(cache_dir: str | None, publication_id, manifest: str) -> Publica
             publication_id=UUID(payload["id"]), name=payload["name"],
             manifest_sha256=payload["manifest_sha256"], profile=EmbeddingProfile(**payload["profile"]),
             instruments=instruments, chunks=chunks, vectors=vectors, nodes=nodes)
-    except (OSError, ValueError, KeyError, TypeError, SnapshotError) as exc:
+    except (OSError, EOFError, zlib.error, ValueError, KeyError, TypeError, IndexError, AttributeError, SnapshotError) as exc:
         logger.warning("publication_cache_unreadable error=%s", type(exc).__name__)
+        for path in paths:
+            with suppress(OSError):
+                path.unlink(missing_ok=True)
         return None

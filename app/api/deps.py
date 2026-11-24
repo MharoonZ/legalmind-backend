@@ -91,7 +91,7 @@ def require_api_key(request: Request, settings: Annotated[Settings, Depends(get_
     if not expected:
         return
     presented = _presented_key(request)
-    if not presented or not any(compare_digest(presented, key) for key in expected):
+    if not presented or not any(compare_digest(presented.encode(), key.encode()) for key in expected):
         raise HTTPException(status_code=401, detail="A valid API key is required.",
                             headers={"WWW-Authenticate": "Bearer"})
 
@@ -99,8 +99,7 @@ def require_api_key(request: Request, settings: Annotated[Settings, Depends(get_
 def enforce_rate_limit(request: Request, settings: Annotated[Settings, Depends(get_settings)]) -> None:
     """Per-client ceiling for the public question and search endpoints."""
     client = request.client.host if request.client else "unknown"
-    allowed, retry_after = _limiter.allow(f"{_presented_key(request)[:16]}|{client}",
-                                          settings.rate_limit_per_minute)
+    allowed, retry_after = _limiter.allow(client, settings.rate_limit_per_minute)
     if not allowed:
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.",
                             headers={"Retry-After": str(max(1, round(retry_after)))})

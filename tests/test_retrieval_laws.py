@@ -139,3 +139,26 @@ def test_aliases_and_unseen_catalogs_work_without_code_changes():
 def test_empty_input_and_empty_catalog_are_harmless():
     assert catalog([]).resolve("section 3 of the gambling ordinance").status in {"none", "unresolved"}
     assert catalog(PILOT_TITLES).resolve("   ").status == "none"
+
+
+@pytest.mark.parametrize("phrase", ["Northern Consumer Protection Act", "Coastal Prisons Act",
+                                   "northern consumer protection act"])
+def test_distinctive_modifier_of_an_unpublished_title_is_preserved(pilot, phrase):
+    for resolved in (pilot.resolve("Under the " + phrase + ", what are the rules?"), pilot.resolve_name(phrase)):
+        assert resolved.status == "unresolved" and phrase in resolved.mention
+    assert pilot.resolve_name("coastal prisons").status == "unresolved"
+
+
+def test_long_ordinary_questions_scan_for_an_acronyms_year_once(pilot, monkeypatch):
+    import app.retrieval.laws as laws
+    calls = []
+    original = laws._is_year
+
+    def counted(word):
+        calls.append(word)
+        return original(word)
+
+    monkeypatch.setattr(laws, "_is_year", counted)
+    question = ("Please explain how members obtain permits. " * 96)[:4000]
+    assert pilot.resolve(question).status == "none"
+    assert len(calls) < len(question.split()) * 5

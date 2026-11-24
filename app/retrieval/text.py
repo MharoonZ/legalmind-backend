@@ -8,11 +8,12 @@ from __future__ import annotations
 import re
 import unicodedata
 from functools import lru_cache
+from threading import local
 
 import snowballstemmer
 from rapidfuzz.distance import OSA
 
-_STEMMER = snowballstemmer.stemmer("english")
+_STEMMERS = local()
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 _SPACE = re.compile(r"\s+")
 
@@ -48,7 +49,9 @@ def words(value: str) -> list[str]:
 def stem(word: str) -> str:
     """English stem for ordinary words; identifiers and short tokens are kept."""
     if len(word) > 3 and word.isascii() and word.isalpha():
-        return _STEMMER.stemWord(word)
+        if not hasattr(_STEMMERS, "english"):
+            _STEMMERS.english = snowballstemmer.stemmer("english")
+        return _STEMMERS.english.stemWord(word)
     return word
 
 
@@ -74,7 +77,8 @@ def typo_distance(left: str, right: str) -> int | None:
 
 def compact_label(value: str | None) -> str:
     """Printed provision labels compared without spacing, hyphens or case: 5-A == 5a."""
-    return re.sub(r"[\s\-‐-―.]+", "", fold(value or ""))
+    label = re.sub(r"[\s\-‐-―.]+", "", fold(value or ""))
+    return label if label.isascii() else "".join(str(unicodedata.decimal(char, char)) for char in label)
 
 
 # Statute PDFs print an amendment footnote number against inserted words:
