@@ -282,3 +282,15 @@ def test_empty_index_coalesces_failed_loads_and_retries_after_interval(monkeypat
         await index.ensure_loaded()
         assert len(calls) == 2
     asyncio.run(scenario())
+
+
+def test_postgres_integration_uses_configured_connection_budget(monkeypatch):
+    from tests import test_integration_postgres as integration
+    from app.db import session
+
+    monkeypatch.setattr(integration, "URL", "postgresql://tester@localhost/legalmind")
+    monkeypatch.setenv("LEGALMIND_TEST_DB_CONNECT_TIMEOUT", "65")
+    monkeypatch.setenv("LEGALMIND_TEST_DB_CONNECT_RETRIES", "4")
+    monkeypatch.setattr(session, "Database", lambda config: config)
+    config = integration.database()
+    assert config.db_connect_timeout == 65 and config.db_connect_retries == 4

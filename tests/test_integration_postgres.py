@@ -8,7 +8,9 @@ the migrations applied and an active publication (Phase A and B have run):
 Nothing is written. The tests read the published corpus exactly as the API
 does, and then exercise retrieval on whatever laws that publication holds, so
 they are valid for any corpus. TLS is used unless the host is local; set
-``LEGALMIND_TEST_DB_SSL=true|false`` to override.
+``LEGALMIND_TEST_DB_SSL=true|false`` to override. Remote connection attempts
+default to 60 seconds and three tries. Set ``LEGALMIND_TEST_DB_CONNECT_TIMEOUT``
+and ``LEGALMIND_TEST_DB_CONNECT_RETRIES`` to tune them independently of unit tests.
 """
 import asyncio
 import os
@@ -32,7 +34,11 @@ def database():
 
     local = any(host in URL for host in ("@127.0.0.1", "@localhost", "@[::1]"))
     ssl = os.environ.get("LEGALMIND_TEST_DB_SSL", "false" if local else "true").lower() == "true"
-    return Database(Settings(database_url=URL, db_ssl=ssl, db_connect_timeout=30, db_connect_retries=1))
+    return Database(Settings(
+        database_url=URL, db_ssl=ssl,
+        db_connect_timeout=int(os.getenv("LEGALMIND_TEST_DB_CONNECT_TIMEOUT", "60")),
+        db_connect_retries=int(os.getenv("LEGALMIND_TEST_DB_CONNECT_RETRIES", "3")),
+    ))
 
 
 def run(work):
