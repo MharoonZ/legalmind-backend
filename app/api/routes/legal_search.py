@@ -1,27 +1,22 @@
+"""POST /search/legal: ranked evidence candidates without a generated answer."""
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.api.deps import DatabaseDep, SettingsDep
-from app.repositories.legal_search_repository import LegalSearchRepository
+from app.api.deps import SettingsDep, enforce_rate_limit, get_services, require_api_key
 from app.schemas.legal_search import LegalSearchIn, LegalSearchOut
-from app.services.legal_retrieval import LegalRetrievalService
 
-router = APIRouter(prefix="/search", tags=["legal retrieval"])
-
-
-def get_legal_retrieval_service(db: DatabaseDep, settings: SettingsDep):
-    if not settings.legal_search_enabled:
-        raise HTTPException(404, detail="Not found")
-    return LegalRetrievalService(LegalSearchRepository(db), settings)
+router = APIRouter(prefix="/search", tags=["legal retrieval"],
+                   dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)])
 
 
-@router.post("/legal", response_model=LegalSearchOut, responses={503: {"model": LegalSearchOut}})
-async def search_legal(payload: LegalSearchIn, settings: SettingsDep, service=Depends(get_legal_retrieval_service)):
+@router.post("/legal", response_model=LegalSearchOut, responses={503: {"model": LegalSearchOut}},
+             summary="Search the published collection")
+async def search_legal(payload: LegalSearchIn, settings: SettingsDep, services=Depends(get_services)):
     try:
         async with asyncio.timeout(settings.legal_search_timeout_seconds):
-            result = await service.search(payload)
+            result = await services.retrieval.search(payload)
     except TimeoutError:
         result = LegalSearchOut(status="service_unavailable", query=payload.query,
             retrieval_query=payload.query, message="The published evidence search timed out.")

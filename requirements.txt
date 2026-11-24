@@ -1,24 +1,27 @@
+# API server, corpus pipeline and question answering.
+# CPU-only hosts: install PyTorch from the CPU index first to avoid the multi-GB
+# CUDA build, then this file:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements.txt
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
 pydantic-settings>=2.4,<3.0
 SQLAlchemy[asyncio]>=2.0.30,<2.1
 asyncpg>=0.29,<1.0
 alembic>=1.16,<2.0
-pgvector>=0.4,<1.0  # Dense vector ORM/search and historical Alembic compatibility.
+pgvector>=0.4,<1.0  # vector column type for the embedding tables
 # Legal PDF extraction and uploaded-contract PDF validation.
 PyMuPDF==1.26.3
-# FastAPI needs this to parse multipart/form-data (POST /contracts file upload).
+# FastAPI needs this to parse multipart/form-data (PDF uploads).
 python-multipart>=0.0.9,<1.0
-# Structured contract extraction (headings, tables, reading order, provenance).
-docling==2.130.0
-# Dense embeddings: BAAI/bge-m3 via sentence-transformers.
-# torch is a transitive dependency; it is installed automatically.
-# On a CPU-only server use: pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Dense embeddings (BAAI/bge-m3) and the cross-encoder reranker. Both load
+# through sentence-transformers/transformers; torch is a transitive dependency.
 sentence-transformers>=3.0,<6.0
-
-# Phase C cross-encoder; does not change the upstream embedding model.
-FlagEmbedding>=1.3.5,<2
-
-# Server-side structured answer generation; keys are loaded from backend .env.
-openai>=1.88,<3
+numpy>=1.26,<3
+# Typo-tolerant matching of law names, provision keywords and query words.
+rapidfuzz>=3.9,<4
+snowballstemmer>=2.2,<4
+# Answer model clients. Gemini is called over HTTPS with httpx; the OpenAI SDK
+# is used only when LLM_PROVIDER=openai (or as a failover).
 httpx>=0.27,<1
+openai>=1.88,<3

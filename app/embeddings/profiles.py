@@ -19,7 +19,7 @@ TO ADD A NEW MODEL
 1. Define a new constant below (copy BGE_M3 as a template).
 2. Change ``ACTIVE_PROFILE`` to point at it.
 3. If the dimension changed, write a new Alembic migration.
-4. Re-run ``python -m scripts.build_legal_embeddings``.
+4. Re-run ``python -m scripts.pipeline.build_legal_embeddings``.
 """
 
 from __future__ import annotations

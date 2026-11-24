@@ -227,7 +227,7 @@ async def encode_texts_async(
     block the asyncio event loop (important when called from a FastAPI endpoint
     or an async script).
     """
-    from app.services.model_runtime import runtime
+    from app.core.inference import runtime
     return await runtime.run(lambda stop: encode_texts(texts, profile, batch_size=batch_size),
                              stage="query_embedding" if len(texts) == 1 else "embedding_batch")
 

@@ -14,7 +14,7 @@ HOW TO CHANGE THE MODEL IN FUTURE
    migration that adds a matching ``vector(N)`` column and HNSW index to
    ``legal_chunk_embeddings``. Same-dimension model upgrades need no schema
    change.
-4. Run ``python -m scripts.build_legal_embeddings`` — it is fully idempotent
+4. Run ``python -m scripts.pipeline.build_legal_embeddings`` — it is fully idempotent
    and will only encode chunks that do not yet have a vector for the new
    profile; old vectors remain intact for rollback.
 

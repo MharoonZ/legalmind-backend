@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from app.services.legal_extraction import SourcePdfError
-from scripts.audit_uploaded_pdfs import restore_missing_blob
+from scripts.audit.audit_uploaded_pdfs import restore_missing_blob
 
 
 def source(tmp_path):

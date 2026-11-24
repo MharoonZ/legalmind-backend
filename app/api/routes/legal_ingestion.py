@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 from datetime import date
 from uuid import UUID
 from typing import Annotated, Literal

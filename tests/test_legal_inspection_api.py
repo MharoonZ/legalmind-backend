@@ -4,10 +4,28 @@ from uuid import uuid4
 import httpx
 import pytest
 
+import hashlib
+
+import fitz
+
 from app.api.routes.legal_inspection import get_inspection_repository
 from app.core.config import get_settings
 from app.main import create_app
-from tests.test_legal_pdf_extraction import native_pdf, store_pdf
+from app.services.legal_preview import PdfProblem, render_page_preview, resolve_pdf
+
+
+def native_pdf():
+    document = fitz.open()
+    document.new_page().insert_text((72, 72), "1. Short title. This Act may be called the Test Act.")
+    return document
+
+
+def store_pdf(root, data):
+    digest = hashlib.sha256(data).hexdigest()
+    key = f"{digest[:2]}/{digest}.pdf"
+    (root / digest[:2]).mkdir(parents=True, exist_ok=True)
+    (root / key).write_bytes(data)
+    return {"object_key": key, "sha256": digest, "byte_size": len(data), "page_count": 1}
 
 
 class Inspector:
@@ -62,3 +80,26 @@ async def test_original_preview_and_id_based_routes(tmp_path, settings):
         response = await api.get(f"{prefix}/documents/{id}/pages/1/preview")
         assert response.status_code == 409 and "source_size_mismatch" in response.text
         assert str(tmp_path) not in response.text
+
+
+def test_preview_refuses_unsafe_or_altered_sources(tmp_path):
+    with native_pdf() as doc:
+        source = store_pdf(tmp_path, doc.tobytes())
+    arguments = dict(object_key=source["object_key"], sha256=source["sha256"], byte_size=source["byte_size"])
+    assert render_page_preview(str(tmp_path), **arguments, page_index=1, dpi=72).startswith(b"\x89PNG")
+    for change, code in (({"object_key": "../outside.pdf"}, "unsafe_pdf_location"),
+                         ({"sha256": "not-a-hash"}, "invalid_pdf_hash"),
+                         ({"byte_size": source["byte_size"] + 1}, "source_size_mismatch")):
+        with pytest.raises(PdfProblem, match=code):
+            render_page_preview(str(tmp_path), **{**arguments, **change}, page_index=1, dpi=72)
+    with pytest.raises(PdfProblem, match="page_out_of_range"):
+        render_page_preview(str(tmp_path), **arguments, page_index=5, dpi=72)
+    with pytest.raises(PdfProblem, match="preview_page_too_large"):
+        render_page_preview(str(tmp_path), **arguments, page_index=1, dpi=100000)
+    same_size = bytes(source["byte_size"])
+    (tmp_path / source["object_key"]).write_bytes(same_size)
+    with pytest.raises(PdfProblem, match="source_hash_mismatch"):
+        render_page_preview(str(tmp_path), **arguments, page_index=1, dpi=72)
+    missing = "0" * 64
+    with pytest.raises(PdfProblem, match="source_pdf_missing"):
+        resolve_pdf(str(tmp_path), f"00/{missing}.pdf", missing)

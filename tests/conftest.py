@@ -11,6 +11,11 @@ os.environ["OPENAI_API_KEY"] = ""
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["LLM_PROVIDER"] = "auto"
 os.environ["QA_RECORD_RUNS"] = "false"
+os.environ["ENVIRONMENT"] = "development"
+os.environ["LEGAL_INGEST_ENABLED"] = "false"
+os.environ["API_KEYS"] = ""
+os.environ["RATE_LIMIT_PER_MINUTE"] = "0"
+os.environ["PUBLICATION_CACHE_DIR"] = ""
 
 from datetime import UTC, datetime  # noqa: E402
 
@@ -18,7 +23,10 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.api.deps import get_document_repository  # noqa: E402
-from app.core.config import get_settings  # noqa: E402
+from app.core.config import Settings, get_settings  # noqa: E402
+
+# Tests never read a developer's local .env: only the variables set above apply.
+Settings.model_config["env_file"] = None
 from app.main import create_app  # noqa: E402
 from app.repositories.document_repository import DocumentRecord  # noqa: E402
 

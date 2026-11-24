@@ -1,6 +1,6 @@
 """Publication administration shares the existing loopback development gate."""
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import DatabaseDep
 from app.api.routes.legal_ingestion import _require_local_ingestion
@@ -34,11 +34,17 @@ async def create_publication(payload: PublicationCreateIn, db: DatabaseDep):
 
 
 @router.post("/{publication_id}/activate")
-async def activate_publication(publication_id: UUID, payload: PublicationActivateIn, db: DatabaseDep):
+async def activate_publication(publication_id: UUID, payload: PublicationActivateIn, db: DatabaseDep,
+                               request: Request):
     try:
-        return await PublicationRepository(db).activate(publication_id,
+        result = await PublicationRepository(db).activate(publication_id,
             expected_manifest_sha256=payload.expected_manifest_sha256)
     except LookupError as exc:
         raise HTTPException(404, detail="Publication not found") from exc
     except PublicationValidationError as exc:
         raise HTTPException(409, detail={"issues": exc.issues}) from exc
+    # Serve the newly activated publication at once instead of on the next poll.
+    services = getattr(request.app.state, "services", None)
+    if services is not None:
+        await services.index.refresh()
+    return result

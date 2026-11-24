@@ -1,15 +1,14 @@
 """Local-only document inspection; all endpoints are read-only."""
-import base64
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import DbSessionDep, SettingsDep
 from app.api.routes.legal_ingestion import _require_local_ingestion
 from app.repositories.legal_inspection_repository import LegalInspectionRepository
-from app.services.legal_pdf_extraction import PdfProblem
-from app.services.pdf_process import pdf_process
+from app.services.legal_preview import PdfProblem, render_page_preview
 
 
 def get_inspection_repository(session: DbSessionDep):
@@ -59,13 +58,14 @@ async def preview(file_id: UUID, page_index: int, repository: InspectorDep, sett
     source = found(await repository.source(file_id))
     if page_index < 1:
         raise HTTPException(422, "Page numbers start at one")
-    source["root"] = settings.legal_upload_dir
     try:
-        result = await pdf_process({"operation": "preview", "source": source,
-            "page_index": page_index, "dpi": settings.legal_preview_dpi}, settings.legal_page_timeout)
+        png = await run_in_threadpool(
+            render_page_preview, settings.legal_upload_dir, object_key=source["object_key"],
+            sha256=source["sha256"], byte_size=source["byte_size"], page_index=page_index,
+            dpi=settings.legal_preview_dpi)
     except PdfProblem as exc:
         code = str(exc)
         raise HTTPException(404 if code in {"source_pdf_missing", "page_out_of_range"} else 409,
                             {"code": code, "message": "The original page preview is unavailable. Check the registered PDF and its integrity."}) from exc
-    return Response(base64.b64decode(result["png"]), media_type="image/png", headers={
+    return Response(png, media_type="image/png", headers={
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

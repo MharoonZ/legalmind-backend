@@ -1,67 +1,47 @@
-"""Question answering from the active, approved legal publication."""
+"""POST /ask: a cited answer from the active, approved legal publication."""
 import asyncio
 import logging
-from functools import lru_cache
-from time import perf_counter
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.api.deps import DatabaseDep, SettingsDep
-from app.core.qa_generation_config import get_answer_settings
-from app.repositories.legal_search_repository import LegalSearchRepository
-from app.repositories.qa_context_repository import QaContextRepository
+from app.api.deps import SettingsDep, enforce_rate_limit, get_services, require_api_key
+from app.qa.service import QuestionAnswerService
 from app.schemas.qa import AskIn, AskOut
-from app.services.legal_retrieval import LegalRetrievalService
-from app.services.qa.answer import QuestionAnswerService
-from app.services.qa.citations import CitationVerifier
-from app.services.qa.context import ContextExpander
-from app.services.qa.generation import AnswerGenerator
-from app.services.qa.preparation import QuestionPreparationService
-from app.services.qa.reranker import CandidateReranker
-from app.services.qa.source_verification import QaSourceVerifier
-from app.services.model_runtime import request_capacity
 
-
-router = APIRouter(tags=["legal answers"])
+router = APIRouter(tags=["legal answers"], dependencies=[Depends(require_api_key), Depends(enforce_rate_limit)])
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
-def _generator():
-    return AnswerGenerator(get_answer_settings())
+def _timing_header(timings: dict[str, float]) -> str:
+    return ", ".join(f"{name};dur={value:.0f}" for name, value in timings.items())
 
 
-def get_question_answer_service(db: DatabaseDep, settings: SettingsDep):
-    if not settings.legal_search_enabled:
-        raise HTTPException(404, detail="Not found")
-    answer_settings = get_answer_settings()
-    retrieval = LegalRetrievalService(LegalSearchRepository(db), settings)
-    preparation = QuestionPreparationService(
-        retrieval, CandidateReranker(), ContextExpander(QaContextRepository(db)))
-    recorder = None
-    if answer_settings.qa_record_runs:
-        from app.repositories.qa_record_repository import QaRecordRepository
-        recorder = QaRecordRepository(db, answer_settings.active_model)
-    return QuestionAnswerService(
-        preparation, _generator(), CitationVerifier(QaSourceVerifier(db)),
-        repair_attempts=answer_settings.qa_repair_attempts, recorder=recorder)
+@router.post("/ask", response_model=AskOut, responses={503: {"model": AskOut}},
+             summary="Answer a legal question from the published collection")
+async def ask(payload: AskIn, settings: SettingsDep, services=Depends(get_services)):
+    """Returns a grounded answer whose ``[n]`` markers point at ``citations[n-1]``.
 
-
-@router.post("/ask", response_model=AskOut, responses={503: {"model": AskOut}})
-async def ask(payload: AskIn, settings: SettingsDep, service=Depends(get_question_answer_service)):
-    started = perf_counter()
+    A provider or database failure is a 503 with the same response shape, so a
+    client never mistakes an outage for "the law does not say".
+    """
+    timings: dict[str, float] = {}
     try:
-        with request_capacity.reserve(settings.qa_max_concurrent_requests) as admitted:
-            if not admitted:
-                result = QuestionAnswerService.unavailable(payload.question,
-                    reason="The answer service is busy. Please retry shortly.")
-            else:
-                async with asyncio.timeout(settings.qa_request_timeout_seconds):
-                    result = await service.ask(payload)
+        async with asyncio.timeout(settings.qa_queue_timeout_seconds or 0.001):
+            await services.ask_slots.acquire()
     except TimeoutError:
+        result = QuestionAnswerService.unavailable(
+            payload.question, reason="The answer service is busy. Please retry shortly.")
+        return JSONResponse(status_code=503, content=result.model_dump(mode="json"),
+                            headers={"Retry-After": "5"})
+    try:
+        async with asyncio.timeout(settings.qa_request_timeout_seconds):
+            result, timings = await services.qa.ask(payload)
+    except TimeoutError:
+        logger.warning("qa_request_timeout seconds=%s", settings.qa_request_timeout_seconds)
         result = QuestionAnswerService.unavailable(payload.question, reason="The answer request timed out.")
-    logger.info("qa_request outcome=%s elapsed_ms=%.0f", result.status, (perf_counter() - started) * 1000)
-    if result.status == "service_unavailable":
-        return JSONResponse(status_code=503, content=result.model_dump(mode="json"))
-    return result
+    finally:
+        services.ask_slots.release()
+    headers = {"Server-Timing": _timing_header(timings)} if timings else {}
+    status_code = 503 if result.status == "service_unavailable" else 200
+    return JSONResponse(status_code=status_code, content=result.model_dump(mode="json"), headers=headers)

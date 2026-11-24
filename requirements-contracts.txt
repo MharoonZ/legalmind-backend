@@ -1,0 +1,4 @@
+# Optional: structured clause extraction for uploaded contracts
+# (scripts/pipeline/extract_contract.py). The API server does not need it.
+-r requirements.txt
+docling==2.130.0

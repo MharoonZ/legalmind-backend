@@ -7,10 +7,8 @@ from app.main import create_app
 
 def test_legacy_search_routes_are_not_exposed() -> None:
     paths = set(create_app().openapi()["paths"])
-    assert "/ask" in paths  # Phase C replaces the retired legacy implementation.
+    assert {"/ask", "/search/legal", "/health", "/contracts"} <= paths
     assert "/health/retrieval" not in paths
-    assert "/health" in paths
-    assert "/contracts" in paths
 
 
 def test_legacy_search_tables_are_not_in_current_metadata() -> None:
