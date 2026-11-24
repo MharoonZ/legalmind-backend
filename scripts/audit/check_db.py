@@ -1,8 +1,8 @@
 """Diagnose database connection problems step by step, with timings.
 
-    python scripts/check_db.py                # 30 s limit per step
-    python scripts/check_db.py --timeout 60
-    python scripts/check_db.py --no-ssl       # try without TLS
+    python -m scripts.audit.check_db                # 30 s limit per step
+    python -m scripts.audit.check_db --timeout 60
+    python -m scripts.audit.check_db --no-ssl       # try without TLS
 
 Reads DATABASE_URL from .env, then tests DNS -> TCP -> TLS + login -> query.
 The first step that fails or is slow is your problem. The app itself hides the

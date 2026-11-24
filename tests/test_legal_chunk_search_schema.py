@@ -159,7 +159,7 @@ def test_search_text_must_be_nonblank_like_other_chunk_text_fields():
 def test_migration_backfills_search_text_before_enforcing_not_null(monkeypatch):
     """Regression guard: a dev/staging DB may already have legal_chunks rows
     from before search_text existed (built by an earlier run of
-    scripts/build_legal_chunks.py). The column must be backfilled from
+    scripts/pipeline/build_legal_chunks.py). The column must be backfilled from
     chunk_text before the NOT NULL / nonblank check constraint is added, or
     upgrading fails with ck_legal_chunks_search_text_nonempty violated."""
     _, _, statements = _replay_chunk_migrations(monkeypatch)

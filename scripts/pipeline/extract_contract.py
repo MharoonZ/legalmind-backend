@@ -1,10 +1,10 @@
 """Extract one uploaded contract version, or preview a PDF without database writes.
 
 Database mode (normal pipeline):
-    python scripts/extract_contract.py --version-id docver:<id>
+    python -m scripts.pipeline.extract_contract --version-id docver:<id>
 
 Preview mode (Day 1 handoff / debugging):
-    python scripts/extract_contract.py --pdf path/to/sample.pdf
+    python -m scripts.pipeline.extract_contract --pdf path/to/sample.pdf
 
 The JSON printed by either mode contains clause IDs, original labels, text,
 and page mappings. Preview mode never stores the PDF or extraction output.
