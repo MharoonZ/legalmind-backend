@@ -64,6 +64,32 @@ def test_auto_mode_skips_a_reranker_that_cannot_meet_the_budget(snapshot):
     assert uncalibrated._affordable(8) == 0
 
 
+def test_a_reranker_measured_too_slow_is_released_from_memory(snapshot, monkeypatch):
+    def loaded(self):
+        self._model, self._tokenizer = object(), object()
+
+    def measured(speed):
+        def calibrate(self):
+            self.tokens_per_second = speed
+        return calibrate
+
+    monkeypatch.setattr(CrossEncoderReranker, "_load", loaded)
+    monkeypatch.setattr(CrossEncoderReranker, "_calibrate", measured(200))
+    slow = CrossEncoderReranker(settings(qa_rerank_mode="auto"), runtime=InferenceRuntime())
+    asyncio.run(slow.warm())
+    assert slow._model is None and slow._tokenizer is None and not slow.enabled
+    result = retrieve(snapshot, "punishment for gaming in a public place")
+    assert rerank(slow, result, snapshot)[1] == "fused"
+    # "on" keeps a slow model because the operator asked for it; a fast host keeps it in "auto".
+    forced = CrossEncoderReranker(settings(qa_rerank_mode="on"), runtime=InferenceRuntime())
+    asyncio.run(forced.warm())
+    assert forced._model is not None and forced.enabled
+    monkeypatch.setattr(CrossEncoderReranker, "_calibrate", measured(50_000))
+    fast = CrossEncoderReranker(settings(qa_rerank_mode="auto"), runtime=InferenceRuntime())
+    asyncio.run(fast.warm())
+    assert fast._model is not None and fast.enabled
+
+
 def test_a_failing_or_missing_reranker_never_fails_the_question(snapshot):
     result = retrieve(snapshot, "punishment for gaming in a public place")
 

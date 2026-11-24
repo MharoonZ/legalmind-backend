@@ -10,6 +10,7 @@ fails a question.
 """
 from __future__ import annotations
 
+import gc
 import logging
 import threading
 from collections.abc import Callable, Sequence
@@ -39,12 +40,13 @@ class CrossEncoderReranker:
         self._model = None
         self._lock = threading.Lock()
         self._unavailable = False
+        self._over_budget = False             # measured too slow for "auto" on this host
         self.tokens_per_second = tokens_per_second
 
     # ------------------------------------------------------------- loading
     @property
     def enabled(self) -> bool:
-        return self.settings.qa_rerank_mode != "off" and not self._unavailable
+        return self.settings.qa_rerank_mode != "off" and not self._unavailable and not self._over_budget
 
     def _load(self) -> None:
         with self._lock:
@@ -54,7 +56,7 @@ class CrossEncoderReranker:
                 from transformers import AutoModelForSequenceClassification, AutoTokenizer
                 name = self.settings.qa_rerank_model_name
                 # Local files only: a server must not start a multi-GB download
-                # on its first question. `python -m scripts.setup.download_models`
+                # on its first question. `python -m scripts.pipeline.download_models`
                 # fetches the configured models explicitly.
                 self._tokenizer = AutoTokenizer.from_pretrained(name, local_files_only=True)
                 model = AutoModelForSequenceClassification.from_pretrained(name, local_files_only=True)
@@ -122,6 +124,12 @@ class CrossEncoderReranker:
                 self.tokens_per_second or 0, affordable,
                 "" if self.settings.qa_rerank_mode == "on" or affordable >= _MIN_USEFUL else
                 " (too slow on this host: fused ranking will be used; set QA_RERANK_MODE=on to force)")
+            if self.settings.qa_rerank_mode == "auto" and affordable < _MIN_USEFUL:
+                # It will never run here: do not keep gigabytes of weights in memory.
+                with self._lock:
+                    self._model = self._tokenizer = None
+                self._over_budget = True
+                gc.collect()
 
     # ------------------------------------------------------------- ranking
     def _affordable(self, count: int) -> int:

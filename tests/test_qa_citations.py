@@ -190,3 +190,35 @@ def test_abbreviations_do_not_split_an_answer_sentence(snapshot):
         [{"evidence_id": "E1", "quote": "Whoever is found gaming in any public place"}], units, snapshot)
     assert grounded.answer == ("The fine may extend to Rs. 5,000 for gaming in a public place [1]. "
                                "Nothing else applies.")
+
+
+def test_a_quote_of_only_the_heading_is_replaced_by_the_provisions_wording(snapshot):
+    units = [unit(snapshot, "E1", GAMBLING, "3")]
+    heading = "Penalty for owning or keeping or having charge of a common gaming house"
+    grounded = ground_answer(
+        "Keeping a common gaming house is punishable with imprisonment of one month to one year [E1]. "
+        "The prosecution need not prove that the person was playing for money [E1].",
+        [{"evidence_id": "E1", "quote": heading}], units, snapshot)
+    # Each statement is tied to the sentence of the section that supports it.
+    assert len(grounded.citations) == 2 and "[1]" in grounded.answer and "[2]" in grounded.answer
+    assert "imprisonment" in grounded.citations[0].quote and heading not in grounded.citations[0].quote
+    assert "necessary to prove" in grounded.citations[1].quote
+    assert (grounded.verified_quotes, grounded.dropped_quotes, grounded.fallback_citations) == (0, 0, 2)
+    # Without markers the passage is still cited through its wording, not its title.
+    unmarked = ground_answer("Keeping a common gaming house is punishable with imprisonment.",
+                             [{"evidence_id": "E1", "quote": heading}], units, snapshot)
+    assert len(unmarked.citations) == 1 and heading not in unmarked.citations[0].quote
+    assert "common gaming-house" in unmarked.citations[0].quote and unmarked.answer.endswith("[1].")
+
+
+def test_markers_without_quotes_cite_the_sentence_behind_each_statement(snapshot):
+    units = [unit(snapshot, "E1", GAMBLING, "3"), unit(snapshot, "E2", GAMBLING, "5")]
+    grounded = ground_answer(
+        "Keeping a gaming house means imprisonment of one month to one year [E1]. "
+        "It is not necessary to prove the person was playing for money [E1]. "
+        "Gaming in a public place may mean three years [E2].",
+        [], units, snapshot)
+    assert [citation.label for citation in grounded.citations] == ["3", "3", "5"]
+    assert "one month" in grounded.citations[0].quote and "necessary to prove" in grounded.citations[1].quote
+    assert grounded.answer.count("[1]") == 1 and grounded.answer.count("[2]") == 1 and grounded.answer.endswith("[3].")
+    assert grounded.fallback_citations == 3

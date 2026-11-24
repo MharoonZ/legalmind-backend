@@ -289,6 +289,7 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
         return len(citations) - 1
 
     unlocated: list[tuple[EvidenceUnit, str]] = []
+    headings: dict[str, tuple[EvidenceUnit, int, int]] = {}     # quotes of a heading only
     for item in draft_citations:
         raw = str(item.get("evidence_id", "")).strip().strip("[]()")
         match = _KEY.fullmatch(raw)
@@ -303,7 +304,11 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
             unlocated.append((unit, quote))
             continue
         start, end = located[0] + chunk.body_start, located[1] + chunk.body_start
-        if cite(unit, start, end) is None:
+        if end <= _wording_start(chunk) < len(chunk.text):
+            # The provision's title is not what the law provides: prefer its
+            # wording, and keep the title only if nothing better turns up.
+            headings.setdefault(unit.key, (unit, start, end))
+        elif cite(unit, start, end) is None:
             dropped += 1
         else:
             verified += 1
@@ -316,20 +321,27 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
             dropped += 1
         else:
             fallbacks += 1
+    quoted = set(per_unit)          # passages with a usable quote from the model
 
     def numbers_for(match: re.Match) -> list[int]:
         nonlocal fallbacks
         found: list[int] = []
+        sentence = answer[sentence_bounds(match)[0]:match.start()]
         for key_match in _KEY.finditer(match[1]):
             unit = by_key.get(f"E{key_match[1]}")
             if unit is None:
                 continue
-            if unit.key not in per_unit:
-                located, _ = _support(unit.chunk, answer[sentence_bounds(match)[0]:match.start()])
-                if located is None or cite(unit, *located) is None:
-                    continue
-                fallbacks += 1
-            found.append(_closest(per_unit[unit.key], answer[sentence_bounds(match)[0]:match.start()]))
+            if unit.key in quoted:
+                found.append(_closest(per_unit[unit.key], sentence))
+                continue
+            # No usable quote for this passage: cite the sentence of it that
+            # supports each statement, so every marker points at relevant text.
+            located, _ = _support(unit.chunk, sentence)
+            known = len(citations)
+            index = cite(unit, *located) if located is not None else None
+            if index is not None:
+                fallbacks += len(citations) - known
+                found.append(index)
         return list(dict.fromkeys(found))
 
     def sentence_bounds(match: re.Match) -> tuple[int, int]:
@@ -371,6 +383,15 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
     # order in which citations are first used in the text.
     answer = _INLINE_BULLET.sub("\n- ", answer)
     text = _MARKER.sub(lambda match: "".join(_PLACEHOLDER.format(index) for index in numbers_for(match)), answer)
+    for unit, start, end in headings.values():
+        if unit.key not in per_unit:            # still uncited: its wording, else the title itself
+            located, shared = _support(unit.chunk, answer)
+            if located is not None and shared and cite(unit, *located) is not None:
+                fallbacks += 1
+            elif cite(unit, start, end) is not None:
+                verified += 1
+            else:
+                dropped += 1
     if citations and not _PLACED.search(text):
         text = _attribute(text, [citation.quote for citation in citations])
     text = name_links(text)

@@ -7,6 +7,7 @@ the same cases are sent to a running server over HTTP instead.
     python -m scripts.eval.evaluate_ask
     python -m scripts.eval.evaluate_ask --url http://127.0.0.1:8000 --output report.json
     python -m scripts.eval.evaluate_ask --only reported-misspelt-law --show-answers
+    python -m scripts.eval.evaluate_ask --pause 4        # a key with a low per-minute quota
 
 Exit status is 1 when any case fails, so the command can gate a release.
 A pass means the expected provision was cited with an allowed status; it is a
@@ -88,6 +89,8 @@ async def run(args) -> int:
     source = _over_http(cases, args.url, args.api_key) if args.url else _in_process(cases)
     rows, failures = [], 0
     async for case, response, seconds, timings in source:
+        if rows and args.pause:
+            await asyncio.sleep(args.pause)         # stay inside the answer model's per-minute quota
         passed, reason = judge(case, response)
         failures += not passed
         rows.append({"id": case["id"], "category": case["category"], "passed": passed, "reason": reason,
@@ -129,4 +132,6 @@ if __name__ == "__main__":
     parser.add_argument("--only", nargs="*", help="Case ids or categories to run")
     parser.add_argument("--output", help="Write the full JSON report here")
     parser.add_argument("--show-answers", action="store_true")
+    parser.add_argument("--pause", type=float, default=0.0,
+                        help="Seconds to wait between questions, for an answer-model key with a low rate limit")
     sys.exit(asyncio.run(run(parser.parse_args())))

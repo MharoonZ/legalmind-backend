@@ -60,13 +60,15 @@ docs/             architecture, audit report, Phase A/B references, archive
 ## Requirements
 
 - Python 3.12 or newer
-- PostgreSQL 15+ with the `vector` extension (Supabase works)
+- PostgreSQL with the `vector` extension (the project database is Supabase;
+  the test suite's integration tests were run on PostgreSQL 16)
 - About 5 GB of disk for the models (embedding model 2.3 GB, reranker 2.3 GB; the
   reranker is optional)
 - A Gemini API key (or an OpenAI key)
 
-No GPU is needed. On a CPU-only machine a question takes one to two seconds
-plus the answer model's own response time.
+No GPU is needed. On a CPU-only machine a question is answered in one to
+three seconds, nearly all of it the answer model's own response time; the
+server needs about 2.5 GB of memory.
 
 ## Setup
 
@@ -276,6 +278,7 @@ cited provision. It uses the configured database and answer model:
 python -m scripts.eval.evaluate_retrieval                                   # retrieval only, no model calls
 python -m scripts.eval.evaluate_ask                                         # in process
 python -m scripts.eval.evaluate_ask --url http://127.0.0.1:8000 --output report.json
+python -m scripts.eval.evaluate_ask --pause 5                               # for a key with a low per-minute quota
 ```
 
 The cases refer to the pilot collection of 23 Punjab laws. For a different
