@@ -399,9 +399,13 @@ class ContractExtractionService:
         self,
         repository: ExtractionRepository,
         engine: StructuredExtractionEngine,
+        *,
+        upload_root: str | None = None,
     ) -> None:
         self.repository = repository
         self.engine = engine
+        # When given, only files inside this directory are ever opened.
+        self.upload_root = Path(upload_root).resolve() if upload_root else None
 
     async def extract(self, version_id: str) -> ExtractedContract:
         source = await self.repository.get_extraction_source(version_id)
@@ -409,6 +413,8 @@ class ContractExtractionService:
             raise ContractExtractionError("Document version was not found.")
 
         path = Path(source.storage_path)
+        if self.upload_root is not None and not path.resolve().is_relative_to(self.upload_root):
+            raise ContractExtractionError("Stored contract file is outside the upload directory.")
         await self.repository.mark_extracting(version_id)
         try:
             if await asyncio.to_thread(_sha256_file, path) != source.pdf_sha256:

@@ -1,15 +1,11 @@
 # Haroon's legal-corpus schema (first implementation slice)
 
-This migration is **additive**. It does not change the legacy 30-section
-`law_sources`, `law_sections`, and `law_passages` search path, and it does not
-mix private uploaded contracts into the authoritative legal corpus. It creates
-the database foundation for an admin upload, extraction inspector, structured
-Act/Rule parser, and review workflow. A local-only upload API and screen now
-register source PDFs and queue extraction jobs. A separate extraction worker
-and local original-page/text inspector now reuse the existing extraction and
-job tables; see [worker setup and behavior](LEGAL_PDF_EXTRACTION.md). The worker
-supports native text and optional local Tesseract OCR. A human approval UI,
-legal-structure parser, and publication switch are still future work.
+This is the table reference for the legal corpus that Phase A writes (upload,
+extraction, structure, review). It was written for the first implementation
+slice; the pipeline that now fills these tables, and the later chunk,
+embedding and publication tables, are described in
+[ARCHITECTURE.md](ARCHITECTURE.md) and the [README](../README.md). Private
+uploaded contracts are never mixed into the authoritative legal corpus.
 
 ## Table ownership and meaning
 

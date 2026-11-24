@@ -138,6 +138,23 @@ class FakeExtractionRepository:
 
 
 @pytest.mark.anyio
+async def test_service_refuses_a_stored_path_outside_the_upload_directory(tmp_path):
+    outside = tmp_path / "elsewhere" / "secret.pdf"
+    outside.parent.mkdir()
+    data = _write_pdf(outside, ["1. Scope\nSome selectable contract text"])
+    source = ExtractionSource(
+        document_id="doc:test", version_id="docver:test", storage_path=str(outside),
+        pdf_sha256=hashlib.sha256(data).hexdigest(), page_count=1, status="uploaded")
+    repository = FakeExtractionRepository(source)
+    engine = FakeEngine([StructuredBlock("section_header", "1. Scope", (1,))])
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    with pytest.raises(ContractExtractionError, match="outside the upload directory"):
+        await ContractExtractionService(repository, engine, upload_root=str(uploads)).extract(source.version_id)
+    assert repository.calls == ["get"]                      # nothing was opened or marked
+
+
+@pytest.mark.anyio
 async def test_service_records_failure_when_stored_hash_changed(tmp_path):
     pdf_path = tmp_path / "changed.pdf"
     data = _write_pdf(pdf_path, ["1. Scope\nSome selectable contract text"])

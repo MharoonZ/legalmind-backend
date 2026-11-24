@@ -395,11 +395,3 @@ class LegalExtractionRepository:
                     "warnings": block.warnings,
                 } for block in blocks],
             }
-
-    async def extraction_belongs_to_file(self, extraction_id: UUID, file_id: UUID) -> bool:
-        async with self.db.session() as session:
-            return (await session.scalar(
-                select(FileExtraction.id).where(
-                    FileExtraction.id == extraction_id, FileExtraction.file_id == file_id
-                )
-            )) is not None

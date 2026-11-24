@@ -86,7 +86,9 @@ class AnswerGenerator:
         self._openai = openai_client
         self._sleep = sleep
         self._fallback_missing = False
-        self._avoid_until: dict[str, float] = {}     # model -> loop time until which it is avoided
+        # model -> (loop time until which it is avoided, whether the provider stated that wait).
+        # A stated wait (rate limit) is obeyed; an assumed one (overload) only orders the models.
+        self._avoid: dict[str, tuple[float, bool]] = {}
 
     @property
     def provider(self) -> str:
@@ -138,14 +140,23 @@ class AnswerGenerator:
             return [primary]
         return [primary, fallback]
 
+    def _rate_limited_until(self, now: float) -> float:
+        """0 when some model may be called now, else when the first rate limit ends."""
+        waits = [until for model in self._gemini_models()
+                 for until, stated in (self._avoid.get(model, (0.0, False)),) if stated and until > now]
+        return min(waits) if len(waits) == len(self._gemini_models()) else 0.0
+
     def _next_model(self, now: float, in_flight: Counter) -> str:
         """The model for the next call: one that is not being avoided, with the fewest calls in flight."""
         models = self._gemini_models()
-        healthy = [model for model in models if self._avoid_until.get(model, 0.0) <= now]
+        avoided = {model: self._avoid.get(model, (0.0, False)) for model in models}
+        healthy = [model for model in models if avoided[model][0] <= now]
         if healthy:
             return min(healthy, key=lambda model: (in_flight[model], models.index(model)))
-        # Every model reported overload: take the one that did so longest ago.
-        return min(models, key=lambda model: (in_flight[model], self._avoid_until.get(model, 0.0)))
+        # Every model reported trouble: skip rate-limited ones, then take the
+        # one that reported overload longest ago.
+        open_models = [model for model in models if not avoided[model][1]] or models
+        return min(open_models, key=lambda model: (in_flight[model], avoided[model][0]))
 
     async def _race(self, system, user, schema, max_output_tokens) -> tuple[dict, int]:
         """One answer from the configured models, inside a single deadline.
@@ -156,7 +167,10 @@ class AnswerGenerator:
         ``qa_llm_hedge_seconds`` gets another call racing beside it (at most
         ``_MAX_PARALLEL`` in flight). The first valid reply wins and the rest
         are cancelled, so a stalled or overloaded model cannot hold a question
-        hostage.
+        hostage. When every model is rate limited past the deadline, the
+        exchange ends at once instead of spending the quota on doomed calls;
+        a model whose stated rate-limit wait ends before the deadline gets one
+        more call after that wait, even when the retries are used up.
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.settings.qa_gemini_timeout_seconds
@@ -165,7 +179,17 @@ class AnswerGenerator:
         pending: dict[asyncio.Task, str] = {}
         launched = failures = replaced = hedges = 0
         replace_at = hedge_at = loop.time()
+        limited: dict[str, float] = {}      # models that stated a rate-limit wait during this exchange
         failure: Exception = GenerationUnavailable("The answer model did not respond in time.")
+
+        def launch(model: str, now: float) -> None:
+            nonlocal launched, hedge_at
+            limited.pop(model, None)
+            pending[asyncio.create_task(self._gemini(
+                system, user, schema, max_output_tokens, model, max(1.0, deadline - now)))] = model
+            launched += 1
+            hedge_at = now + hedge
+
         try:
             while True:
                 now = loop.time()
@@ -177,20 +201,33 @@ class AnswerGenerator:
                 due = now if not launched else min(
                     (moment for wanted, moment in ((replacing, replace_at), (hedging, hedge_at)) if wanted),
                     default=None)
+                if due is not None:
+                    # A rate limit with a stated wait is obeyed, not hammered.
+                    due = max(due, self._rate_limited_until(now))
+                    if due >= deadline and not pending:
+                        raise failure
                 if due is not None and now >= due:
                     if launched and replacing and now >= replace_at:
                         replaced += 1
                     elif launched:
                         hedges += 1
-                    model = self._next_model(now, Counter(pending.values()))
-                    pending[asyncio.create_task(self._gemini(
-                        system, user, schema, max_output_tokens, model, max(1.0, deadline - now)))] = model
-                    launched += 1
-                    hedge_at = now + hedge
+                    launch(self._next_model(now, Counter(pending.values())), now)
                     continue
                 if not pending:
                     if due is None:
-                        raise failure               # every allowed attempt has failed
+                        # The retries are used up. A model that asked for a wait
+                        # which ends in time is still worth one call after it.
+                        waits = sorted((until, model) for model, until in limited.items()
+                                       if until < deadline - 1.0)
+                        if not waits:
+                            raise failure
+                        until, model = waits[0]
+                        if until > now:
+                            await self._sleep(until - now)
+                        if loop.time() < until:
+                            raise failure           # an injected clock did not advance
+                        launch(model, loop.time())
+                        continue
                     await self._sleep(min(due, deadline) - now)
                     replace_at = min(replace_at, loop.time())    # an injected clock may not advance
                     continue
@@ -205,12 +242,14 @@ class AnswerGenerator:
                         failure, failures = exc.error, failures + 1
                         if exc.missing_model:
                             self._fallback_missing = True
+                        elif exc.retry_after:
+                            limited[model] = loop.time() + min(_MAX_COOLDOWN_SECONDS, exc.retry_after)
+                            self._avoid[model] = (limited[model], True)
                         elif exc.overloaded and len(self._gemini_models()) > 1:
-                            self._avoid_until[model] = loop.time() + min(
-                                _MAX_COOLDOWN_SECONDS, exc.retry_after or _COOLDOWN_SECONDS)
+                            self._avoid[model] = (loop.time() + _COOLDOWN_SECONDS, False)
                         replace_at = loop.time() + _pause(failures)
                     else:
-                        self._avoid_until.pop(model, None)
+                        self._avoid.pop(model, None)
                         return result, launched
         finally:
             for task in pending:

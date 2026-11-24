@@ -158,7 +158,6 @@ _LEGAL_NOUN_NOTE_MARKER = re.compile(
 _WORD_NOTE_MARKER = re.compile(r"\b[A-Za-z]{3,}(?P<label>[1-9])(?=[ \t,.;:)\]])")
 _ROMAN_ITEM = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5,
                "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10}
-_CONTENTS = re.compile(r"\bC\s*O\s*N\s*T\s*E\s*N\s*T\s*S\b|\bTABLE OF CONTENTS\b", re.IGNORECASE)
 _CONTENTS_HEADING = re.compile(
     r"^(?:C\s*O\s*N\s*T\s*E\s*N\s*T\s*S|TABLE OF CONTENTS)\s*$", re.IGNORECASE,
 )

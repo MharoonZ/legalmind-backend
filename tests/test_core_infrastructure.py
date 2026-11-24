@@ -57,6 +57,22 @@ def test_old_environment_files_keep_working():
 
 
 # -------------------------------------------------------------- rate limiter
+def test_database_tls_is_off_encrypted_or_verified():
+    import ssl
+
+    import certifi
+
+    from app.db.session import tls_argument
+    assert tls_argument(make_settings(db_ssl=False)) is None
+    assert tls_argument(make_settings(db_ssl=True)) == "require"        # encrypted, server not verified
+    assert tls_argument(make_settings(db_ssl=True, db_ssl_root_cert="  ")) == "require"
+    verified = tls_argument(make_settings(db_ssl=True, db_ssl_root_cert=certifi.where()))
+    assert isinstance(verified, ssl.SSLContext)
+    assert verified.verify_mode == ssl.CERT_REQUIRED and verified.check_hostname
+    with pytest.raises(FileNotFoundError):                              # a wrong path stops start-up
+        tls_argument(make_settings(db_ssl=True, db_ssl_root_cert="/no/such/ca.pem"))
+
+
 def test_rate_limiter_is_a_sliding_window_per_client():
     limiter = RateLimiter(window_seconds=60)
     assert [limiter.allow("a", 2, now=t)[0] for t in (0, 1, 2)] == [True, True, False]

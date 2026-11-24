@@ -122,7 +122,7 @@ def test_a_model_that_reported_overload_is_avoided_for_the_next_questions():
     # Only the first question paid for a failed call to the overloaded model.
     assert calls == ["primary-model", "fallback-model", "fallback-model", "fallback-model"]
     # Once the cool-down passes, the primary model is tried first again.
-    client._avoid_until["primary-model"] = 0.0
+    client._avoid["primary-model"] = (0.0, False)
     run(client.generate_json("s", "u", SCHEMA))
     assert calls[-2:] == ["primary-model", "fallback-model"]
 
@@ -137,9 +137,61 @@ def test_the_wait_a_rate_limited_model_asks_for_is_respected():
 
     async def ask():
         result = await client.generate_json("s", "u", SCHEMA)
-        return result, client._avoid_until["primary-model"] - asyncio.get_running_loop().time()
-    result, wait = run(ask())
-    assert result == {"answer": "ok"} and 40 < wait <= 47
+        until, stated = client._avoid["primary-model"]
+        return result, until - asyncio.get_running_loop().time(), stated
+    result, wait, stated = run(ask())
+    assert result == {"answer": "ok"} and 40 < wait <= 47 and stated
+
+
+def rate_limited(seconds):
+    return httpx.Response(429, json={"error": {"status": "RESOURCE_EXHAUSTED", "details": [
+        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": f"{seconds}s"}]}})
+
+
+def test_a_rate_limit_longer_than_the_deadline_ends_the_exchange_at_once():
+    calls = []
+
+    def handler(request):
+        calls.append(model_of(request))
+        return rate_limited(60)
+    client = generator(handler)
+    with pytest.raises(GenerationUnavailable, match="429"):
+        run(client.generate_json("s", "u", SCHEMA))
+    assert calls == ["primary-model", "fallback-model"]     # one call each, then no hammering
+    # The next question does not call a model that is still rate limited.
+    with pytest.raises(GenerationUnavailable):
+        run(client.generate_json("s", "u", SCHEMA))
+    assert len(calls) == 2
+
+
+def test_a_rate_limited_model_gets_one_more_call_after_its_wait_even_without_retries_left():
+    calls = []
+
+    def handler(request):
+        calls.append(model_of(request))
+        if calls[-1] == "primary-model":
+            return rate_limited(0.6) if calls.count("primary-model") == 1 else reply({"answer": "second chance"})
+        return reply(status=503)
+    # One retry only: it is spent on the overloaded fallback long before the wait is over.
+    client = AnswerGenerator(config(qa_llm_hedge_seconds=0, qa_llm_max_retries=1),
+                             transport=httpx.MockTransport(handler))
+    assert run(client.generate_json("s", "u", SCHEMA)) == {"answer": "second chance"}
+    assert calls == ["primary-model", "fallback-model", "primary-model"]
+
+
+def test_a_short_rate_limit_is_waited_out_and_overloaded_models_are_preferred_meanwhile():
+    calls = []
+
+    def handler(request):
+        calls.append(model_of(request))
+        if calls[-1] == "primary-model":
+            return rate_limited(0.5) if calls.count("primary-model") == 1 else reply({"answer": "after the wait"})
+        return reply(status=503)
+    client = AnswerGenerator(config(qa_llm_hedge_seconds=0), transport=httpx.MockTransport(handler))
+    assert run(client.generate_json("s", "u", SCHEMA)) == {"answer": "after the wait"}
+    # While the primary is rate limited only the overloaded fallback is retried.
+    assert calls[0] == "primary-model" and calls[-1] == "primary-model"
+    assert set(calls[1:-1]) == {"fallback-model"}
 
 
 def test_when_every_model_is_overloaded_they_take_turns_until_the_retries_run_out():
@@ -160,7 +212,7 @@ def test_a_success_clears_the_overload_mark():
         return reply(status=503) if next(outcomes) == 503 else reply({"answer": model_of(request)})
     client = generator(handler, gemini_fallback_model=None)
     assert run(client.generate_json("s", "u", SCHEMA)) == {"answer": "primary-model"}
-    assert not client._avoid_until               # a lone model is never avoided
+    assert not client._avoid                     # a lone model is not avoided for overload
 
 
 def test_transient_errors_are_retried_then_reported_as_unavailable():

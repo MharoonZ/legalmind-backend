@@ -13,7 +13,6 @@ LEGAL_KINDS = {
     "section", "subsection", "paragraph", "article", "rule",
     "part", "chapter", "schedule",
 }
-SOURCE_STATUSES = {"repealed", "omitted", "deleted"}
 _DIRECT = re.compile(
     r"(?:\A|[.\]\n])\s*[-\u2013\u2014\ufffd]?\s*\[?\s*"
     r"(?P<status>repealed|omitted|deleted)\b"

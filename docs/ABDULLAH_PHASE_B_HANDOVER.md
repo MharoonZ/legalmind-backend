@@ -457,7 +457,7 @@ Response fields for typed upload/extraction routes are in `app/schemas/legal_ing
 | Extract | `app/workers/legal_extract.py::process_one`; `app/services/legal_extraction.py::extract_page`; `app/repositories/legal_extraction_repository.py` | Worker consumes extract job, verifies source hash/page count, writes extraction/page/block records, including outcomes and OCR routing. OCR is configurable but has produced no saved OCR pages in this live corpus. |
 | Structure | `app/repositories/legal_structure_repository.py::create_revision/complete`; `app/workers/legal_structure.py::process_one`; `app/services/legal_structure.py::parse_structure` | Queues and writes a **new draft** revision; current parser `legal-structure-v12`, normalizer `legal-pages-v1`. Saves nodes/spans/notes/coverage/candidates and parser report; it may complete with warnings or pages needing review. |
 | Inspect/audit | `app/repositories/legal_structure_repository.py::audit/page_audit`; `app/services/legal_audit.py`; local route above | Read-only structural detector. Offset/coverage success is not human legal verification. |
-| Local Phase B approval | `app/repositories/legal_structure_repository.py::approval_check/approve`; `app/api/routes/legal_ingestion.py::approve_structure_revision`; `scripts/approve_latest_legal_revisions.py` | Checks hard integrity conditions and records an append-only event with exception codes, then sets latest revision approved. **Not authenticated legal sign-off**; 23 latest revisions approved with known findings still open. |
+| Local Phase B approval | `app/repositories/legal_structure_repository.py::approval_check/approve`; `app/api/routes/legal_ingestion.py::approve_structure_revision`; `scripts/pipeline/approve_latest_legal_revisions.py` | Checks hard integrity conditions and records an append-only event with exception codes, then sets latest revision approved. **Not authenticated legal sign-off**; 23 latest revisions approved with known findings still open. |
 
 ## 7. Phase B build contract — **PROPOSED, NOT IMPLEMENTED**
 
@@ -566,7 +566,7 @@ python -m venv .venv
 Copy-Item .env.example .env
 .\.venv\Scripts\alembic current
 .\.venv\Scripts\alembic upgrade head   # writes migrations; only on an authorized dev DB
-.\.venv\Scripts\python scripts/check_db.py
+.\.venv\Scripts\python -m scripts.audit.check_db
 .\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -575,10 +575,10 @@ For the local inspector only, set `ENVIRONMENT=development` and `LEGAL_INGEST_EN
 ```powershell
 # Read-only corpus checks (use the configured development database):
 $env:PYTHONPATH = '.'
-.\.venv\Scripts\python scripts/audit_corpus_persistence_readonly.py
-.\.venv\Scripts\python scripts/audit_latest_legal_revisions.py
-.\.venv\Scripts\python scripts/show_revision_audit_readonly.py <revision-uuid>
-.\.venv\Scripts\python scripts/approve_latest_legal_revisions.py  # read-only preflight by default
+.\.venv\Scripts\python -m scripts.audit.audit_corpus_persistence_readonly
+.\.venv\Scripts\python -m scripts.audit.audit_latest_legal_revisions
+.\.venv\Scripts\python -m scripts.audit.show_revision_audit_readonly <revision-uuid>
+.\.venv\Scripts\python -m scripts.pipeline.approve_latest_legal_revisions  # read-only preflight by default
 
 # Test suite; run in a disposable/test DB when a test needs DB state:
 .\.venv\Scripts\python -m pytest -q
@@ -630,8 +630,8 @@ $env:PYTHONPATH = '.'
 | `app/services/legal_upload.py`, `app/repositories/legal_ingestion_repository.py` | PDF validation/content-addressed storage and registration transaction. |
 | `app/services/legal_extraction.py`, `app/workers/legal_extract.py`, `app/repositories/legal_extraction_repository.py` | OCR/page/block processing and review events. |
 | `app/services/legal_structure.py`, `app/services/legal_status.py`, `app/workers/legal_structure.py`, `app/repositories/legal_structure_repository.py` | Current v12 parser, statuses, source spans, revision generation and read-only audit. |
-| `app/services/legal_audit.py`, `scripts/audit_corpus_persistence_readonly.py`, `scripts/audit_latest_legal_revisions.py`, `scripts/show_revision_audit_readonly.py` | Verification before any future publication. |
-| `scripts/approve_latest_legal_revisions.py`, `tests/test_legal_approval_api.py` | Read-only approval preflight by default; explicit local write mode; route security/decision tests. |
+| `app/services/legal_audit.py`, `scripts/audit/audit_corpus_persistence_readonly.py`, `scripts/audit/audit_latest_legal_revisions.py`, `scripts/audit/show_revision_audit_readonly.py` | Verification before any future publication. |
+| `scripts/pipeline/approve_latest_legal_revisions.py`, `tests/test_legal_approval_api.py` | Read-only approval preflight by default; explicit local write mode; route security/decision tests. |
 | `legalmind-frontend/src/app/admin/ingest/approval-panel.tsx`, `legalmind-frontend/src/app/admin/ingest/versions/[versionId]/review/simple-review.tsx` | Visible local approval action and persistent display of unresolved exceptions. |
 | `app/core/config.py` | Retains only a legacy vector width setting for historical Alembic migrations; no live retrieval configuration. |
 | `app/db/models.py`, `app/api/routes/contracts.py` | Separate private contract data; never mix with authoritative law chunks. |

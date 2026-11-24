@@ -1,132 +1,336 @@
 # LegalMind backend
 
-This repository implements full-PDF legal corpus ingestion and review, legal-aware chunking, BGE-M3 embeddings, validated corpus publications, and first-stage legal retrieval. Uploaded contracts remain a separate API. The earlier 30-section `/ask` prototype is retired; the new search endpoint returns evidence candidates rather than generated legal answers.
+LegalMind answers questions about a collection of laws. It ingests the official
+PDFs, keeps the structure of each law (sections, sub-sections, schedules),
+publishes a reviewed snapshot of the collection, and answers questions from
+that snapshot only. Every answer cites the provision and the PDF page it
+quotes, and each quotation is checked against the published text before it is
+returned.
 
-Phase C now also provides a new `POST /ask` that uses the active publication,
-checks evidence, generates a structured draft and verifies its citations. See
-[Shimza's implementation and validation notes](docs/SHIMZA_PHASE_C.md).
+The API is a FastAPI application backed by PostgreSQL (with pgvector). The
+answer model is Google Gemini; OpenAI can be used instead or as a failover.
 
-For the `feature/ask` audit and current runbook, see the
-[architecture guide](docs/LEGALMIND_COMPLETE_SYSTEM_ARCHITECTURE_AND_STAGE_GUIDE.md),
-[database audit](docs/DATABASE_DATA_QUALITY_AUDIT.md) and
-[RAG benchmark report](docs/LEGALMIND_RAG_TESTING_AND_BENCHMARK_REPORT.md).
+## How it works
 
-Current changes, diagrams and limitations are in [the implementation continuation](docs/LEGALMIND_IMPLEMENTATION_2026-11-14.md). The preceding architecture audit and baseline are in [the 14 November system review](docs/LEGALMIND_REVIEW_2026-11-14.md). The answer implementation is grouped under app/services/qa.
+```
+Phase A  Ingestion (local administration)
+  upload PDF -> extract text / OCR per page -> parse legal structure -> review and approve
 
-The [original PDF validation report](docs/LEGALMIND_ORIGINAL_PDF_VALIDATION_2026-11-14.md) records restoration of all 23 source files and checks of physical pages, extracted blocks, chunk/embedding lineage and literal citations.
+Phase B  Indexing
+  legal-aware chunks -> keyword index -> embeddings (BAAI/bge-m3) -> immutable publication
 
-## Legal-PDF flow
-
-1. Register an Act or Rules PDF and its law/edition metadata through the local admin API.
-2. Run the extraction worker. It saves every physical page, ordered text blocks, extraction method, table regions, and warnings.
-3. Inspect the original PDF against the saved page extraction.
-4. Build a draft structure revision and run the structure worker. It saves provisions, notes, relationships, and exact source spans.
-5. Review the persisted structure and audit findings; explicitly approve a revision when the review decision is justified.
-
-Each PDF has a durable job and extraction record. A structure revision pins specific completed extraction IDs; reprocessing does not silently change historical revisions. Approval alone does not expose content to user search: a validated active publication must explicitly select its chunk set and revision.
-
-## Chunking (Stage 6)
-
-`scripts/build_legal_chunks.py` builds legal-aware chunks from approved revisions, following the boundary policy in [the Phase B handover](docs/ABDULLAH_PHASE_B_HANDOVER.md#71-legal-aware-chunks):
-
-- One chunk per Section/Rule/Article/Schedule/Preamble by default; a long one is split only at a boundary between its direct children (e.g. between subsections), never mid-provision.
-- Every chunk is prefixed with `Act title — label — heading`.
-- `other` provisions (source notes, contents, running headers) and any provision explicitly marked `omitted`, `repealed`, or `deleted` are excluded, along with their descendants.
-- A chunk set is pinned to `(revision_id, content_sha256, chunker_version, config)`; rerunning with the same inputs is a no-op, and only an `approved` revision can be chunked. Changing the chunker version or config produces a new, additional chunk set rather than overwriting the old one.
-
-```powershell
-.\.venv\Scripts\python scripts/build_legal_chunks.py --dry-run   # report only
-.\.venv\Scripts\python scripts/build_legal_chunks.py             # build every approved revision
+Phase C  Question answering (POST /ask)
+  understand the question     law names and section numbers, tolerant of typos; follow-ups
+  retrieve                    exact provision lookup, BM25 keywords, dense vectors, rank fusion
+  rerank (optional)           cross-encoder, only when the hardware is fast enough
+  assemble evidence           whole provisions, definitions, cross-referenced provisions
+  generate                    one structured model call
+  verify citations            every quote located in the published text and its PDF page
 ```
 
-See `app/services/legal_chunking.py` (pure chunking logic) and `app/repositories/legal_chunk_repository.py` (loading/idempotent persistence into `chunk_sets`, `legal_chunks`, `legal_chunk_provisions`).
+The active publication is loaded into memory once and refreshed when another
+publication is activated, so answering a question makes no database queries.
+A fuller description, with the reasoning behind each stage, is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Embeddings and publication retrieval (Stages 7 to 10)
+## Repository layout
 
-The active profile is `bge-m3-v1` (`BAAI/bge-m3`, 1024 dimensions, 8192 tokens).
-The builder preserves valid embeddings and repairs only missing, stale, or invalid
-rows. Token limits are checked with the tokenizer; source text is not silently
-truncated. Existing cosine HNSW and full-text GIN indexes are reused.
-
-Stage 9 creates immutable `corpus_publications` and `publication_items` from an
-explicit list of approved chunk sets. Creation reproduces chunks from their saved
-source spans and audits every vector. Activation validates again and atomically
-replaces the active publication. Published data is protected; new revisions,
-independent chunk sets, and profiles remain possible.
-
-Stage 10 `POST /search/legal` supports exact legal references, PostgreSQL FTS,
-HNSW semantic candidates, and Reciprocal Rank Fusion. Only the complete active
-publication is searched. Ambiguous references ask for clarification; missing
-references do not fall back to unrelated sections. Optional follow-up context is
-explicit request input. Candidate responses include legal/source metadata and
-keyword, vector, and RRF ranks. A semantic failure is disclosed if results use
-only lexical search.
-
-Search is off by default. To enable it after activating a publication:
-
-```powershell
-$env:LEGAL_SEARCH_ENABLED = 'true'
-.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-r
-Use [the implementation document and full PowerShell runbook](docs/STAGE9_STAGE10_IMPLEMENTATION.md)
-for the audit findings, safe migration, explicit publication creation/activation,
-retrieval examples, tests, and evaluation. First semantic use loads the BGE-M3
-weights; the optional audit calibration command can cache the weights beforehand.
-Publication HTTP administration shares the existing loopback/development gate.
-Existing local approvals do not certify current legal applicability.
+app/
+  api/            routes, dependencies (API key, rate limit), request middleware
+  core/           settings, logging, inference queue, rate limiter
+  db/             SQLAlchemy models and the async session
+  retrieval/      Phase C first stage: snapshot, law resolver, reference parser, BM25, fusion
+  qa/             Phase C answer stage: rerank, evidence, prompt, model client, citations
+  embeddings/     embedding profiles, encoder and vector storage (Phase B)
+  services/       Phase A/B logic: extraction, structure parser, chunking, audits, contracts
+  repositories/   Phase A/B database access
+  workers/        background jobs: page extraction and structure parsing
+  schemas/        request and response models
+scripts/
+  pipeline/       commands that build the corpus (chunks, embeddings, publications)
+  audit/          read-only inspection commands
+  eval/           retrieval and end-to-end evaluation
+alembic/          database migrations
+data/             evaluation cases and review manifests
+tests/            unit, API and (opt-in) PostgreSQL integration tests
+docs/             architecture, audit report, Phase A/B references, archive
+```
 
-The 23 pilot legal source PDFs under `uploads/legal/` are committed to the private `haroon` branch so teammates can render original pages locally. Their content-hash paths must remain unchanged because database records refer to them. Future uploads remain Git-ignored by default; do not commit private contracts, database backups, or credentials.
+## Requirements
 
-The local admin UI is at `http://localhost:3000/admin/ingest` in the sibling frontend repository. It is development-only and has no production login. Do not expose it publicly.
+- Python 3.12 or newer
+- PostgreSQL 15+ with the `vector` extension (Supabase works)
+- About 5 GB of disk for the models (embedding model 2.3 GB, reranker 2.3 GB; the
+  reranker is optional)
+- A Gemini API key (or an OpenAI key)
 
-## Local setup
+No GPU is needed. On a CPU-only machine a question takes one to two seconds
+plus the answer model's own response time.
 
-Use Python 3.12+ and PostgreSQL. In PowerShell:
+## Setup
+
+Linux and macOS:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU-only hosts; skips the CUDA build
+pip install -r requirements-dev.txt                                   # or requirements.txt without test tools
+cp .env.example .env                                                  # then edit .env
+alembic upgrade head
+python -m scripts.pipeline.download_models                            # add --skip-reranker to save 2.3 GB
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements-dev.txt
+.\.venv\Scripts\Activate.ps1
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements-dev.txt
 Copy-Item .env.example .env
-# Fill DATABASE_URL in the uncommitted .env file.
-.\.venv\Scripts\python -m alembic upgrade head
+alembic upgrade head
+python -m scripts.pipeline.download_models
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Enable `LEGAL_INGEST_ENABLED=true` only for loopback development. Run the API and the two workers in separate terminals:
+The minimum `.env` for answering questions:
 
-```powershell
-.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-.\.venv\Scripts\python -m app.workers.legal_extract --watch
-.\.venv\Scripts\python -m app.workers.legal_structure --watch
+```dotenv
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres
+LEGAL_SEARCH_ENABLED=true
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=...
 ```
 
-A new upload queues extraction; it remains queued unless the extraction worker runs. Structure generation and approval are separate steps. The `/contracts` endpoint is a different workflow and must not be treated as the statutory corpus.
+Special characters in the database password must be URL-encoded (`#` becomes
+`%23`). `.env` is ignored by Git; never commit it.
 
-## Checks
+`GET /health/ready` returns 200 once the publication is in memory. The models
+load in the background right after start-up (`models_ready` in the same
+response); the first question after a cold start waits for them.
 
-```powershell
-.\.venv\Scripts\python -m pytest -q
+## Configuration
+
+Every setting is an environment variable read by `app/core/config.py`; the
+common ones are listed with comments in `.env.example`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ENVIRONMENT` | `development` | `production` turns off `/docs` and the local administration routes |
+| `LEGAL_SEARCH_ENABLED` | `false` | Enables `/ask` and `/search/legal` |
+| `API_KEYS` | empty | Comma-separated keys for `/ask` and `/search/legal`; empty leaves them open |
+| `RATE_LIMIT_PER_MINUTE` | `60` | Per-client limit on those two routes |
+| `CORS_ORIGINS` | `http://localhost:3000` | Frontends allowed to call the API |
+| `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash-lite` / `gemini-3.1-flash-lite` | Answer model, and the one used when it is overloaded or rate limited |
+| `QA_GEMINI_TIMEOUT_SECONDS` | `25` | Time allowed for one answer, retries included |
+| `QA_RERANK_MODE` | `auto` | `auto` reranks only when the host can do it inside `QA_RERANK_BUDGET_MS` |
+| `PUBLICATION_CACHE_DIR` | `.cache/publications` | Disk cache of the publication, so restarts skip the database transfer |
+| `DB_SSL_ROOT_CERT` | empty | CA file used to verify the database server's certificate |
+| `LEGAL_INGEST_ENABLED` | `false` | Local administration (ingestion, review, publications); development and loopback only |
+
+## Building the collection
+
+Run these from the repository root with the virtual environment active. The
+ingestion routes exist only when `ENVIRONMENT=development` and
+`LEGAL_INGEST_ENABLED=true`, and only answer requests from the same machine.
+
+1. **Register PDFs.** Use the frontend's local ingestion screen, or
+   `POST /local-admin/legal/uploads`.
+2. **Extract pages and parse structure.** Two workers process the queued jobs:
+
+   ```bash
+   python -m app.workers.legal_extract --watch
+   python -m app.workers.legal_structure --watch
+   ```
+
+   Without `--watch` each processes one job and exits. Both can be stopped at
+   any time; an interrupted job is released and picked up again.
+3. **Review and approve** each revision in the local review screen, or list and
+   approve the latest revisions from the command line:
+
+   ```bash
+   python -m scripts.pipeline.approve_latest_legal_revisions                      # read-only report
+   python -m scripts.pipeline.approve_latest_legal_revisions --apply --reason "Reviewed against the source PDFs"
+   ```
+4. **Chunk and embed** the approved revisions (both are safe to re-run):
+
+   ```bash
+   python -m scripts.pipeline.build_legal_chunks
+   python -m scripts.pipeline.build_legal_embeddings
+   ```
+5. **Publish.** A publication is an immutable list of chunk sets. Nothing is
+   served until one is activated, and activation is always explicit:
+
+   ```bash
+   python -m scripts.pipeline.manage_publications plan --output plan.json
+   python -m scripts.pipeline.manage_publications create --manifest plan.json --name pilot-2026-11
+   python -m scripts.pipeline.manage_publications activate --publication-id <id from the previous command>
+   ```
+
+   A running server notices the new publication within
+   `PUBLICATION_REFRESH_SECONDS` (60 by default); no restart is needed.
+
+Read-only inspection commands live in `scripts/audit/`; each prints its options
+with `--help`. For example:
+
+```bash
+python -m scripts.audit.check_db
+python -m scripts.audit.search_legal "punishment for gaming in a public place"
+python -m scripts.audit.ask "What is section 3 of the Punjab Prevention of Gambling Ordinance 1978?"
 ```
 
-See [the Phase B handover](docs/ABDULLAH_PHASE_B_HANDOVER.md) for the approved-revision contract and [the corpus audit](docs/CORPUS_WIDE_LEGAL_PDF_AUDIT_2026-10-09_V11.md) for recorded limitations. Neither test completion nor approval alone proves legal accuracy.
+## API
 
-## Migration history
+### `POST /ask`
 
-Alembic retains historical migrations that originally created the 30-section `law_sources`, `law_sections`, and `law_passages` tables. Migration `20261009_12` drops those tables. The historical migration files and their pgvector dependency remain so databases can traverse the migration chain; they are not active search code.
+```json
+{
+  "question": "What is Section 3 of Punjb Prevention of Gambling Ordinance 1978?",
+  "history": [
+    {"role": "user", "content": "an earlier question"},
+    {"role": "assistant", "content": "the earlier answer"}
+  ]
+}
+```
 
-## Existing shimza branch compatibility
+Only `question` is required. `history` (oldest first) lets follow-ups such as
+"what is the penalty for that?" work; `law` restricts the question to one law.
 
-The current Phase A/B implementation and Phase C code are retained when joining
-the earlier `shimza` history. The previous read-only PDF inspector is available
-under `/local-admin/legal/inspection`, avoiding collisions with the current
-`/local-admin/legal` routes. It uses the same development/loopback gate.
+```json
+{
+  "status": "answered",
+  "question": "...",
+  "answer": "Section 3 of the Punjab Prevention of Gambling Ordinance, 1978 ... [1]",
+  "citations": [
+    {
+      "law": "The Punjab Prevention of Gambling Ordinance, 1978",
+      "kind": "section", "label": "3", "page_index": 3,
+      "quote": "shall be punishable with imprisonment for a term which shall not be less than one month ...",
+      "filename": "112.pdf", "file_sha256": "...", "source_span_id": "..."
+    }
+  ],
+  "limitations": ["This is general information from the cited legal text, not legal advice."],
+  "clarification_question": null,
+  "clarification_options": [],
+  "missing_support": null
+}
+```
 
-The earlier `scripts.run_legal_extraction` CLI and its worker use
-`legacy_legal_extraction_repository.py`; the current `app.workers.legal_extract`
-and `legal_extraction_repository.py` keep their existing implementation. This
-separates the two repository interfaces. Earlier Sprint 2 documents are retained
-as historical references; use the current workflow above for Phase A/B.
+`[1]` in the answer refers to `citations[0]`. Quotes are the law's own wording,
+taken from the published text.
 
-Keep `QA_RECORD_RUNS=false` unless the optional audit tables and their
-row-level security migrations (`20261017_18` and `20261111_19`) are installed
-on the intended database and question retention has been reviewed.
+| `status` | HTTP | Meaning |
+|---|---|---|
+| `answered` | 200 | The evidence answers the question |
+| `partial` | 200 | Part of it is answered; `missing_support` says what is not |
+| `clarification_needed` | 200 | The question is ambiguous; `clarification_options` lists the laws to choose from |
+| `insufficient_evidence` | 200 | The collection does not cover it |
+| `service_unavailable` | 503 | The answer model, the database or the server is temporarily unavailable; retry |
+
+If the answer model cannot be reached, a request for named provisions still
+returns their text (`partial`) instead of an error. The `Server-Timing`
+response header reports the time spent in each stage and `X-Request-ID`
+matches the request's log lines.
+
+### `POST /search/legal`
+
+Returns the ranked evidence passages for a query without generating an answer.
+Useful for debugging retrieval.
+
+### Health
+
+- `GET /health/live`: the process is running.
+- `GET /health/ready`: 200 when the service can answer questions.
+- `GET /health`: database, publication and model status in one response.
+
+### Protecting a public deployment
+
+Set `API_KEYS`; clients then send `X-API-Key: <key>` (or `Authorization: Bearer
+<key>`). Requests are limited per client by `RATE_LIMIT_PER_MINUTE`, request
+bodies are size-limited, and at most `QA_MAX_CONCURRENT_REQUESTS` questions run
+at once; the rest wait up to `QA_QUEUE_TIMEOUT_SECONDS`.
+
+## Testing
+
+```bash
+pytest                      # unit and API tests; no database, model or network needed
+ruff check .                # lint
+```
+
+Integration tests read a real database (nothing is written). They are skipped
+unless a URL is given, and work with any published collection:
+
+```bash
+LEGALMIND_TEST_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres pytest tests/test_integration_postgres.py
+```
+
+End-to-end evaluation asks the labelled questions in `data/ask_evaluation.json`
+(misspelt law names, abbreviations, ranges, paraphrases, Roman Urdu,
+follow-ups, laws that are not in the collection) and checks the status and the
+cited provision. It uses the configured database and answer model:
+
+```bash
+python -m scripts.eval.evaluate_retrieval                                   # retrieval only, no model calls
+python -m scripts.eval.evaluate_ask                                         # in process
+python -m scripts.eval.evaluate_ask --url http://127.0.0.1:8000 --output report.json
+```
+
+The cases refer to the pilot collection of 23 Punjab laws. For a different
+collection, edit the file: each case names a question, the allowed statuses and
+the provision that should be cited.
+
+## Deployment
+
+- Run the API with a process manager, for example
+  `uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1`. Each worker
+  process loads its own copy of the models (about 2.5 GB without the
+  reranker); add workers only if memory allows, or run several single-worker
+  containers behind a load balancer.
+- Set `ENVIRONMENT=production`, `API_KEYS`, the real `CORS_ORIGINS`, and
+  `LOG_FORMAT=json`. Leave `LEGAL_INGEST_ENABLED=false`: ingestion and review
+  are local administration tools without a login.
+- Run `alembic upgrade head` before starting a new version, and
+  `python -m scripts.pipeline.download_models` in the image build so start-up
+  does not download anything.
+- Point the load balancer's health check at `/health/ready`.
+- Set `DB_SSL_ROOT_CERT` to the database provider's CA certificate so the
+  server's certificate is verified.
+- A `Dockerfile` is included: `docker build -t legalmind-backend .` then
+  `docker run --env-file .env -p 8000:8000 legalmind-backend`. Docker reads an
+  env file literally, so write `NAME=value` there with no spaces around `=`
+  and no quotes. The image contains the models; build with
+  `--build-arg SKIP_RERANKER=true` to leave out the 2.3 GB reranker.
+
+The rate limiter and the answer-model cool-down state are per process. With
+several processes each applies its own limit.
+
+## Troubleshooting
+
+- **`/ask` returns 503 "no active publication".** Nothing has been activated in
+  this database; see "Building the collection".
+- **Answers take 10 seconds or more.** Look for `llm_attempt_failed` in the
+  log. `status=503` means the model is overloaded and `status=429` means the
+  key's rate limit was reached (`retry_after` shows how long the provider asked
+  callers to wait). The server retries and switches to the fallback model
+  within the time limit; a higher-quota key or an `OPENAI_API_KEY` failover
+  removes the delay.
+- **The first question after start-up is slow.** The models are still loading;
+  wait for `models_ready` in `/health/ready`.
+- **A law is not found.** `python -m scripts.audit.search_legal "<its name>"`
+  shows what the name resolves to. Names are matched with tolerance for
+  typos, but the law must be in the active publication.
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how each stage works and why.
+- [docs/AUDIT_2026-11.md](docs/AUDIT_2026-11.md): the November 2026 audit: root
+  causes found, what changed, measurements and known limits.
+- [docs/ABDULLAH_PHASE_B_HANDOVER.md](docs/ABDULLAH_PHASE_B_HANDOVER.md) and
+  [docs/ABDULLAH_CHUNK_KEYWORD_HANDOVER_2026-10-13.md](docs/ABDULLAH_CHUNK_KEYWORD_HANDOVER_2026-10-13.md):
+  chunking and keyword index reference (Phase B).
+- [docs/HAROON_LEGAL_CORPUS_SCHEMA.md](docs/HAROON_LEGAL_CORPUS_SCHEMA.md): corpus tables (Phase A).
+- [docs/archive/](docs/archive/): earlier handovers, reviews and reports, kept
+  for history. They describe code that has since been replaced.

@@ -216,50 +216,6 @@ class LegalChunkRepository:
                 "created_at": chunk_set.created_at,
             }
 
-    async def chunk_set_overview(self, chunk_set_id: UUID) -> dict | None:
-        """Chunks in document order with their exact provision membership."""
-        async with self.db.session() as session:
-            chunk_set = await session.get(ChunkSet, chunk_set_id)
-            if chunk_set is None:
-                return None
-            chunks = (await session.execute(
-                select(LegalChunk).where(LegalChunk.chunk_set_id == chunk_set_id)
-                .order_by(LegalChunk.ordinal)
-            )).scalars().all()
-            links = (await session.execute(
-                select(LegalChunkProvision)
-                .where(LegalChunkProvision.chunk_id.in_([chunk.id for chunk in chunks]))
-                .order_by(LegalChunkProvision.chunk_id, LegalChunkProvision.ordinal)
-            )).scalars().all() if chunks else []
-            provisions_by_chunk: dict[UUID, list[UUID]] = {}
-            segments_by_chunk: dict[UUID, list[dict]] = {}
-            for link in links:
-                provisions_by_chunk.setdefault(link.chunk_id, []).append(link.provision_id)
-                segments_by_chunk.setdefault(link.chunk_id, []).append({
-                    "provision_id": link.provision_id,
-                    "source_span_id": link.source_span_id,
-                    "provision_char_start": link.provision_char_start,
-                    "provision_char_end": link.provision_char_end,
-                    "chunk_char_start": link.chunk_char_start,
-                    "chunk_char_end": link.chunk_char_end,
-                })
-            return {
-                "chunk_set_id": chunk_set.id, "revision_id": chunk_set.revision_id,
-                "chunk_report": chunk_set.chunk_report,
-                "chunks": [{
-                    "id": chunk.id, "ordinal": chunk.ordinal, "kind": chunk.kind,
-                    "label": chunk.label, "heading": chunk.heading,
-                    "reference_path": chunk.reference_path, "chunk_key": chunk.chunk_key,
-                    "sequence_in_root": chunk.sequence_in_root,
-                    "root_total_chunks": chunk.root_total_chunks,
-                    "prefix": chunk.prefix, "chunk_text": chunk.chunk_text,
-                    "char_count": chunk.char_count,
-                    "chunk_text_sha256": chunk.chunk_text_sha256,
-                    "provision_ids": list(dict.fromkeys(provisions_by_chunk.get(chunk.id, []))),
-                    "segments": segments_by_chunk.get(chunk.id, []),
-                } for chunk in chunks],
-            }
-
     @staticmethod
     def _chunk_summary(chunk: LegalChunk) -> dict:
         return {

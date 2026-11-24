@@ -10,12 +10,23 @@ this once per machine (or bake it into the image) before starting the API.
 from __future__ import annotations
 
 import argparse
+import os
 
-from app.core.config import get_settings
+from pydantic import ValidationError
+
+from app.core.config import Settings, get_settings
 from app.embeddings.profiles import ACTIVE_PROFILE
 
 _WEIGHTS = ["*.json", "*.txt", "*.model", "model.safetensors", "pytorch_model.bin", "1_Pooling/*",
             "tokenizer*", "sentencepiece*"]
+
+
+def _reranker_name() -> str:
+    """The configured reranker, or the default when no settings exist yet (an image build)."""
+    try:
+        return get_settings().qa_rerank_model_name
+    except ValidationError:
+        return os.environ.get("QA_RERANK_MODEL_NAME") or Settings.model_fields["qa_rerank_model_name"].default
 
 
 def main() -> None:
@@ -27,7 +38,7 @@ def main() -> None:
 
     models = [ACTIVE_PROFILE.model_id]
     if not args.skip_reranker:
-        models.append(get_settings().qa_rerank_model_name)
+        models.append(_reranker_name())
     for name in models:
         path = snapshot_download(name, allow_patterns=_WEIGHTS)
         print(f"{name} -> {path}")

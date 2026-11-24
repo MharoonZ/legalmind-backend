@@ -77,7 +77,8 @@ async def _database_extract(version_id: str) -> None:
                 max_pages=settings.upload_max_pages,
                 max_file_size=settings.upload_max_size_bytes,
             )
-            result = await ContractExtractionService(repository, engine).extract(version_id)
+            result = await ContractExtractionService(
+                repository, engine, upload_root=settings.upload_dir).extract(version_id)
             _output(result)
     finally:
         await database.dispose()

@@ -13,6 +13,7 @@ Why this stays stable:
 
 import asyncio
 import logging
+import ssl
 from uuid import uuid4
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -35,6 +36,20 @@ def prepared_statement_name() -> str:
     return f"__legalmind_{uuid4().hex}__"
 
 
+def tls_argument(settings: Settings) -> str | ssl.SSLContext | None:
+    """How the driver should secure the connection.
+
+    ``DB_SSL=true`` alone encrypts the connection without checking who is on
+    the other end. With ``DB_SSL_ROOT_CERT`` the server's certificate and host
+    name are verified against that CA file, which is what production should use.
+    """
+    if not settings.db_ssl:
+        return None
+    if settings.db_ssl_root_cert:
+        return ssl.create_default_context(cafile=settings.db_ssl_root_cert)
+    return "require"
+
+
 class Database:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -47,8 +62,9 @@ class Database:
             "prepared_statement_cache_size": 0,
             "prepared_statement_name_func": prepared_statement_name,
         }
-        if settings.db_ssl:
-            connect_args["ssl"] = "require"
+        tls = tls_argument(settings)
+        if tls is not None:
+            connect_args["ssl"] = tls
 
         # Creating the engine does not open a connection yet; that happens in connect().
         self.engine: AsyncEngine = create_async_engine(

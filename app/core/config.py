@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     db_connect_retries: int = 3  # startup attempts before running without DB
     db_connect_retry_delay: float = 2.0  # seconds between startup attempts
     db_ssl: bool = True  # Supabase requires SSL
+    # CA certificate file used to verify the database server (recommended in
+    # production). Without it the connection is encrypted but not verified.
+    db_ssl_root_cert: str | None = None
 
     # Legacy migration 20260920_02 uses this width while upgrading an empty
     # historical vector table, which migration 20261009_12 later drops.
@@ -183,7 +186,7 @@ class Settings(BaseSettings):
             raise ValueError("LOG_LEVEL must be CRITICAL, ERROR, WARNING, INFO or DEBUG")
         return normalized
 
-    @field_validator("gemini_fallback_model", "qa_gemini_thinking_level", mode="before")
+    @field_validator("gemini_fallback_model", "qa_gemini_thinking_level", "db_ssl_root_cert", mode="before")
     @classmethod
     def blank_is_unset(cls, value):
         return None if isinstance(value, str) and not value.strip() else value
