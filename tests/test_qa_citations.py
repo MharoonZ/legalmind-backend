@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import pytest
 
-from app.qa.citations import ground_answer, locate_quote
+from app.qa.citations import ground_answer, locate_quote, topic_excerpt
 from app.qa.context import EvidenceUnit
 from tests.corpus import CONSUMER, GAMBLING, PRISONS, law_id, make_snapshot
 
@@ -20,6 +20,18 @@ def snapshot():
 def unit(snapshot, key, law, label):
     chunk = snapshot.chunks_by_root[snapshot.find_root(law_id(law), "section", label)][0]
     return EvidenceUnit(key, chunk, "retrieved")
+
+
+def test_topic_fallback_needs_mapped_operative_text(snapshot):
+    evidence = unit(snapshot, "E1", CONSUMER, "19")
+    chunk = evidence.chunk
+    topic = ["receipt", "purchaser"]
+    grounded = topic_excerpt(topic, [evidence], snapshot)
+    assert grounded and {c.page_index for c in grounded.citations} == {s.page_index for s in chunk.segments}
+    only_one_page = replace(chunk, segments=chunk.segments[:1])
+    assert topic_excerpt(topic, [replace(evidence, chunk=only_one_page)], snapshot) is None
+    heading_only = replace(chunk, text=chunk.text[:chunk.body_start] + chunk.heading)
+    assert topic_excerpt(topic, [replace(evidence, chunk=heading_only)], snapshot) is None
 
 
 @pytest.mark.parametrize("quote", [

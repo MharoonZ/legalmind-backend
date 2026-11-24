@@ -1,6 +1,7 @@
 """The /ask pipeline end to end, with a scripted answer model."""
 import asyncio
 import json
+from uuid import UUID
 
 import pytest
 
@@ -262,17 +263,17 @@ def test_poorly_understood_questions_are_restated_once_and_searched_again(snapsh
     assert fallback.status == "insufficient_evidence"
 
 
-def test_provider_failures_are_service_errors_not_legal_conclusions(snapshot):
+def test_relevant_passages_survive_provider_failures_and_missing_credentials(snapshot):
     for failure in (GenerationUnavailable("The answer model is temporarily unavailable (HTTP 503)."),
                     GenerationInvalid("bad output")):
         result, _ = ask(build(snapshot, ScriptedModel(failure)), "what is the punishment for public gaming?")
-        assert result.status == "service_unavailable" and not result.citations
-        assert "temporarily unavailable" in result.answer and result.publication_id == snapshot.id
+        assert result.status == "partial" and result.citations[0].label == "5"
+        assert "unavailable" in result.missing_support and result.publication_id == snapshot.id
 
     class Unconfigured(ScriptedModel):
         configured = False
     unconfigured, _ = ask(build(snapshot, Unconfigured()), "what is the punishment for public gaming?")
-    assert unconfigured.status == "service_unavailable" and "not configured" in unconfigured.missing_support
+    assert unconfigured.status == "partial" and unconfigured.citations[0].label == "5"
 
 
 def test_a_named_provision_is_still_quoted_when_the_model_cannot_be_reached(snapshot):
@@ -368,8 +369,7 @@ def test_no_time_for_an_answer_call_falls_back_without_calling_the_model(snapsho
     assert named.status == "partial" and [(c.law, c.label) for c in named.citations] == [(GAMBLING, "3")]
     assert named.answer.startswith("The answer model is temporarily unavailable")
     conceptual, _ = ask(service, "what is the punishment for public gaming?")
-    assert conceptual.status == "service_unavailable" and not conceptual.citations
-    assert conceptual.missing_support == "The answer request ran out of time."
+    assert conceptual.status == "partial" and conceptual.citations[0].label == "5"
     assert not model.calls
 
 
@@ -389,7 +389,7 @@ def test_unexpected_draft_shapes_are_tolerated(snapshot):
     assert result.status == "answered" and len(result.citations) == 1
     broken = ScriptedModel({"status": "answered", "answer": 7, "citations": "none"})
     failed, _ = ask(build(snapshot, broken), "what is the punishment for public gaming?")
-    assert failed.status == "service_unavailable"
+    assert failed.status == "partial" and failed.citations[0].label == "5"
     empty = ScriptedModel(draft(""), draft(""))
     blank, _ = ask(build(snapshot, empty), "What is section 5 of the gambling ordinance?")
     assert blank.status == "insufficient_evidence" and blank.answer
@@ -477,3 +477,54 @@ def test_paced_evaluation_waits_between_each_pair_of_requests(tmp_path, monkeypa
     monkeypatch.setattr(evaluate_ask.asyncio, "sleep", pause)
     args = SimpleNamespace(cases=path, only=None, url="test", api_key=None, pause=5, output=None, show_answers=False)
     assert asyncio.run(evaluate_ask.run(args)) == 0 and events == ["0", 5, "1", 5, "2"]
+
+@pytest.mark.parametrize(("question", "label", "wording"), [
+    ("shopkeeper refued to give me prof of purcase is this ok? explain me what i dooo", "19", "receipt"),
+    ("I bought an electronic appliance and it caught fire due to a manufacturing defect and damaged my kitchen. "
+     "Can I hold the manufacturer liable under consumer law", "4", "damages proximately caused"),
+])
+def test_topic_questions_return_published_wording_during_an_outage(snapshot, question, label, wording):
+    from app.api.routes.qa import ask as ask_route
+    from types import SimpleNamespace
+
+    async def run():
+        service = build(snapshot, ScriptedModel(GenerationUnavailable("down")))
+        # Exercise the cold lexical path as well as the provider outage.
+        async def cold(*args):
+            await asyncio.sleep(60)
+        service.retrieval.encoder.encode = cold
+        config = service.settings
+        config.legal_search_embedding_timeout_seconds = 0.02
+        config.qa_queue_timeout_seconds = 1
+        services = SimpleNamespace(qa=service, ask_slots=asyncio.Semaphore(1))
+        return await asyncio.wait_for(ask_route(AskIn(question=question), config, services), 2)
+
+    response = asyncio.run(run())
+    payload = json.loads(response.body)
+    assert response.status_code == 200 and payload["status"] == "partial"
+    citation = payload["citations"][0]
+    assert (citation["law"], citation["label"]) == (CONSUMER, label)
+    assert wording in payload["answer"]
+    for n, item in enumerate(payload["citations"], 1):
+        assert item["quote"] in payload["answer"] and f"[{n}]" in payload["answer"]
+        source = snapshot.chunk_by_id[UUID(item["chunk_id"])]
+        assert any(str(s.source_span_id) == item["source_span_id"] and s.page_index == item["page_index"]
+                   for s in source.segments)
+
+
+def test_an_unrelated_shared_word_cannot_substitute_for_an_answer(snapshot):
+    answer, _ = ask(build(snapshot, ScriptedModel(GenerationUnavailable("down"))),
+                    "What is the food chain of a marine ecosystem?")
+    assert answer.status == "service_unavailable" and not answer.citations
+
+def test_reranking_timeout_keeps_evidence_and_logs_the_failed_exchange(snapshot, caplog):
+    async def stalled(*args):
+        await asyncio.Future()
+
+    service = build(snapshot, ScriptedModel(GenerationUnavailable("down")), qa_rerank_mode="auto",
+                    qa_rerank_budget_ms=10)
+    service.reranker.rerank = stalled
+    with caplog.at_level("INFO", logger="app.qa.service"):
+        result, timings = asyncio.run(asyncio.wait_for(service.ask(AskIn(question="Who must issue a receipt to a purchaser?")), 2))
+    assert result.status == "partial" and result.citations[0].label == "19"
+    assert "generation" in timings and "llm_calls=1" in caplog.text

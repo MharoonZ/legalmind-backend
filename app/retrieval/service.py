@@ -7,6 +7,7 @@ narrows what can be found, but never turns a question into an error.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import OrderedDict
 from collections.abc import Sequence
@@ -111,10 +112,10 @@ class QueryEncoder:
         if self._encode is not None:
             return np.asarray(self._encode(text, profile), dtype=np.float32)
         from app.embeddings.encoder import encode_texts
-        return np.asarray(encode_texts([text], profile, batch_size=1)[0], dtype=np.float32)
+        return np.asarray(encode_texts([text], profile, batch_size=1, local_files_only=True)[0], dtype=np.float32)
 
-    async def warm(self, profile: EmbeddingProfile) -> None:
-        await self.encode("warm up", profile)
+    async def warm(self, profile: EmbeddingProfile) -> bool:
+        return await self.encode("warm up", profile) is not None
 
     async def encode(self, text: str, profile: EmbeddingProfile) -> np.ndarray | None:
         key = (profile.name, text)
@@ -167,7 +168,7 @@ class RetrievalService:
                        instrument_id: UUID | None = None, jurisdiction: str | None = None,
                        reference: Reference | None = None, previous_query: str | None = None,
                        context_law: str | None = None, context_instrument_id: UUID | None = None,
-                       history: Sequence[tuple[str, str]] = ()) -> RetrievalResult:
+                       history: Sequence[tuple[str, str]] = (), embedding_budget: float | None = None) -> RetrievalResult:
         started = perf_counter()
         try:
             snapshot = await self.index.ensure_loaded()
@@ -181,7 +182,10 @@ class RetrievalService:
             if analysis.has_reference:
                 result = await self._exact(snapshot, analysis, question, limit)
             else:
-                result = await self._hybrid(snapshot, analysis, question, limit)
+                budget = self.settings.legal_search_embedding_timeout_seconds
+                if embedding_budget is not None:
+                    budget = min(budget, embedding_budget)
+                result = await self._hybrid(snapshot, analysis, question, limit, budget)
         except Exception as exc:
             logger.exception("legal_retrieval_failed error=%s", type(exc).__name__)
             return RetrievalResult("service_unavailable", question,
@@ -194,10 +198,10 @@ class RetrievalService:
         return result
 
     # -------------------------------------------------------------- hybrid
-    async def _ranked(self, snapshot: PublicationSnapshot, text: str, *, scope: Sequence[UUID] | None,
-                      bias: Sequence[UUID] | None = None, limit: int, jurisdiction: str | None = None,
-                      ) -> tuple[list[Candidate], dict[str, str], bool]:
-        """Fused keyword + vector ranking. Returns candidates, repairs, semantic availability."""
+    def _ranked(self, snapshot: PublicationSnapshot, terms, vector: np.ndarray | None, *,
+                scope: Sequence[UUID] | None, bias: Sequence[UUID] | None = None, limit: int,
+                jurisdiction: str | None = None) -> list[Candidate]:
+        """Fuse keyword and vector results within the selected laws."""
         pool = max(limit, self.settings.legal_search_candidate_pool)
         allowed = None
         if scope:
@@ -205,9 +209,7 @@ class RetrievalService:
         elif jurisdiction:
             allowed = snapshot.mask(law.id for law in snapshot.instruments.values()
                                     if law.jurisdiction_code.casefold() == jurisdiction.casefold())
-        terms, repairs = snapshot.lexical.query_terms(text)
         keyword = snapshot.lexical.search(terms, mask=allowed, limit=pool)
-        vector = await self.encoder.encode(text, snapshot.profile)
         dense: list[tuple[int, float]] = []
         if vector is not None and len(snapshot.chunks):
             scores = snapshot.vectors @ vector
@@ -237,9 +239,9 @@ class RetrievalService:
             -c.rrf_score, -(c.vector_score or -1.0), -(c.keyword_score or 0.0), c.chunk.index))
         for rank, item in enumerate(ordered, 1):
             item.rank = item.rrf_rank = rank
-        return ordered[:limit], repairs, vector is not None
+        return ordered[:limit]
 
-    async def _hybrid(self, snapshot, analysis: QueryAnalysis, question: str, limit: int) -> RetrievalResult:
+    async def _hybrid(self, snapshot, analysis: QueryAnalysis, question: str, limit: int, budget: float) -> RetrievalResult:
         result = RetrievalResult("ok", question, analysis, snapshot)
         if analysis.law.status == "unresolved":
             result.unknown_law = analysis.law.mention
@@ -262,19 +264,25 @@ class RetrievalService:
         scope = analysis.scope if analysis.hard_scope else None
         bias = analysis.scope if analysis.scope and not analysis.hard_scope else None
         query = " ".join(topic_words(analysis, snapshot)) if scope else analysis.search_text
-        candidates, repairs, semantic = await self._ranked(
-            snapshot, query, scope=scope, bias=bias, limit=limit,
+        terms, result.spelling_repairs = snapshot.lexical.query_terms(query)
+        try:
+            async with asyncio.timeout(budget):
+                vector = await self.encoder.encode(query, snapshot.profile)
+        except TimeoutError:
+            logger.info("query_embedding_timeout using_keyword_results")
+            vector = None
+        candidates = self._ranked(
+            snapshot, terms, vector, scope=scope, bias=bias, limit=limit,
             jurisdiction=analysis.jurisdiction)
         if scope and not any(c.keyword_rank for c in candidates):
-            wider, repairs, semantic = await self._ranked(
-                snapshot, query, scope=None, limit=limit, jurisdiction=analysis.jurisdiction)
+            wider = self._ranked(snapshot, terms, vector, scope=None, limit=limit, jurisdiction=analysis.jurisdiction)
             if wider and wider[0].chunk.instrument_id not in scope and (
                     not candidates or wider[0].keyword_rank or
                     (wider[0].vector_score or 0) > (candidates[0].vector_score or 0) + 0.05):
                 candidates = wider
                 result.warnings.append("No matching passage in the named law; showing other laws.")
-        result.candidates, result.spelling_repairs = candidates, repairs
-        if not semantic:
+        result.candidates = candidates
+        if vector is None:
             result.warnings.append("Semantic search unavailable; results use keyword search only.")
         if not candidates:
             result.status = "no_results"

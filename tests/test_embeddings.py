@@ -50,7 +50,7 @@ def test_encoding_checks_lengths_before_model_forward(monkeypatch):
         def encode(self, *args, **kwargs):
             return [1] * 8193
     model = SimpleNamespace(tokenizer=Tokenizer(), encode=lambda *a, **kw: pytest.fail("must not encode truncated input"))
-    monkeypatch.setattr(encoder, "get_encoder", lambda p: model)
+    monkeypatch.setattr(encoder, "get_encoder", lambda p, **kwargs: model)
     with pytest.raises(encoder.EmbeddingInputError):
         encoder.encode_texts(["short characters can tokenize differently"], ACTIVE_PROFILE)
 
@@ -58,7 +58,7 @@ def test_encoding_checks_lengths_before_model_forward(monkeypatch):
 def test_encoder_validates_output_count_and_dimension(monkeypatch):
     tokenizer = SimpleNamespace(encode=lambda *a, **k: [1, 2])
     model = SimpleNamespace(tokenizer=tokenizer, encode=lambda *a, **k: np.ones((1, 768)))
-    monkeypatch.setattr(encoder, "get_encoder", lambda p: model)
+    monkeypatch.setattr(encoder, "get_encoder", lambda p, **kwargs: model)
     with pytest.raises(ValueError, match="1024"):
         encoder.encode_texts(["query"], ACTIVE_PROFILE)
 
@@ -82,7 +82,7 @@ def test_shared_model_forward_calls_are_serialized(monkeypatch):
         return np.eye(1, 1024)
 
     model = SimpleNamespace(tokenizer=SimpleNamespace(encode=lambda *a, **k: [1]), encode=run_model)
-    monkeypatch.setattr(encoder, "get_encoder", lambda profile: model)
+    monkeypatch.setattr(encoder, "get_encoder", lambda profile, **kwargs: model)
 
     def encode_query(query):
         barrier.wait(timeout=2)
@@ -104,11 +104,12 @@ def test_model_cache_distinguishes_configuration_and_disallows_remote_code(monke
             return 1024
     monkeypatch.setitem(sys.modules, "sentence_transformers", SimpleNamespace(SentenceTransformer=Model))
     monkeypatch.setattr(encoder, "_models", {})
+    monkeypatch.setattr(encoder, "local_model_path", lambda name: "cached-snapshot")
     one = encoder.get_encoder(ACTIVE_PROFILE)
     assert encoder.get_encoder(ACTIVE_PROFILE) is one
     two = encoder.get_encoder(replace(ACTIVE_PROFILE, max_tokens=4096))
     assert two is not one and two.max_seq_length == 4096
-    assert calls == [(ACTIVE_PROFILE.model_id, {"trust_remote_code": False, "local_files_only": True})] * 2
+    assert calls == [("cached-snapshot", {"trust_remote_code": False, "local_files_only": True})] * 2
 
 
 def test_valid_existing_embedding_retry_never_attempts_a_database_write():
@@ -154,3 +155,28 @@ def test_internal_vector_diagnostic_uses_a_numeric_cosine_score():
         @asynccontextmanager
         async def session(self): yield Session()
     assert asyncio.run(EmbeddingRepository(DB()).vector_search([1.0]+[0.0]*1023,uuid4())) == []
+
+def test_missing_query_model_never_starts_a_download(monkeypatch):
+    import sys
+    from app.retrieval.service import QueryEncoder
+
+    def missing(name):
+        raise FileNotFoundError("no cached weights")
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("a query started a model download")
+
+    monkeypatch.setattr(encoder, "local_model_path", missing)
+    monkeypatch.setattr(encoder, "_models", {})
+    monkeypatch.setitem(sys.modules, "sentence_transformers", SimpleNamespace(SentenceTransformer=unexpected))
+    with pytest.raises(FileNotFoundError):
+        QueryEncoder()._run("any topic", ACTIVE_PROFILE)
+
+
+def test_resolve_cached_model_from_only_the_downloaded_model_files(tmp_path, monkeypatch):
+    import huggingface_hub
+    config = tmp_path / "config.json"
+    config.write_text("{}")
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                        lambda name, file: str(config) if file == config.name else None)
+    assert encoder.local_model_path("test/filtered-model") == str(tmp_path)

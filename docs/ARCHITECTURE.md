@@ -198,7 +198,19 @@ The client coordinates retries and concurrent attempts within that budget.
 If no model can be reached, a request for named provisions is still answered
 with status `partial`. It copies each selected published display passage
 verbatim below its cited heading and names any missing requested provisions.
-Other questions that need a model return `service_unavailable` (HTTP 503).
+For topical questions, direct search hits are checked for overlap between the
+question's repaired subject terms and the provision's operative wording. If a
+matching excerpt has source mappings for all its wording, the response quotes
+it with a citation for each contributing PDF page and status `partial`.
+The response identifies the missing explanation. If generation fails and there
+is no supported passage, the service returns `service_unavailable` (HTTP 503).
+
+The API loads local model directories. A missing or stalled query encoder lets
+keyword retrieval proceed after at most `LEGAL_SEARCH_EMBEDDING_TIMEOUT_SECONDS`
+per retrieval (three seconds by default), capped at half the remaining answer
+budget. Expanding the search to other laws reuses the same query representation.
+Reranking also yields to the
+existing retrieval order when its time budget expires.
 
 ### 6. Citation verification (`qa/citations.py`)
 

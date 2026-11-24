@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     legal_search_min_similarity: float = Field(default=0.30, ge=0, le=1)
     legal_search_rrf_k: int = Field(default=60, ge=1, le=1000)
     legal_search_timeout_seconds: float = Field(default=30, gt=0, le=230)
+    legal_search_embedding_timeout_seconds: float = Field(default=3, gt=0, le=60)
     # The active publication is held in memory and re-checked on this interval.
     publication_refresh_seconds: float = Field(default=60, ge=0, le=86400)
     # Local cache of the immutable publication snapshot; empty disables it.

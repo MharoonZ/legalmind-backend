@@ -3,8 +3,8 @@
 The pipeline prefers a useful, cited answer over a refusal. Deterministic
 replies (small talk, "which law?", "that section does not exist") skip the
 model entirely; otherwise one model call writes the answer and the server
-verifies its citations against the published text. If the model cannot be
-reached, a request for named provisions is still answered with their text.
+verifies its citations against the published text. If generation fails, the
+service can return named provisions or a verified excerpt matching the topic.
 
 One request works to one deadline: every model exchange is given no more than
 the time that is left, so the reply (or the text-only fallback) is ready before
@@ -12,6 +12,7 @@ the route's own timeout would discard it.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Sequence
 from time import perf_counter
@@ -19,7 +20,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from app.qa.citations import GroundedAnswer, ground_answer, without_citations
+from app.qa.citations import GroundedAnswer, ground_answer, topic_excerpt, without_citations
 from app.qa.context import EvidenceUnit, build_context
 from app.qa.llm import AnswerGenerator, GenerationInvalid, GenerationUnavailable
 from app.qa.prompt import (
@@ -28,6 +29,7 @@ from app.qa.prompt import (
 )
 from app.qa.rerank import CrossEncoderReranker
 from app.qa.smalltalk import small_talk
+from app.retrieval.query import topic_words
 from app.retrieval.service import RetrievalResult, RetrievalService
 from app.retrieval.snapshot import PublicationSnapshot
 from app.retrieval.text import normalize
@@ -98,10 +100,11 @@ class QuestionAnswerService:
         turns = [(turn.role, turn.content) for turn in request.history]
         return turns[-self.settings.qa_history_max_turns:] if self.settings.qa_history_max_turns else []
 
-    async def _retrieve(self, question: str, request: AskIn, history) -> RetrievalResult:
+    async def _retrieve(self, question: str, request: AskIn, history, deadline: float) -> RetrievalResult:
         context = request.context
         return await self.retrieval.retrieve(
             question, limit=max(10, self.settings.qa_rerank_candidates), law_hint=request.law,
+            embedding_budget=max(0, deadline - self._clock()) / 2,
             previous_query=context.previous_query if context else None,
             context_law=context.law if context else None,
             context_instrument_id=context.instrument_id if context else None, history=history)
@@ -126,9 +129,9 @@ class QuestionAnswerService:
             return 2.0
         return max((item.vector_score or 0.0 for item in retrieval.candidates), default=0.0)
 
-    async def _rewrite(self, question: str, history, timeout: float) -> str | None:
+    async def _rewrite(self, question: str, history, timeout: float, generate) -> str | None:
         try:
-            raw = await self.generator.generate_json(
+            raw = await generate(
                 REWRITE_PROMPT, build_rewrite_prompt(question, history), REWRITE_SCHEMA,
                 max_output_tokens=256, purpose="rewrite", timeout=timeout)
         except (GenerationUnavailable, GenerationInvalid):
@@ -147,6 +150,12 @@ class QuestionAnswerService:
         units: list[EvidenceUnit] = []
         llm_calls = 0
         method = "none"
+
+        async def generate(*args, **kwargs):
+            nonlocal llm_calls
+            llm_calls += 1
+            return await self.generator.generate_json(*args, **kwargs)
+
         try:
             snapshot = await self.retrieval.index.ensure_loaded()
             reply = small_talk(question, snapshot)
@@ -157,7 +166,7 @@ class QuestionAnswerService:
             history = self._history(request)
 
             stage = self._clock()
-            retrieval = await self._retrieve(question, request, history)
+            retrieval = await self._retrieve(question, request, history, deadline)
             timings["retrieval"] = (self._clock() - stage) * 1000
             rewritten = None
             # The restatement is optional: it gets a short limit of its own and is
@@ -165,10 +174,9 @@ class QuestionAnswerService:
             if self._weak(retrieval) and deadline - self._clock() >= _MIN_REWRITE_SECONDS:
                 stage = self._clock()
                 rewritten = await self._rewrite(question, history, min(
-                    self.settings.qa_rewrite_timeout_seconds, deadline - self._clock()))
-                llm_calls += 1
+                    self.settings.qa_rewrite_timeout_seconds, deadline - self._clock()), generate)
                 if rewritten:
-                    second = await self._retrieve(rewritten, request, history)
+                    second = await self._retrieve(rewritten, request, history, deadline)
                     if self._strength(second) > self._strength(retrieval):
                         retrieval = second
                     else:
@@ -179,15 +187,26 @@ class QuestionAnswerService:
             if result is None:
                 snapshot = retrieval.snapshot
                 stage = self._clock()
-                ordered, method = await self.reranker.rerank(
-                    retrieval.analysis.search_text, retrieval.candidates, snapshot)
+                # Reranking is optional. Leave time for generation or a cited extract
+                # even if the inference worker is still loading or scoring a model.
+                budget = max(0, deadline - self._clock()) / 2
+                if self.settings.qa_rerank_mode == "auto":
+                    budget = min(budget, self.settings.qa_rerank_budget_ms / 1000)
+                try:
+                    async with asyncio.timeout(budget):
+                        ordered, method = await self.reranker.rerank(
+                            retrieval.analysis.search_text, retrieval.candidates, snapshot)
+                except TimeoutError:
+                    ordered, method = retrieval.candidates, "fused"
+                    logger.info("qa_rerank_timeout using_retrieval_order")
                 timings["rerank"] = (self._clock() - stage) * 1000
                 units = build_context(snapshot, ordered, retrieval.analysis, self.settings)
                 stage = self._clock()
-                result, calls = await self._generate(request.question, retrieval, units, history, rewritten,
-                                                     deadline)
-                llm_calls += calls
-                timings["generation"] = (self._clock() - stage) * 1000
+                try:
+                    result = await self._generate(request.question, retrieval, units, history, rewritten,
+                                                  deadline, generate)
+                finally:
+                    timings["generation"] = (self._clock() - stage) * 1000
         except (GenerationUnavailable, GenerationInvalid) as exc:
             logger.warning("qa_generation_unavailable error=%s", exc)
             result = self._text_only(request.question, retrieval, units) or self.unavailable(
@@ -248,10 +267,22 @@ class QuestionAnswerService:
 
     def _text_only(self, question: str, retrieval: RetrievalResult | None,
                    units: Sequence[EvidenceUnit]) -> AskOut | None:
-        """Without the model, a request for named provisions is answered with their text."""
-        if retrieval is None or retrieval.status != "ok" or not retrieval.analysis.has_reference:
+        """Serve published wording when generation is unavailable."""
+        if retrieval is None or retrieval.status != "ok" or retrieval.unknown_law:
             return None
         snapshot = retrieval.snapshot
+        if not retrieval.analysis.has_reference:
+            terms = topic_words(retrieval.analysis, snapshot)
+            terms = [retrieval.spelling_repairs.get(word, word) for word in terms]
+            scoped = [unit for unit in units if not retrieval.analysis.hard_scope
+                      or unit.chunk.instrument_id in retrieval.analysis.scope]
+            excerpt = topic_excerpt(terms, scoped, snapshot)
+            if excerpt is None:
+                return None
+            return AskOut(status="partial", question=question, publication_id=snapshot.id,
+                          answer=excerpt.answer, claims=excerpt.claims, citations=excerpt.citations,
+                          missing_support="I found this passage, but the answer model is unavailable to explain how it applies to your situation.",
+                          limitations=(_INFORMATION_NOTE, _EDITION_NOTE))
         requested = [unit for unit in units if unit.relation == "requested"]
         titles = []
         for unit in requested:
@@ -280,14 +311,13 @@ class QuestionAnswerService:
 
     # ------------------------------------------------------------ generation
     async def _generate(self, question: str, retrieval: RetrievalResult, units: Sequence[EvidenceUnit],
-                        history, rewritten: str | None, deadline: float) -> tuple[AskOut, int]:
+                        history, rewritten: str | None, deadline: float, generate) -> AskOut:
         snapshot = retrieval.snapshot
         if not self.generator.configured:
             raise GenerationUnavailable("The answer model is not configured on the server.")
         feedback = None
         draft: _AnswerDraft | None = None
         grounded: GroundedAnswer | None = None
-        calls = 0
         for _ in range(1 + self.settings.qa_repair_attempts):
             left = deadline - self._clock()
             if left < _MIN_GENERATION_SECONDS:
@@ -296,8 +326,7 @@ class QuestionAnswerService:
                 break                           # no time to correct the draft: it is returned as it is
             prompt = build_answer_prompt(snapshot, retrieval, units, question, history,
                                          rewritten=rewritten, feedback=feedback)
-            raw = await self.generator.generate_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, timeout=left)
-            calls += 1
+            raw = await generate(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, timeout=left)
             if raw.get("status") not in _STATUSES:
                 raw = {**raw, "status": "answered" if raw.get("citations") else "insufficient_evidence"}
             try:
@@ -312,7 +341,7 @@ class QuestionAnswerService:
             if has_text and (grounded.citations or not needs_citation):
                 break
             feedback = _NO_CITATION_FEEDBACK if has_text else "Your previous reply had no answer text."
-        return self._compose(question, retrieval, draft, grounded), calls
+        return self._compose(question, retrieval, draft, grounded)
 
     def _compose(self, question: str, retrieval: RetrievalResult, draft: _AnswerDraft,
                  grounded: GroundedAnswer) -> AskOut:

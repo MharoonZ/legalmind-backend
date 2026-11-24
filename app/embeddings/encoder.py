@@ -30,6 +30,7 @@ import logging
 import math
 import threading
 from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -82,7 +83,20 @@ def get_tokenizer(profile: EmbeddingProfile):
         return AutoTokenizer.from_pretrained(profile.model_id, trust_remote_code=False)
 
 
-def get_encoder(profile: EmbeddingProfile) -> "SentenceTransformer":
+def local_model_path(name: str) -> str:
+    """Resolve a cached snapshot to a directory so libraries need no Hub metadata."""
+    from huggingface_hub import try_to_load_from_cache
+    if Path(name).is_dir():
+        return name
+    # The download command intentionally omits unrelated repository assets.
+    # Resolve one model file without requiring a complete Hub repository mirror.
+    config = try_to_load_from_cache(name, "config.json")
+    if not isinstance(config, str):
+        raise FileNotFoundError(f"No cached model configuration for {name}")
+    return str(Path(config).parent)
+
+
+def get_encoder(profile: EmbeddingProfile, *, local_files_only: bool = False) -> "SentenceTransformer":
     """Return the SentenceTransformer for ``profile``, loading it once.
 
     Thread-safe: the first call loads the model; subsequent calls return the
@@ -109,11 +123,14 @@ def get_encoder(profile: EmbeddingProfile) -> "SentenceTransformer":
                     profile.name,
                 )
                 try:
-                    model = SentenceTransformer(profile.model_id, trust_remote_code=False,
+                    model = SentenceTransformer(local_model_path(profile.model_id), trust_remote_code=False,
                                                 local_files_only=True)
                 except OSError:
+                    if local_files_only:
+                        raise
                     model = SentenceTransformer(profile.model_id, trust_remote_code=False)
-                if model.get_sentence_embedding_dimension() != profile.dimension:
+                dimension = getattr(model, "get_embedding_dimension", None) or model.get_sentence_embedding_dimension
+                if dimension() != profile.dimension:
                     raise ValueError("Loaded model dimension disagrees with embedding profile")
                 if model.max_seq_length < profile.max_tokens:
                     raise ValueError("Loaded model token limit is smaller than the stored profile")
@@ -173,6 +190,7 @@ def encode_texts(
     texts: list[str],
     profile: EmbeddingProfile,
     batch_size: int = 16,
+    *, local_files_only: bool = False,
 ) -> list[list[float]]:
     """Encode a list of texts with the given profile's model.
 
@@ -195,7 +213,7 @@ def encode_texts(
     if not texts:
         return []
 
-    model = get_encoder(profile)
+    model = get_encoder(profile, local_files_only=local_files_only)
     check_token_lengths(texts, model.tokenizer, profile.max_tokens)
     logger.info("Encoding %d texts with %s …", len(texts), profile.model_id)
 

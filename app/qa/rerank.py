@@ -17,6 +17,7 @@ from collections.abc import Callable, Sequence
 from time import perf_counter
 
 from app.core.inference import InferenceCancelled, InferenceRuntime, runtime as default_runtime
+from app.embeddings.encoder import local_model_path
 from app.retrieval.service import Candidate
 from app.retrieval.snapshot import PublicationSnapshot
 
@@ -54,7 +55,7 @@ class CrossEncoderReranker:
                 return
             try:
                 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-                name = self.settings.qa_rerank_model_name
+                name = local_model_path(self.settings.qa_rerank_model_name)
                 # Local files only: a server must not start a multi-GB download
                 # on its first question. `python -m scripts.pipeline.download_models`
                 # fetches the configured models explicitly.

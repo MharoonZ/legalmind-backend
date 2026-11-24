@@ -459,6 +459,94 @@ def _named_roots(sentence: str, roots: Sequence[RootKey], snapshot: PublicationS
     return list(dict.fromkeys(found))
 
 
+def _source_citation(unit: EvidenceUnit, snapshot: PublicationSnapshot, start: int, end: int) -> VerifiedCitation | None:
+    chunk = unit.chunk
+    anchor = _anchor(chunk, start, end)
+    if anchor is None:
+        return None
+    law = snapshot.instruments[chunk.instrument_id]
+    return VerifiedCitation(
+        evidence_id=unit.evidence_id, publication_id=snapshot.id,
+        legal_version_id=law.legal_version_id, revision_id=law.revision_id,
+        provision_id=anchor.provision_id, chunk_id=chunk.id, law=law.title,
+        edition=law.edition_key, jurisdiction=law.jurisdiction_code, kind=chunk.kind,
+        label=chunk.label, reference_path=anchor.reference_path or chunk.reference_path,
+        quote=_SPACE.sub(" ", chunk.text[start:end]).strip(),
+        source_span_id=anchor.source_span_id, file_id=anchor.file_id,
+        file_sha256=anchor.file_sha256, filename=anchor.filename,
+        page_index=anchor.page_index, source_url=anchor.source_url)
+
+
+def topic_excerpt(topic: Sequence[str], units: Sequence[EvidenceUnit], snapshot: PublicationSnapshot) -> GroundedAnswer | None:
+    """Return a supported extract from a direct search hit during a generator outage."""
+    # Compare common speaker and statute vocabulary as a single concept.
+    equivalents = {stem(word): "seller" for word in ("shopkeeper", "seller", "trader")}
+    equivalents[stem("liability")] = stem("liable")
+
+    def concepts(text: str) -> set[str]:
+        return {equivalents.get(term, term) for term in _stems(text)}
+
+    query = " ".join(topic)
+    wanted = concepts(query)
+    best = None
+    best_score = 0.0
+    for unit in units:
+        if unit.relation != "retrieved":
+            continue
+        chunk = unit.chunk
+        start = _wording_start(chunk)
+        end = len(chunk.text.rstrip())
+        if end - start > _MAX_FALLBACK_CHARS:
+            located, _ = _support(chunk, query)
+            if located is None:
+                continue
+            start, end = located
+        quote = _SPACE.sub(" ", chunk.text[start:end]).strip()
+        body = concepts(quote)
+        matched = wanted & body
+        title_terms = concepts(chunk.heading or "")
+        if not any(term.isalpha() for term in body - title_terms):
+            continue
+        heading = wanted & title_terms
+        if len(matched) < 2 and not (len(wanted) == 1 and matched and heading):
+            continue
+        score = len(matched) + 0.5 * len(heading) + len(matched) / max(1, len(body))
+        if score <= best_score:
+            continue
+        citations = _excerpt_citations(unit, snapshot, start, end)
+        if citations:
+            markers = " ".join(f"[{i}]" for i in range(1, len(citations) + 1))
+            law = snapshot.instruments[chunk.instrument_id].title
+            answer = f"{chunk.citation} of {law}\n\n“{quote}” {markers}"
+            claims = tuple(VerifiedClaim(text=c.quote, evidence_id=c.evidence_id, citation_indexes=(i,))
+                           for i, c in enumerate(citations))
+            best = GroundedAnswer(answer, claims, tuple(citations), len(citations), 0, 0)
+            best_score = score
+    return best
+
+
+def _excerpt_citations(unit: EvidenceUnit, snapshot: PublicationSnapshot, start: int, end: int) -> list[VerifiedCitation]:
+    """Cite every source page and reject excerpts with unmapped wording."""
+    chunk = unit.chunk
+    groups = []
+    cursor = start
+    for segment in chunk.segments:
+        low, high = max(start, cursor, segment.start), min(end, segment.end)
+        if high <= low:
+            continue
+        if chunk.text[cursor:low].strip():
+            return []
+        page = (segment.file_id, segment.page_index)
+        if groups and groups[-1][0] == page:
+            groups[-1] = (page, groups[-1][1], high)
+        else:
+            groups.append((page, low, high))
+        cursor = high
+    if chunk.text[cursor:end].strip():
+        return []
+    return [c for _, low, high in groups if (c := _source_citation(unit, snapshot, low, high)) is not None]
+
+
 def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[EvidenceUnit],
                   snapshot: PublicationSnapshot) -> GroundedAnswer:
     answer = _sanitised(answer)
@@ -470,24 +558,13 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
     verified = dropped = fallbacks = 0
 
     def cite(unit: EvidenceUnit, start: int, end: int) -> int | None:
-        chunk = unit.chunk
         for index, (key, known_start, known_end) in enumerate(spans):
             if key == unit.key and known_start <= start and end <= known_end:
                 return index
-        anchor = _anchor(chunk, start, end)
-        if anchor is None:
+        citation = _source_citation(unit, snapshot, start, end)
+        if citation is None:
             return None
-        law = snapshot.instruments[chunk.instrument_id]
-        citations.append(VerifiedCitation(
-            evidence_id=unit.evidence_id, publication_id=snapshot.id,
-            legal_version_id=law.legal_version_id, revision_id=law.revision_id,
-            provision_id=anchor.provision_id, chunk_id=chunk.id, law=law.title,
-            edition=law.edition_key, jurisdiction=law.jurisdiction_code, kind=chunk.kind,
-            label=chunk.label, reference_path=anchor.reference_path or chunk.reference_path,
-            quote=_SPACE.sub(" ", chunk.text[start:end]).strip(),
-            source_span_id=anchor.source_span_id, file_id=anchor.file_id,
-            file_sha256=anchor.file_sha256, filename=anchor.filename,
-            page_index=anchor.page_index, source_url=anchor.source_url))
+        citations.append(citation)
         spans.append((unit.key, start, end))
         per_unit.setdefault(unit.key, []).append(len(citations) - 1)
         return len(citations) - 1

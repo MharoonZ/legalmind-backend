@@ -83,16 +83,29 @@ def test_unsafe_request_ids_are_replaced(api):
     assert len(response.headers["x-request-id"]) == 16
 
 
-def test_provider_failure_is_a_503_with_the_answer_shape(api):
+def test_provider_failure_preserves_cited_answers_and_reports_unsupported_queries(api):
     api.state["services"] = services(ScriptedModel(GenerationUnavailable("down")))
     response = api.post("/ask", json={"question": "what is the punishment for public gaming?"})
-    assert response.status_code == 503 and response.json()["status"] == "service_unavailable"
-    assert response.json()["citations"] == []
+    assert response.status_code == 200 and response.json()["status"] == "partial"
+    assert response.json()["citations"][0]["label"] == "5"
+    api.state["services"] = services(ScriptedModel(GenerationUnavailable("down")))
+    unsupported = api.post("/ask", json={"question": "What is the food chain of a marine ecosystem?"})
+    assert unsupported.status_code == 503 and not unsupported.json()["citations"]
     # A named provision can still be quoted without the model: that is a normal reply.
     api.state["services"] = services(ScriptedModel(GenerationUnavailable("down")))
     quoted = api.post("/ask", json=QUESTION)
     assert quoted.status_code == 200 and quoted.json()["status"] == "partial"
     assert quoted.json()["citations"]
+
+
+def test_failed_encoder_warmup_leaves_keyword_search_available(api, monkeypatch):
+    running = api.state["services"]
+    def offline(*args):
+        raise RuntimeError("missing model")
+    monkeypatch.setattr(running.retrieval.encoder, "_encode", offline)
+    asyncio.run(running.warm())
+    assert not running.models_ready
+    assert api.post("/search/legal", json={"query": "trader issue a receipt"}).json()["results"]
 
 
 @pytest.mark.parametrize("payload", [

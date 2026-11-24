@@ -31,10 +31,13 @@ class AppServices:
     async def warm(self) -> None:
         """Load the query encoder and reranker so the first question is fast."""
         snapshot = self.index.snapshot
-        await self.retrieval.encoder.warm(snapshot.profile if snapshot else ACTIVE_PROFILE)
+        encoder_ready = await self.retrieval.encoder.warm(snapshot.profile if snapshot else ACTIVE_PROFILE)
         await self.reranker.warm()
-        self.models_ready = True
-        logger.info("models_ready")
+        self.models_ready = encoder_ready
+        if encoder_ready:
+            logger.info("models_ready")
+        else:
+            logger.warning("query_encoder_unavailable using_keyword_results")
 
     def start_warmup(self) -> None:
         if self._warmup is None:

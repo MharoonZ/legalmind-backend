@@ -300,6 +300,20 @@ def test_a_named_law_is_widened_on_the_topic_alone(snapshot):
     assert any("other laws" in warning for warning in result.warnings)
 
 
+def test_a_wider_search_shares_one_embedding_attempt_and_respects_the_answer_budget(snapshot):
+    search = service(snapshot)
+    calls = []
+
+    async def pending(query, profile):
+        calls.append(query)
+        await asyncio.Future()
+
+    search.encoder.encode = pending
+    result = asyncio.run(asyncio.wait_for(search.retrieve(
+        "Does the Gambling Ordinance require a trader to issue a receipt?", embedding_budget=0.02), 1))
+    assert labels(result)[0] == (CONSUMER, "19") and len(calls) == 1
+
+
 def test_explicit_lookup_respects_search_limit(snapshot):
     answer = asyncio.run(service(snapshot).search(LegalSearchIn(
         query="sections 3 to 5 of the Gambling Ordinance", limit=1)))

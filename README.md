@@ -232,8 +232,10 @@ taken from the published text.
 | `insufficient_evidence` | 200 | The collection does not cover it |
 | `service_unavailable` | 503 | The answer model, the database or the server is temporarily unavailable; retry |
 
-If the answer model cannot be reached, a request for named provisions still
-returns their text (`partial`) instead of an error. The `Server-Timing`
+During a model outage, named provisions remain available. A topical question
+can also return a relevant passage with page citations and status `partial`.
+Its `missing_support` field explains that a generated interpretation is unavailable.
+The `Server-Timing`
 response header reports the time spent in each stage and `X-Request-ID`
 matches the request's log lines.
 

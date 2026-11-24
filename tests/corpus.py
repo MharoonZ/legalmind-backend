@@ -190,6 +190,7 @@ def settings(**overrides):
     """Only the fields the retrieval and answer services read."""
     values = dict(
         legal_search_candidate_pool=50, legal_search_min_similarity=0.05, legal_search_rrf_k=60,
+        legal_search_embedding_timeout_seconds=3,
         qa_rerank_mode="off", qa_rerank_model_name="test/reranker", qa_rerank_budget_ms=1500,
         qa_rerank_candidates=8, qa_rerank_max_pair_tokens=256, qa_rerank_batch_size=8,
         qa_rerank_device="cpu", qa_rerank_use_fp16=False, qa_rerank_top_k=4,
