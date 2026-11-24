@@ -32,7 +32,6 @@ from sqlalchemy import (
     Integer,
     Index,
     String,
-    Text,
     UniqueConstraint,
     func,
 )

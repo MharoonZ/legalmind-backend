@@ -85,9 +85,14 @@ def test_unsafe_request_ids_are_replaced(api):
 
 def test_provider_failure_is_a_503_with_the_answer_shape(api):
     api.state["services"] = services(ScriptedModel(GenerationUnavailable("down")))
-    response = api.post("/ask", json=QUESTION)
+    response = api.post("/ask", json={"question": "what is the punishment for public gaming?"})
     assert response.status_code == 503 and response.json()["status"] == "service_unavailable"
     assert response.json()["citations"] == []
+    # A named provision can still be quoted without the model: that is a normal reply.
+    api.state["services"] = services(ScriptedModel(GenerationUnavailable("down")))
+    quoted = api.post("/ask", json=QUESTION)
+    assert quoted.status_code == 200 and quoted.json()["status"] == "partial"
+    assert quoted.json()["citations"]
 
 
 @pytest.mark.parametrize("payload", [

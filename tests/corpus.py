@@ -102,6 +102,10 @@ LAWS: dict[str, list[tuple[str, str | None, str, str]]] = {
         ("section", "25", "Filing of Claims.",
          "25. Filing of Claims.– A claim for damages arising out of contravention of any provisions of this Act "
          "shall be filed before a Consumer Court, as provided in section 4."),
+        ("section", "32", "Penalties.",
+         "32. Penalties.– (1) Where a manufacturer fails to perform or in any way infringes the liabilities "
+         "provided in sections 4 to 8, 11, 13, 14, 16, 18 to 22, he shall be punished with imprisonment which "
+         "may extend to two years or with fine which may extend to hundred thousand rupees or with both."),
     ],
 }
 
@@ -190,6 +194,7 @@ def settings(**overrides):
         qa_rerank_candidates=8, qa_rerank_max_pair_tokens=256, qa_rerank_batch_size=8,
         qa_rerank_device="cpu", qa_rerank_use_fp16=False, qa_rerank_top_k=4,
         qa_context_max_units=12, qa_context_max_chars=24000, qa_context_max_reference_sections=2,
+        qa_context_max_referring_sections=2,
         qa_context_max_definition_sections=1, qa_history_max_turns=6, qa_rewrite_enabled=True,
         qa_rewrite_below_similarity=0.2, qa_repair_attempts=1)
     values.update(overrides)

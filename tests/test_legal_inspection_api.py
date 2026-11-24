@@ -39,7 +39,8 @@ class Inspector:
 
 
 def client(tmp_path, settings, *, host="127.0.0.1", enabled=True, environment="development"):
-    with native_pdf() as doc: source = store_pdf(tmp_path, doc.tobytes())
+    with native_pdf() as doc:
+        source = store_pdf(tmp_path, doc.tobytes())
     app = create_app()
     app.dependency_overrides[get_inspection_repository] = lambda: Inspector(source)
     app.dependency_overrides[get_settings] = lambda: settings.model_copy(update={

@@ -1,0 +1,16 @@
+# Lint rules: `pip install -r requirements-dev.txt`, then `ruff check .`
+line-length = 120
+target-version = "py312"
+extend-exclude = ["uploads", "backups", ".cache"]
+
+[lint]
+select = ["E", "F", "W", "B"]
+ignore = [
+    "E501",   # line length is left to the author
+    "B008",   # FastAPI declares dependencies as default arguments
+    "B905",   # zip() is used on sequences that are equal by construction
+]
+
+[lint.per-file-ignores]
+# The helper is defined and called inside the same loop iteration.
+"app/services/legal_relationships.py" = ["B023"]

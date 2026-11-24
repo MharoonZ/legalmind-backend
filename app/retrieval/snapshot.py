@@ -19,7 +19,7 @@ import numpy as np
 from app.embeddings.profiles import EmbeddingProfile
 from app.retrieval.laws import CatalogLaw, LawResolver
 from app.retrieval.lexical import LexicalIndex
-from app.retrieval.references import schedule_number
+from app.retrieval.references import parse_references, schedule_number
 from app.retrieval.text import compact_label, stem, without_footnote_marks, words
 
 _NON_OPERATIVE = frozenset({"omitted", "repealed", "deleted"})
@@ -29,6 +29,11 @@ _DEFINITION_HEADING = re.compile(r"\b(?:definitions?|interpretation)\b", re.I)
 _DEFINED_TERM = re.compile(
     r"[\"“]([^\"”]{2,80})[\"”]\s*(?:means|includes|shall mean|has the same meaning|refers to)", re.I)
 _HEADING_WEIGHT = 2.5
+# "section 5 of the Code": a provision of some other law, not of the one being read.
+_OTHER_LAW = re.compile(
+    r"\s*,?\s*(?:of|in|under)\s+(?:the\s+|that\s+|any\s+other\s+)?(?!this\b|said\b|same\b)\S", re.I)
+_NUMBERED_LABEL = re.compile(r"(\d+)([a-z]*)")
+RootKey = tuple[UUID, UUID]         # (instrument id, root provision id)
 
 
 class SnapshotError(RuntimeError):
@@ -122,6 +127,12 @@ class ProvisionNode:
     source_status: str | None
 
 
+def _label_position(label: str) -> tuple[int, str] | None:
+    """Sort position of a printed label: 5 < 5a < 6."""
+    match = _NUMBERED_LABEL.fullmatch(label)
+    return (int(match[1]), match[2]) if match else None
+
+
 def readable(text: str) -> str:
     """Model-facing rendering: PDF line wrapping and footnote numbers removed."""
     return _SPACE.sub(" ", without_footnote_marks(text)).strip()
@@ -200,6 +211,38 @@ class PublicationSnapshot:
                                       for term in _DEFINED_TERM.findall(text))
                     self.definitions[instrument_id] = (key, frozenset(term for term in terms if term))
                     break
+        self.outgoing, self.referrers = self._cross_references()
+
+    def _cross_references(self) -> tuple[dict[RootKey, tuple[RootKey, ...]], dict[RootKey, tuple[RootKey, ...]]]:
+        """Which provisions each provision names by number within its own law, and the reverse.
+
+        The reverse map is what links an obligation to the clause that enforces
+        it: a penalty section usually says "contravenes sections 18 to 22"
+        without repeating what those sections are about.
+        """
+        outgoing: dict[RootKey, tuple[RootKey, ...]] = {}
+        incoming: dict[RootKey, list[RootKey]] = defaultdict(list)
+        for instrument_id, keys in self.root_order.items():
+            for key in keys:
+                targets: list[RootKey] = []
+                for part in self.chunks_by_root[key]:
+                    text = self.display[part.index]
+                    for start, end in parse_references(text).spans:
+                        if _OTHER_LAW.match(text, end):
+                            continue
+                        named = parse_references(text[start:end])
+                        for reference in named.references:
+                            target = self.find_root(instrument_id, reference.kind, reference.label)
+                            if target is not None:
+                                targets.append(target)
+                        for item in named.ranges:
+                            targets.extend(self.roots_between(instrument_id, item.kind, item.start, item.end))
+                unique = tuple(target for target in dict.fromkeys(targets) if target != key)
+                if unique:
+                    outgoing[key] = unique
+                    for target in unique:
+                        incoming[target].append(key)
+        return outgoing, {key: tuple(sources) for key, sources in incoming.items()}
 
     # -------------------------------------------------------------- lookup
     def mask(self, instrument_ids: Iterable[UUID] | None) -> np.ndarray | None:
@@ -235,12 +278,22 @@ class PublicationSnapshot:
     def roots_between(self, instrument_id: UUID, kind: str, start: str, end: str) -> list[tuple[UUID, UUID]]:
         """Every root from ``start`` to ``end`` in document order ("sections 3 to 5")."""
         first, last = self.find_root(instrument_id, kind, start), self.find_root(instrument_id, kind, end)
-        if first is None or last is None:
+        order = self.root_order.get(instrument_id, [])
+        if first is not None and last is not None:
+            low, high = sorted((order.index(first), order.index(last)))
+            return [key for key in order[low:high + 1]
+                    if self.chunks_by_root[key][0].kind == self.chunks_by_root[first][0].kind]
+        # An end of the range is not published (omitted, repealed or never
+        # enacted): return what the law does have between the two numbers.
+        low, high = _label_position(start), _label_position(end)
+        if low is None or high is None:
             return []
-        order = self.root_order[instrument_id]
-        low, high = sorted((order.index(first), order.index(last)))
-        return [key for key in order[low:high + 1]
-                if self.chunks_by_root[key][0].kind == self.chunks_by_root[first][0].kind]
+        low, high = sorted((low, high))
+        inside = [key for key in order
+                  if (position := _label_position(compact_label(self.chunks_by_root[key][0].label))) is not None
+                  and low <= position <= high and self.chunks_by_root[key][0].kind != "schedule"]
+        same_kind = [key for key in inside if self.chunks_by_root[key][0].kind == kind]
+        return same_kind or ([] if kind == "schedule" else inside)
 
     def child_path(self, root_id: UUID, labels: Sequence[str]) -> str | None:
         """Reference path of ``root(2)(a)`` when those children exist."""

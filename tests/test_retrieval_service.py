@@ -141,6 +141,15 @@ def test_lists_ranges_and_nested_references(snapshot):
     assert absent_child.status == "ok" and absent_child.warnings
 
 
+def test_a_range_with_an_end_the_law_lacks_returns_what_exists_and_says_so(snapshot):
+    result = retrieve(snapshot, "sections 4 to 99 of the gambling ordinance")
+    assert result.status == "ok" and [label for _, label in labels(result)] == ["4", "5", "5-A", "8"]
+    assert not result.missing_references
+    assert any("no section 99" in warning for warning in result.warnings)
+    mixed = retrieve(snapshot, "sections 3 to 4 and 8 of the gambling ordinance")
+    assert sorted(label for _, label in labels(mixed)) == ["3", "4", "8"] and not mixed.warnings
+
+
 def test_missing_provisions_are_reported_not_substituted(snapshot):
     missing = retrieve(snapshot, "What is section 99 of the gambling ordinance?")
     assert missing.status == "no_results" and missing.missing_references == ["Section 99"]
@@ -204,7 +213,7 @@ def test_remembered_law_only_biases_a_conceptual_follow_up(snapshot):
 def test_only_a_law_named_returns_its_opening_provisions(snapshot):
     result = retrieve(snapshot, "Tell me about the Punjab Consumer Protection Act")
     assert result.status == "ok" and result.overview
-    assert [label for _, label in labels(result)] == ["2", "4", "19", "25"]
+    assert [label for _, label in labels(result)] == ["2", "4", "19", "25", "32"]
     misspelt = retrieve(snapshot, "tell me about the consumer protecton act")
     assert misspelt.overview
     topical = retrieve(snapshot, "what does the consumer protection act say about receipts")

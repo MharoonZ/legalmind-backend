@@ -72,7 +72,8 @@ async def validate_corpus(session, chunk_set_ids: list[UUID], *, check_tokens=Tr
     source_fingerprints = defaultdict(list)
     node_map = {p.id: p for nodes in nodes_by_revision.values() for p in nodes}
     for span, page_index, block_ordinal, source_block_hash, exact_match in span_rows:
-        node = node_map[span.provision_id]
+        if span.provision_id not in node_map:        # a span must belong to a loaded provision
+            raise KeyError(span.provision_id)
         if span.mapping_quality == "exact" and not exact_match:
             errors.append(f"Source span {span.id} differs from the saved PDF block")
         spans_by_revision[span.revision_id].append(ProvisionSourceSpan(

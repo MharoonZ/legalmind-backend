@@ -138,6 +138,15 @@ def parse_references(text: str) -> ParsedReferences:
     def covered(position: int) -> bool:
         return any(start <= position < end for start, end in spans)
 
+    def take(kind: Kind, label: str, children: tuple[str, ...], position: int, *, numeric: bool) -> int:
+        """Record one listed item, which may open a range ("4 to 8"); return where it ends."""
+        between = _RANGE.match(text, position) if numeric and not children else None
+        if between and compact_label(between["label"]) != label and not _UNIT.match(text, between.end()):
+            ranges.append(ReferenceRange(kind, label, compact_label(between["label"])))
+            return between.end()
+        references.append(Reference(kind, label, children))
+        return position
+
     for match in _KIND_TOKEN.finditer(text):
         if covered(match.start()):
             continue
@@ -163,18 +172,14 @@ def parse_references(text: str) -> ParsedReferences:
             start = max(0, start - 60) + nested.start()
         if prefix_children and not children:
             children = tuple(reversed(prefix_children)) if len(prefix_children) > 1 else tuple(prefix_children)
-        between = _RANGE.match(text, end) if address and not children else None
-        if between and compact_label(between["label"]) != label:
-            ranges.append(ReferenceRange(kind, label, compact_label(between["label"])))
-            end = between.end()
-        else:
-            references.append(Reference(kind, label, children))
-            while True:
-                more = _LIST.match(text, end) or (plural and _LIST_OR.match(text, end))
-                if not more or _UNIT.match(text, more.end()):
-                    break
-                references.append(Reference(kind, compact_label(more["label"]), _children(more["children"])))
-                end = more.end()
+        # "sections 4 to 8, 11, 13 and 18 to 22": single numbers and ranges may be mixed.
+        end = take(kind, label, children, end, numeric=bool(address))
+        while True:
+            more = _LIST.match(text, end) or (plural and _LIST_OR.match(text, end))
+            if not more or _UNIT.match(text, more.end()):
+                break
+            end = take(kind, compact_label(more["label"]), _children(more["children"]), more.end(),
+                       numeric=True)
         spans.append((start, end))
 
     for pattern, group in ((_SCHEDULE_BEFORE, "ordinal"), (_SCHEDULE_AFTER, "label")):

@@ -34,7 +34,12 @@ def test_ranges_follow_document_order_and_include_lettered_sections(snapshot):
     labels = [snapshot.chunks_by_root[key][0].label for key in snapshot.roots_between(law, "section", "4", "8")]
     assert labels == ["4", "5", "5-A", "8"]
     assert snapshot.roots_between(law, "section", "8", "4") == snapshot.roots_between(law, "section", "4", "8")
-    assert snapshot.roots_between(law, "section", "4", "99") == []
+    # An end the law does not have (omitted or never enacted) still returns what lies between.
+    open_ended = snapshot.roots_between(law, "section", "4", "99")
+    assert [snapshot.chunks_by_root[key][0].label for key in open_ended] == ["4", "5", "5-A", "8"]
+    assert [snapshot.chunks_by_root[key][0].label
+            for key in snapshot.roots_between(law, "section", "6", "8")] == ["8"]
+    assert snapshot.roots_between(law, "section", "90", "99") == []
 
 
 def test_child_paths_breadcrumbs_and_definition_terms(snapshot):
@@ -52,7 +57,7 @@ def test_child_paths_breadcrumbs_and_definition_terms(snapshot):
 
 def test_masks_select_laws_and_display_text_excludes_the_prefix(snapshot):
     mask = snapshot.mask([law_id(CONSUMER)])
-    assert mask.sum() == 4 and snapshot.mask(None) is None
+    assert mask.sum() == 5 and snapshot.mask(None) is None
     chunk = snapshot.chunks_by_root[snapshot.find_root(law_id(GAMBLING), "section", "5")][0]
     assert snapshot.display[chunk.index].startswith("5. Penalty for gaming in a public place.")
     assert "[three years]" in snapshot.display[chunk.index] and "1[three" not in snapshot.display[chunk.index]
@@ -152,3 +157,22 @@ def test_non_exact_source_spans_are_not_used_for_citations(snapshot):
         row["mapping_quality"] = "approximate"
     built = loader._assemble(publication, items, chunks, nodes, segments)
     assert built.chunks[0].segments == () and len(built.chunks[1].segments) == 2
+
+
+def test_cross_references_link_provisions_in_both_directions(snapshot):
+    consumer, gambling = law_id(CONSUMER), law_id(GAMBLING)
+
+    def root(law, label):
+        return snapshot.find_root(law, "section", label.replace("-", "").lower())
+
+    # "as provided in section 4": a forward reference, and its reverse.
+    assert snapshot.outgoing[root(consumer, "25")] == (root(consumer, "4"),)
+    # The penalty clause names "sections 4 to 8, ... 18 to 22": it refers to 4 and 19, not to 25 or 2.
+    assert set(snapshot.outgoing[root(consumer, "32")]) == {root(consumer, "4"), root(consumer, "19")}
+    assert snapshot.referrers[root(consumer, "19")] == (root(consumer, "32"),)
+    assert snapshot.referrers[root(consumer, "4")] == (root(consumer, "25"), root(consumer, "32"))
+    assert snapshot.referrers[root(gambling, "5")] == (root(gambling, "5-A"),)
+    assert root(consumer, "2") not in snapshot.referrers
+    # A provision never refers to itself, and numbers are resolved inside the same law only.
+    assert all(key not in targets and all(target[0] == key[0] for target in targets)
+               for key, targets in snapshot.outgoing.items())

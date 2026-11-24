@@ -1,9 +1,11 @@
 """Structured-output calls to the answer model (Gemini or OpenAI).
 
-One shared HTTP client is reused across requests. Timeouts, overload (429/5xx)
-and malformed output are retried with backoff, optionally on a fallback model,
-before the caller is told the provider is unavailable. Provider credentials
-and prompt contents are never logged or returned.
+One shared HTTP client is reused across requests. A model exchange is bounded
+by one deadline. Inside it, a call that fails (timeout, 429/5xx, malformed
+output) is replaced after a short growing pause, a call that is slow gets
+another call racing beside it, and a model that has just reported overload is
+avoided for a while in favour of the fallback model. The first valid reply
+wins. Provider credentials and prompt contents are never logged or returned.
 """
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import json
 import logging
 import random
 import re
+from collections import Counter
 from time import perf_counter
 
 import httpx
@@ -22,6 +25,11 @@ _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:g
 _TRANSIENT = frozenset({408, 429, 500, 502, 503, 504})
 _OVERLOADED = frozenset({429, 503})
 _JSON_OBJECT = re.compile(r"\{.*\}", re.S)
+_RETRY_DELAY = re.compile(r"(\d+(?:\.\d+)?)s")
+_MAX_PARALLEL = 3            # calls racing for one answer
+_COOLDOWN_SECONDS = 20.0     # how long an overloaded model is avoided when another one is available
+_MAX_COOLDOWN_SECONDS = 120.0
+_MAX_PAUSE_SECONDS = 3.0     # longest wait before a failed call is replaced
 
 
 class GenerationUnavailable(RuntimeError):
@@ -48,6 +56,27 @@ def _parse_object(text: str) -> dict:
     return value
 
 
+def _retry_after(response: httpx.Response) -> float | None:
+    """Seconds the provider asked callers to wait (Retry-After header or RetryInfo detail)."""
+    header = response.headers.get("retry-after", "")
+    if header.strip().replace(".", "", 1).isdigit():
+        return float(header)
+    try:
+        details = response.json()["error"]["details"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    for detail in details if isinstance(details, list) else ():
+        delay = detail.get("retryDelay") if isinstance(detail, dict) else None
+        if isinstance(delay, str) and (match := _RETRY_DELAY.fullmatch(delay.strip())):
+            return float(match[1])
+    return None
+
+
+def _pause(failures: int) -> float:
+    """Wait before replacing a failed call: 0.3 s, doubling, with jitter."""
+    return min(_MAX_PAUSE_SECONDS, 0.3 * 2 ** max(0, failures - 1)) + random.uniform(0, 0.15)
+
+
 class AnswerGenerator:
     def __init__(self, settings, *, transport: httpx.AsyncBaseTransport | None = None, openai_client=None,
                  sleep=asyncio.sleep):
@@ -57,6 +86,7 @@ class AnswerGenerator:
         self._openai = openai_client
         self._sleep = sleep
         self._fallback_missing = False
+        self._avoid_until: dict[str, float] = {}     # model -> loop time until which it is avoided
 
     @property
     def provider(self) -> str:
@@ -108,58 +138,80 @@ class AnswerGenerator:
             return [primary]
         return [primary, fallback]
 
-    async def _race(self, system, user, schema, max_output_tokens) -> tuple[dict, int]:
-        """Ask the primary model; bring in the fallback when it is slow or failing.
+    def _next_model(self, now: float, in_flight: Counter) -> str:
+        """The model for the next call: one that is not being avoided, with the fewest calls in flight."""
+        models = self._gemini_models()
+        healthy = [model for model in models if self._avoid_until.get(model, 0.0) <= now]
+        if healthy:
+            return min(healthy, key=lambda model: (in_flight[model], models.index(model)))
+        # Every model reported overload: take the one that did so longest ago.
+        return min(models, key=lambda model: (in_flight[model], self._avoid_until.get(model, 0.0)))
 
-        A call that fails is replaced at once by the other model. A call that
-        has not answered within ``qa_llm_hedge_seconds`` gets a second call
-        racing beside it. The first valid reply wins, everything else is
-        cancelled, and the whole exchange is bounded by one deadline, so a
-        stalled or overloaded model cannot hold a question hostage.
+    async def _race(self, system, user, schema, max_output_tokens) -> tuple[dict, int]:
+        """One answer from the configured models, inside a single deadline.
+
+        The first call goes to the primary model unless it has just reported
+        overload. A call that fails is replaced after a short growing pause,
+        up to ``qa_llm_max_retries`` times. A call that has not answered after
+        ``qa_llm_hedge_seconds`` gets another call racing beside it (at most
+        ``_MAX_PARALLEL`` in flight). The first valid reply wins and the rest
+        are cancelled, so a stalled or overloaded model cannot hold a question
+        hostage.
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.settings.qa_gemini_timeout_seconds
-        budget = 2 + self.settings.qa_llm_max_retries
         hedge = self.settings.qa_llm_hedge_seconds
-        pending: set[asyncio.Task] = set()
-        launched = 0
+        retries = self.settings.qa_llm_max_retries
+        pending: dict[asyncio.Task, str] = {}
+        launched = failures = replaced = hedges = 0
+        replace_at = hedge_at = loop.time()
         failure: Exception = GenerationUnavailable("The answer model did not respond in time.")
-
-        def launch() -> None:
-            nonlocal launched
-            models = self._gemini_models()
-            model = models[launched % len(models)]
-            launched += 1
-            pending.add(asyncio.create_task(self._gemini(
-                system, user, schema, max_output_tokens, model, max(1.0, deadline - loop.time()))))
-
-        launch()
         try:
             while True:
-                remaining = deadline - loop.time()
-                if remaining <= 0:
+                now = loop.time()
+                if now >= deadline:
                     raise failure
-                can_hedge = hedge > 0 and len(pending) == 1 and launched < budget \
-                    and len(self._gemini_models()) > 1
-                done, pending = await asyncio.wait(
-                    pending, timeout=min(hedge, remaining) if can_hedge else remaining,
-                    return_when=asyncio.FIRST_COMPLETED)
-                if not done:
-                    if can_hedge and deadline - loop.time() > 0:
-                        launch()                # slow: race the other model
+                room = len(pending) < _MAX_PARALLEL
+                replacing = room and failures > replaced and replaced < retries
+                hedging = room and hedge > 0 and bool(pending) and hedges < _MAX_PARALLEL - 1
+                due = now if not launched else min(
+                    (moment for wanted, moment in ((replacing, replace_at), (hedging, hedge_at)) if wanted),
+                    default=None)
+                if due is not None and now >= due:
+                    if launched and replacing and now >= replace_at:
+                        replaced += 1
+                    elif launched:
+                        hedges += 1
+                    model = self._next_model(now, Counter(pending.values()))
+                    pending[asyncio.create_task(self._gemini(
+                        system, user, schema, max_output_tokens, model, max(1.0, deadline - now)))] = model
+                    launched += 1
+                    hedge_at = now + hedge
                     continue
+                if not pending:
+                    if due is None:
+                        raise failure               # every allowed attempt has failed
+                    await self._sleep(min(due, deadline) - now)
+                    replace_at = min(replace_at, loop.time())    # an injected clock may not advance
+                    continue
+                done, _ = await asyncio.wait(
+                    pending, timeout=max(0.0, min(deadline, deadline if due is None else due) - now),
+                    return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
+                    model = pending.pop(task)
                     try:
-                        return task.result(), launched
+                        result = task.result()
                     except _Retryable as exc:
-                        failure = exc.error
+                        failure, failures = exc.error, failures + 1
                         if exc.missing_model:
                             self._fallback_missing = True
-                if not pending:
-                    if launched >= budget:
-                        raise failure
-                    await self._sleep(min(max(0.0, deadline - loop.time()), 0.25 + random.uniform(0, 0.15)))
-                    launch()
+                        elif exc.overloaded and len(self._gemini_models()) > 1:
+                            self._avoid_until[model] = loop.time() + min(
+                                _MAX_COOLDOWN_SECONDS, exc.retry_after or _COOLDOWN_SECONDS)
+                        replace_at = loop.time() + _pause(failures)
+                    else:
+                        self._avoid_until.pop(model, None)
+                        return result, launched
         finally:
             for task in pending:
                 task.cancel()
@@ -171,15 +223,20 @@ class AnswerGenerator:
         return self._openai is not None or bool(key and key.get_secret_value())
 
     async def _openai_with_retries(self, system, user, schema, max_output_tokens) -> tuple[dict, int]:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.settings.qa_openai_timeout_seconds
         attempts = 1 + self.settings.qa_llm_max_retries
-        failure: Exception = GenerationUnavailable("The answer model is not configured.")
+        failure: Exception = GenerationUnavailable("The answer model did not respond in time.")
         for attempt in range(attempts):
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
             try:
-                return await self._openai_call(system, user, schema, max_output_tokens), attempt + 1
+                return await self._openai_call(system, user, schema, max_output_tokens, remaining), attempt + 1
             except _Retryable as exc:
                 failure = exc.error
                 if attempt + 1 < attempts:
-                    await self._sleep(min(4.0, 0.4 * 2 ** attempt) + random.uniform(0, 0.2))
+                    await self._sleep(min(_pause(attempt + 1), max(0.0, deadline - loop.time())))
         raise failure
 
     # --------------------------------------------------------------- Gemini
@@ -215,10 +272,12 @@ class AnswerGenerator:
             raise _Retryable(GenerationUnavailable(
                 "The answer model timed out or could not be reached."), overloaded=True) from None
         if response.status_code in _TRANSIENT:
-            logger.info("llm_attempt_failed model=%s status=%d", model, response.status_code)
+            wait = _retry_after(response)
+            logger.info("llm_attempt_failed model=%s status=%d retry_after=%s", model, response.status_code,
+                        "-" if wait is None else f"{wait:.0f}s")
             raise _Retryable(GenerationUnavailable(
                 f"The answer model is temporarily unavailable (HTTP {response.status_code})."),
-                overloaded=response.status_code in _OVERLOADED)
+                overloaded=response.status_code in _OVERLOADED, retry_after=wait)
         if response.status_code in {401, 403}:
             raise GenerationUnavailable("The answer model rejected the server credential.")
         if response.status_code == 404 and model != self.settings.gemini_model:
@@ -259,7 +318,7 @@ class AnswerGenerator:
                                        max_retries=0)
         return self._openai
 
-    async def _openai_call(self, system, user, schema, max_output_tokens) -> dict:
+    async def _openai_call(self, system, user, schema, max_output_tokens, timeout: float) -> dict:
         client = self._openai_client()
         try:
             response = await client.responses.create(
@@ -270,6 +329,7 @@ class AnswerGenerator:
                 max_output_tokens=max_output_tokens or self.settings.qa_openai_max_output_tokens,
                 temperature=self.settings.qa_llm_temperature,
                 store=False,
+                timeout=max(1.0, timeout),
             )
         except Exception as exc:
             # Never include exception text: SDK errors may contain request details.
@@ -292,8 +352,10 @@ class AnswerGenerator:
 
 
 class _Retryable(Exception):
-    def __init__(self, error: Exception, *, overloaded: bool = False, missing_model: bool = False):
+    def __init__(self, error: Exception, *, overloaded: bool = False, missing_model: bool = False,
+                 retry_after: float | None = None):
         self.error = error
         self.overloaded = overloaded
         self.missing_model = missing_model
+        self.retry_after = retry_after
         super().__init__(str(error))

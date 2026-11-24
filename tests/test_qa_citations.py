@@ -3,7 +3,7 @@ import pytest
 
 from app.qa.citations import ground_answer, locate_quote
 from app.qa.context import EvidenceUnit
-from tests.corpus import CONSUMER, GAMBLING, law_id, make_snapshot
+from tests.corpus import CONSUMER, GAMBLING, PRISONS, law_id, make_snapshot
 
 SECTION_5 = ("5. Penalty for gaming in a public place.– Whoever is found gaming in any public place, \n"
              "street or thoroughfare, \nshall be punishable with imprisonment for a term which may extend to \n\n"
@@ -138,3 +138,55 @@ def test_duplicate_quotes_bullets_and_public_ids_are_handled(snapshot):
 def test_an_answer_without_evidence_has_no_citations(snapshot):
     grounded = ground_answer("This collection does not cover that.", [], [], snapshot)
     assert grounded.answer == "This collection does not cover that." and not grounded.citations
+
+
+def test_a_provision_the_answer_names_without_citing_is_linked_to_its_text(snapshot):
+    units = [unit(snapshot, "E1", CONSUMER, "19"), unit(snapshot, "E2", CONSUMER, "32")]
+    grounded = ground_answer(
+        "Yes. Under Section 19 of The Punjab Consumer Protection Act 2005, a trader who sells goods must "
+        "issue a receipt to the purchaser. A manufacturer who infringes these liabilities can be imprisoned "
+        "for up to two years, as provided by Section 32.",
+        [{"evidence_id": "E2", "quote": "he shall be punished with imprisonment which may extend to two years"}],
+        units, snapshot)
+    assert [citation.label for citation in grounded.citations] == ["19", "32"]
+    assert "issue to the purchaser a receipt" in grounded.citations[0].quote
+    assert "issue a receipt to the purchaser [1]." in grounded.answer
+    assert grounded.answer.endswith("as provided by Section 32 [2].")
+    assert (grounded.verified_quotes, grounded.fallback_citations) == (1, 1)
+
+
+def test_named_provisions_are_not_linked_when_already_cited_or_ambiguous(snapshot):
+    units = [unit(snapshot, "E1", GAMBLING, "3"), unit(snapshot, "E2", PRISONS, "3")]
+    cited = ground_answer(
+        "Section 3 of the Punjab Prevention of Gambling Ordinance, 1978 punishes keeping a gaming house [E1].",
+        [{"evidence_id": "E1", "quote": "keeps or uses the same as a common gaming-house"}], units, snapshot)
+    assert len(cited.citations) == 1 and cited.answer.count("[1]") == 1
+    # "Section 3" exists in both cited laws and the sentence names neither: it stays unlinked.
+    vague = ground_answer("Section 3 deals with this.", [], units, snapshot)
+    assert not vague.citations and vague.answer == "Section 3 deals with this."
+    # Naming the law settles it; a law outside the collection is never linked.
+    named = ground_answer("Section 3 of the Prisons Act, 1894 defines a prison.", [], units, snapshot)
+    assert [(citation.law, citation.label) for citation in named.citations] == [(PRISONS, "3")]
+    foreign = ground_answer("Section 3 of the Arms Ordinance 1965 applies.", [], units[:1], snapshot)
+    assert not foreign.citations
+
+
+def test_a_paraphrased_quote_is_replaced_by_the_sentence_it_restates(snapshot):
+    units = [unit(snapshot, "E1", CONSUMER, "19")]
+    grounded = ground_answer(
+        "A receipt must be given.",
+        [{"evidence_id": "E1", "quote": "every trader who sells goods must issue a receipt to the purchaser "
+                                         "showing the date of sale and the price of the goods"}],
+        units, snapshot)
+    assert len(grounded.citations) == 1 and grounded.answer == "A receipt must be given [1]."
+    assert grounded.citations[0].quote.startswith("Every manufacturer or trader who sells any goods shall")
+    assert (grounded.verified_quotes, grounded.dropped_quotes, grounded.fallback_citations) == (0, 0, 1)
+
+
+def test_abbreviations_do_not_split_an_answer_sentence(snapshot):
+    units = [unit(snapshot, "E1", GAMBLING, "5")]
+    grounded = ground_answer(
+        "The fine may extend to Rs. 5,000 for gaming in a public place. Nothing else applies.",
+        [{"evidence_id": "E1", "quote": "Whoever is found gaming in any public place"}], units, snapshot)
+    assert grounded.answer == ("The fine may extend to Rs. 5,000 for gaming in a public place [1]. "
+                               "Nothing else applies.")

@@ -93,6 +93,76 @@ def test_a_stalled_primary_is_raced_by_the_fallback_model():
     assert result == {"answer": "fallback-model"} and calls == ["primary-model", "fallback-model"]
 
 
+def model_of(request):
+    return str(request.url).split("/models/")[1].split(":")[0]
+
+
+def test_every_stalled_call_gets_company_until_one_answers():
+    calls = []
+
+    async def handler(request):
+        calls.append(model_of(request))
+        if len(calls) < 3:
+            await asyncio.sleep(30)                 # the first two calls hang
+        return reply({"answer": f"call {len(calls)}"})
+    assert run(generator(handler).generate_json("s", "u", SCHEMA)) == {"answer": "call 3"}
+    # Calls alternate between the models so a hang on one does not block the other.
+    assert calls == ["primary-model", "fallback-model", "primary-model"]
+
+
+def test_a_model_that_reported_overload_is_avoided_for_the_next_questions():
+    calls = []
+
+    def handler(request):
+        calls.append(model_of(request))
+        return reply(status=503) if calls[-1] == "primary-model" else reply({"answer": "ok"})
+    client = generator(handler)
+    for _ in range(3):
+        assert run(client.generate_json("s", "u", SCHEMA)) == {"answer": "ok"}
+    # Only the first question paid for a failed call to the overloaded model.
+    assert calls == ["primary-model", "fallback-model", "fallback-model", "fallback-model"]
+    # Once the cool-down passes, the primary model is tried first again.
+    client._avoid_until["primary-model"] = 0.0
+    run(client.generate_json("s", "u", SCHEMA))
+    assert calls[-2:] == ["primary-model", "fallback-model"]
+
+
+def test_the_wait_a_rate_limited_model_asks_for_is_respected():
+    def handler(request):
+        if model_of(request) == "primary-model":
+            return httpx.Response(429, json={"error": {"status": "RESOURCE_EXHAUSTED", "details": [
+                {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "47s"}]}})
+        return reply({"answer": "ok"})
+    client = generator(handler)
+
+    async def ask():
+        result = await client.generate_json("s", "u", SCHEMA)
+        return result, client._avoid_until["primary-model"] - asyncio.get_running_loop().time()
+    result, wait = run(ask())
+    assert result == {"answer": "ok"} and 40 < wait <= 47
+
+
+def test_when_every_model_is_overloaded_they_take_turns_until_the_retries_run_out():
+    calls = []
+
+    def handler(request):
+        calls.append(model_of(request))
+        return reply(status=503)
+    with pytest.raises(GenerationUnavailable):
+        run(generator(handler, qa_llm_max_retries=3).generate_json("s", "u", SCHEMA))
+    assert calls == ["primary-model", "fallback-model", "primary-model", "fallback-model"]
+
+
+def test_a_success_clears_the_overload_mark():
+    outcomes = iter([503, 200, 200])
+
+    def handler(request):
+        return reply(status=503) if next(outcomes) == 503 else reply({"answer": model_of(request)})
+    client = generator(handler, gemini_fallback_model=None)
+    assert run(client.generate_json("s", "u", SCHEMA)) == {"answer": "primary-model"}
+    assert not client._avoid_until               # a lone model is never avoided
+
+
 def test_transient_errors_are_retried_then_reported_as_unavailable():
     attempts = []
 
@@ -157,7 +227,7 @@ def test_malformed_output_is_retried_and_finally_invalid(bad):
         return reply(**bad)
     with pytest.raises(GenerationInvalid):
         run(generator(handler, gemini_fallback_model=None).generate_json("s", "u", SCHEMA))
-    assert len(calls) == 4                       # the first call plus the bounded retries
+    assert len(calls) == 3                       # the first call plus qa_llm_max_retries replacements
 
 
 def test_json_wrapped_in_a_code_fence_is_accepted():
@@ -183,6 +253,7 @@ class FakeOpenAI:
         self.responses = SimpleNamespace(create=self.create)
 
     async def create(self, **kwargs):
+        assert kwargs["timeout"] > 0                # each call is bounded by the exchange deadline
         self.requests.append(kwargs)
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):

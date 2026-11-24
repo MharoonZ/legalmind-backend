@@ -21,7 +21,8 @@ def test_concurrent_publication_reports_busy_before_locking_or_modifying_corpus(
 
 
 def test_busy_ingestion_lock_is_a_publication_conflict_instead_of_an_unhandled_database_error():
-    class LockUnavailable(Exception): sqlstate = "55P03"
+    class LockUnavailable(Exception):
+        sqlstate = "55P03"
     class Session:
         async def execute(self, statement):
             if "LOCK TABLE" in str(statement):

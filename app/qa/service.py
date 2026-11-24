@@ -3,7 +3,8 @@
 The pipeline prefers a useful, cited answer over a refusal. Deterministic
 replies (small talk, "which law?", "that section does not exist") skip the
 model entirely; otherwise one model call writes the answer and the server
-verifies its citations against the published text.
+verifies its citations against the published text. If the model cannot be
+reached, a request for named provisions is still answered with their text.
 """
 from __future__ import annotations
 
@@ -38,7 +39,10 @@ _NO_CITATION_FEEDBACK = (
     "Your previous answer did not cite any evidence passage that could be verified. Cite the passages "
     "you rely on as [E1], [E2] in the answer and copy a short exact quote from each into citations. "
     "If the evidence does not support an answer, return insufficient_evidence.")
+_MODEL_DOWN_NOTE = ("The answer model is temporarily unavailable, so this reply quotes the requested "
+                    "text without explaining it.")
 _MAX_LISTED_LAWS = 12
+_TEXT_ONLY_MAX_CHARS = 6000     # statute text quoted when the model cannot be reached
 _STATUSES = frozenset({"answered", "partial", "clarification_needed", "insufficient_evidence"})
 
 
@@ -130,6 +134,7 @@ class QuestionAnswerService:
         started = perf_counter()
         question = normalize(request.question)
         retrieval: RetrievalResult | None = None
+        units: list[EvidenceUnit] = []
         llm_calls = 0
         method = "none"
         try:
@@ -169,9 +174,10 @@ class QuestionAnswerService:
                 result, calls = await self._generate(request.question, retrieval, units, history, rewritten)
                 llm_calls += calls
                 timings["generation"] = (perf_counter() - stage) * 1000
-        except GenerationUnavailable as exc:
+        except (GenerationUnavailable, GenerationInvalid) as exc:
             logger.warning("qa_generation_unavailable error=%s", exc)
-            result = self.unavailable(request.question, self._publication(retrieval), str(exc))
+            result = self._text_only(request.question, retrieval, units) or self.unavailable(
+                request.question, self._publication(retrieval), str(exc))
         except Exception as exc:
             logger.exception("qa_pipeline_failed error=%s", type(exc).__name__)
             result = self.unavailable(request.question, self._publication(retrieval))
@@ -226,6 +232,37 @@ class QuestionAnswerService:
                           answer=" ".join(parts), missing_support=retrieval.message,
                           limitations=(_COLLECTION_NOTE,))
         return None
+
+    def _text_only(self, question: str, retrieval: RetrievalResult | None,
+                   units: Sequence[EvidenceUnit]) -> AskOut | None:
+        """Without the model, a request for named provisions is answered with their text."""
+        if retrieval is None or retrieval.status != "ok" or not retrieval.analysis.has_reference:
+            return None
+        snapshot = retrieval.snapshot
+        parts: list[str] = []
+        size = 0
+        for unit in units:
+            if unit.relation != "requested":
+                continue
+            chunk, text = unit.chunk, snapshot.display[unit.chunk.index]
+            if parts and size + len(text) > _TEXT_ONLY_MAX_CHARS:
+                break
+            title = f"{chunk.citation} of {snapshot.instruments[chunk.instrument_id].title}"
+            if chunk.root_total_chunks > 1:
+                title += f" (part {chunk.sequence_in_root} of {chunk.root_total_chunks})"
+            cut = text[:_TEXT_ONLY_MAX_CHARS]
+            parts.append(f"{title} [{unit.key}]\n{cut}" + (" …" if len(cut) < len(text) else ""))
+            size += len(cut)
+        if not parts:
+            return None
+        grounded = ground_answer("\n\n".join(parts), [], units, snapshot)
+        if not grounded.citations:
+            return None
+        return AskOut(
+            status="partial", question=question, publication_id=snapshot.id,
+            answer=f"{_MODEL_DOWN_NOTE}\n\n{grounded.answer}", claims=grounded.claims,
+            citations=grounded.citations, missing_support=_MODEL_DOWN_NOTE,
+            limitations=(_INFORMATION_NOTE, _EDITION_NOTE))
 
     # ------------------------------------------------------------ generation
     async def _generate(self, question: str, retrieval: RetrievalResult, units: Sequence[EvidenceUnit],

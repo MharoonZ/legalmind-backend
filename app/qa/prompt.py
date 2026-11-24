@@ -10,6 +10,11 @@ from app.retrieval.snapshot import PublicationSnapshot
 
 _MAX_HISTORY_CHARS = 1200       # per earlier turn
 _MAX_LISTED_LAWS = 80
+_RELATION_NOTES = {
+    "definition": "definitions for this law",
+    "reference": "referred to by another passage",
+    "referring": "refers by number to another passage; it may state the penalty, exception or procedure",
+}
 
 SYSTEM_PROMPT = """You are LegalMind, an assistant that explains what the laws in a document collection say.
 You are given numbered evidence passages (E1, E2, ...) taken from the official text of those laws.
@@ -103,9 +108,8 @@ def build_answer_prompt(snapshot: PublicationSnapshot, retrieval: RetrievalResul
         }
         if chunk.root_total_chunks > 1:
             item["part"] = f"{chunk.sequence_in_root} of {chunk.root_total_chunks}"
-        if unit.relation in {"definition", "reference"}:
-            item["note"] = ("definitions for this law" if unit.relation == "definition"
-                            else "referred to by another passage")
+        if unit.relation in _RELATION_NOTES:
+            item["note"] = _RELATION_NOTES[unit.relation]
         evidence.append(item)
     payload: dict = {"question": question}
     if rewritten and rewritten != question:

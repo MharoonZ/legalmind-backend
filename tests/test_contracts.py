@@ -47,7 +47,7 @@ def test_upload_without_question_still_works_exactly_like_before(contracts_api):
 
 
 def test_file_is_actually_written_to_disk(contracts_api):
-    res = _upload(contracts_api, pages=1)
+    _upload(contracts_api, pages=1)
     repository = contracts_api.state["repository"]
     call = repository.created_calls[0]
     with open(call["storage_path"], "rb") as f:

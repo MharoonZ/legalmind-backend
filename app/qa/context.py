@@ -1,26 +1,26 @@
 """Stage 12: assemble the evidence the answer model may use.
 
 Each selected provision is included whole (every part of a split section), in
-rank order, until the budget is reached. Definitions and same-law provisions
-that the selected text refers to are added when there is room. Assembly never
-fails a question: whatever does not fit is simply left out.
+rank order, until the budget is reached. When there is room, three kinds of
+related text from the same law are added: its definitions, the provisions the
+selected text refers to, and the provisions that refer to it (the penalty or
+exception clause that names it only by number). Assembly never fails a
+question: whatever does not fit is simply left out.
 """
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
-from uuid import UUID
 
-from app.retrieval.query import QueryAnalysis
-from app.retrieval.references import parse_references
+import numpy as np
+
+from app.retrieval.query import QueryAnalysis, has_topic
 from app.retrieval.service import Candidate
-from app.retrieval.snapshot import Chunk, PublicationSnapshot
+from app.retrieval.snapshot import Chunk, PublicationSnapshot, RootKey
 from app.retrieval.text import STOPWORDS, stem, words
 
-Relation = Literal["requested", "retrieved", "definition", "reference"]
-_OTHER_LAW = re.compile(r"\s*,?\s*(?:of|in|under)\s+(?:the\s+|that\s+|any\s+other\s+)?(?!this\b|said\b|same\b)\S", re.I)
+Relation = Literal["requested", "retrieved", "definition", "reference", "referring"]
 _REFERENCE_SOURCES = 2          # follow references only from the best-ranked provisions
 
 
@@ -36,13 +36,28 @@ class EvidenceUnit:
         return f"chunk:{self.chunk.id}"
 
 
+def _by_relevance(snapshot: PublicationSnapshot, keys: Sequence[RootKey], text: str) -> list[RootKey]:
+    """``keys`` ordered by keyword relevance to ``text``; document order breaks ties."""
+    allowed = np.zeros(len(snapshot.chunks), dtype=bool)
+    for key in keys:
+        for part in snapshot.chunks_by_root[key]:
+            allowed[part.index] = True
+    terms, _ = snapshot.lexical.query_terms(text)
+    best: dict[RootKey, float] = {}
+    for position, score in snapshot.lexical.search(terms, mask=allowed, limit=int(allowed.sum())):
+        chunk = snapshot.chunks[position]
+        root = (chunk.instrument_id, chunk.root_provision_id)
+        best[root] = max(best.get(root, 0.0), score)
+    return sorted(keys, key=lambda key: -best.get(key, 0.0))
+
+
 def build_context(snapshot: PublicationSnapshot, candidates: Sequence[Candidate],
                   analysis: QueryAnalysis, settings) -> list[EvidenceUnit]:
     units: list[EvidenceUnit] = []
-    used: set[tuple[UUID, UUID]] = set()
+    used: set[RootKey] = set()
     size = 0
 
-    def add(key: tuple[UUID, UUID], relation: Relation, *, force: bool = False) -> bool:
+    def add(key: RootKey, relation: Relation, *, force: bool = False) -> bool:
         nonlocal size
         if key in used:
             return True
@@ -89,17 +104,26 @@ def build_context(snapshot: PublicationSnapshot, candidates: Sequence[Candidate]
     # Provisions the best-ranked text points to within the same law.
     followed = 0
     for key in roots[:_REFERENCE_SOURCES]:
-        if followed >= settings.qa_context_max_reference_sections:
-            break
-        for part in snapshot.chunks_by_root.get(key, ()):
-            text = snapshot.display[part.index]
-            for start, end in parse_references(text).spans:
-                if _OTHER_LAW.match(text, end):
-                    continue                    # "section 5 of the Code": another law
-                for reference in parse_references(text[start:end]).references:
-                    if followed >= settings.qa_context_max_reference_sections:
-                        break
-                    target = snapshot.find_root(key[0], reference.kind, reference.label)
-                    if target is not None and target not in used and add(target, "reference"):
-                        followed += 1
+        for target in snapshot.outgoing.get(key, ()):
+            if followed >= settings.qa_context_max_reference_sections:
+                break
+            if target not in used and add(target, "reference"):
+                followed += 1
+
+    # Provisions that point at the best-ranked text: usually the penalty,
+    # exception or procedure clause, which names it only by number. A request
+    # for the bare text of a provision ("what is section 5?") does not need them.
+    limit = settings.qa_context_max_referring_sections
+    if limit and (not exact or has_topic(analysis, snapshot)):
+        sources = list(dict.fromkeys(
+            source for key in roots[:_REFERENCE_SOURCES] for source in snapshot.referrers.get(key, ())
+            if source not in used))
+        if len(sources) > limit:
+            sources = _by_relevance(snapshot, sources, analysis.search_text)
+        referring = 0
+        for source in sources:
+            if referring >= limit:
+                break
+            if add(source, "referring"):
+                referring += 1
     return units

@@ -5,10 +5,12 @@ located in the published text it claims to come from, tolerant of whitespace,
 case, quotation-mark and dash glyphs, PDF footnote numbers and small copying
 slips, and mapped through the stored source spans to a provision and a page.
 A quote that cannot be found is dropped, not the whole answer; a cited passage
-without a usable quote is cited through its best-matching sentence instead.
+without a usable quote is cited through its best-matching sentence instead, and
+a provision the answer names without citing is linked to its text.
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from collections.abc import Sequence
@@ -17,8 +19,9 @@ from dataclasses import dataclass
 from rapidfuzz import fuzz
 
 from app.qa.context import EvidenceUnit
-from app.retrieval.snapshot import Chunk, PublicationSnapshot, Segment
-from app.retrieval.text import STOPWORDS, footnote_spans, stem, words
+from app.retrieval.references import parse_references, schedule_number
+from app.retrieval.snapshot import Chunk, PublicationSnapshot, RootKey, Segment
+from app.retrieval.text import STOPWORDS, compact_label, footnote_spans, stem, words
 from app.schemas.qa import VerifiedCitation, VerifiedClaim
 
 _MARKER = re.compile(r"\[\s*((?:E\s?\d+)(?:\s*[,;&]\s*(?:E\s?\d+))*)\s*\]", re.I)
@@ -29,13 +32,22 @@ _SENTENCE = re.compile(r".+?(?:[.;](?=\s|$)|\.\u2013|$)", re.S)
 _SPACE_BEFORE_PUNCTUATION = re.compile(r"[ \t]+([.,;:!?])")
 _PLACEHOLDER = "\x00{}\x01"
 _PLACED = re.compile(r"\x00(\d+)\x01")
-_ANSWER_SENTENCE = re.compile(r"[^.\n]+(?:\.+|\n+|$)")
+# Where one sentence or list item of an answer ends and the next begins. A full
+# stop inside "Rs. 500" or "s. 5" is not a break: a capital must follow.
+_ANSWER_BREAK = re.compile(
+    r"(?<=[.!?])(?:[\"\u201d\u2019)\]]|[ \t]*\x00\d+\x01)*[ \t]+(?=[\"\u201c\u2018(\[]?[A-Z])"
+    r"|(?<=\u06d4)[ \t]+"
+    r"|[ \t]*\n+[ \t]*")
 # "...other laws:- Under Section 2": a list the model wrote without line breaks.
 _INLINE_BULLET = re.compile(r"(?<=[:.\]])[ \t]*-[ \t]+(?=[A-Z(\[\"\u201c])")
 _SPACE = re.compile(r"\s+")
 _MIN_QUOTE = 12              # normalised characters
 _FUZZY_CUTOFF = 88
 _MAX_FALLBACK_CHARS = 320
+# An unlocated quote is replaced by a source sentence only when that sentence
+# shares at least this many of its words, and this share of them.
+_MIN_SHARED_STEMS = 3
+_MIN_SHARED_PART = 0.6
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,27 +139,71 @@ def _anchor(chunk: Chunk, start: int, end: int) -> Segment | None:
     return best
 
 
-def _best_sentence(chunk: Chunk, claim: str) -> tuple[int, int] | None:
-    """The sentence of a cited passage that best supports ``claim``."""
-    wanted = {stem(word) for word in words(claim) if word not in STOPWORDS}
-    body_start = chunk.body_start
-    best, score = None, 0.0
+def _stems(text: str) -> set[str]:
+    return {stem(word) for word in words(text) if word not in STOPWORDS}
+
+
+def _wording_start(chunk: Chunk) -> int:
+    """Where a provision's wording begins, after its printed number and heading."""
+    start = chunk.body_start
+    if chunk.heading:
+        opening = chunk.text[start:start + len(chunk.heading) + 60]
+        located = locate_quote(opening, chunk.heading)
+        if located is not None:
+            end = start + located[1]
+            while end < len(chunk.text) and chunk.text[end] in " .:\u2013\u2014-\n\t":
+                end += 1
+            if end < len(chunk.text):
+                return end
+    return start
+
+
+def _support(chunk: Chunk, claim: str) -> tuple[tuple[int, int] | None, int]:
+    """The sentence of a passage that best supports ``claim``, and how many words they share."""
+    wanted = _stems(claim)
+    body_start = _wording_start(chunk)
+    best, score, shared = None, 0.0, 0
     for match in _SENTENCE.finditer(chunk.text, body_start):
         sentence = match[0].strip()
         if len(sentence) < 20:
             continue
-        found = {stem(word) for word in words(sentence) if word not in STOPWORDS}
-        value = len(wanted & found) / (len(found) ** 0.5 or 1.0)
+        found = _stems(sentence)
+        common = len(wanted & found)
+        value = common / (len(found) ** 0.5 or 1.0)
         if value > score:
             start = match.start() + (len(match[0]) - len(match[0].lstrip()))
-            best, score = (start, min(start + len(sentence), start + _MAX_FALLBACK_CHARS)), value
+            best, score, shared = (start, min(start + len(sentence), start + _MAX_FALLBACK_CHARS)), value, common
     if best is None:
         first = next((m for m in _SENTENCE.finditer(chunk.text, body_start) if len(m[0].strip()) >= 20), None)
         if first is None:
-            return None
+            return None, 0
         start = first.start() + (len(first[0]) - len(first[0].lstrip()))
         best = (start, min(first.end(), start + _MAX_FALLBACK_CHARS))
-    return best
+    return best, shared
+
+
+def _answer_sentences(text: str) -> list[tuple[int, int]]:
+    """Character ranges of the sentences and list items of an answer."""
+    spans: list[tuple[int, int]] = []
+    cursor = 0
+    for match in _ANSWER_BREAK.finditer(text):
+        if text[cursor:match.start()].strip():
+            spans.append((cursor, match.start()))
+        cursor = match.end()
+    if text[cursor:].strip():
+        spans.append((cursor, len(text)))
+    return spans
+
+
+def _with_markers(text: str, additions: dict[tuple[int, int], list[int]]) -> str:
+    """Append citation placeholders to the given sentences, before their final punctuation."""
+    for start, end in sorted(additions, reverse=True):
+        body = text[start:end].rstrip()
+        tail = body[-1] if body[-1:] in ".;:!?\u06d4" else ""
+        core = body[:-1] if tail else body
+        marks = "".join(_PLACEHOLDER.format(index) for index in dict.fromkeys(additions[(start, end)]))
+        text = text[:start] + f"{core} {marks}{tail}" + text[start + len(body):]
+    return text
 
 
 def _attribute(answer: str, quotes: Sequence[str]) -> str:
@@ -156,25 +212,48 @@ def _attribute(answer: str, quotes: Sequence[str]) -> str:
     Used only when the model listed quotes but wrote no markers in its text,
     so every statement still points at its source.
     """
-    pieces = [match for match in _ANSWER_SENTENCE.finditer(answer) if match[0].strip()]
+    pieces = _answer_sentences(answer)
     if not pieces:
         return answer
-    stems = [{stem(word) for word in words(match[0]) if word not in STOPWORDS} for match in pieces]
-    additions: dict[int, list[int]] = {}
+    stems = [_stems(answer[start:end]) for start, end in pieces]
+    additions: dict[tuple[int, int], list[int]] = {}
     for index, quote in enumerate(quotes):
-        wanted = {stem(word) for word in words(quote) if word not in STOPWORDS}
+        wanted = _stems(quote)
         scores = [len(wanted & found) / (len(found) ** 0.5 or 1.0) for found in stems]
         best = max(range(len(pieces)), key=lambda item: scores[item])
         if scores[best] > 0:
-            additions.setdefault(best, []).append(index)
-    for piece in sorted(additions, reverse=True):
-        match = pieces[piece]
-        body = match[0].rstrip()
-        tail = body[-1] if body[-1:] in ".;:" else ""
-        core = body[:-1] if tail else body
-        marked = f"{core} " + "".join(_PLACEHOLDER.format(index) for index in additions[piece]) + tail
-        answer = answer[:match.start()] + marked + match[0][len(body):] + answer[match.end():]
-    return answer
+            additions.setdefault(pieces[best], []).append(index)
+    return _with_markers(answer, additions)
+
+
+def _named_roots(sentence: str, roots: Sequence[RootKey], snapshot: PublicationSnapshot) -> list[RootKey]:
+    """Evidence provisions that ``sentence`` names by number ("Section 31 of the ... Act")."""
+    parsed = parse_references(sentence)
+    if not parsed:
+        return []
+    named = snapshot.laws.resolve(sentence, exclude=parsed.spans)
+    if named.status == "unresolved":
+        return []                               # a law outside the collection
+    allowed = set(named.instrument_ids) if named.status in {"resolved", "ambiguous"} else None
+    pool = [key for key in roots if allowed is None or key[0] in allowed]
+    labels = {}
+    for key in pool:
+        first = snapshot.chunks_by_root[key][0]
+        labels[key] = (first.kind, schedule_number(first.label) if first.kind == "schedule"
+                       else compact_label(first.label))
+    found: list[RootKey] = []
+    for reference in parsed.references:
+        same = [key for key in pool if labels[key] == (reference.kind, reference.label)]
+        if not same and reference.kind != "schedule":      # "article 5" of an Act that has sections
+            same = [key for key in pool if labels[key][0] != "schedule" and labels[key][1] == reference.label]
+        if len(same) == 1:                      # the same number in two cited laws stays unlinked
+            found.append(same[0])
+    for item in parsed.ranges:
+        holders = list(dict.fromkeys(key[0] for key in pool if labels[key][1] in {item.start, item.end}))
+        if len(holders) == 1:
+            between = set(snapshot.roots_between(holders[0], item.kind, item.start, item.end))
+            found.extend(key for key in pool if key in between)
+    return list(dict.fromkeys(found))
 
 
 def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[EvidenceUnit],
@@ -209,6 +288,7 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
         per_unit.setdefault(unit.key, []).append(len(citations) - 1)
         return len(citations) - 1
 
+    unlocated: list[tuple[EvidenceUnit, str]] = []
     for item in draft_citations:
         raw = str(item.get("evidence_id", "")).strip().strip("[]()")
         match = _KEY.fullmatch(raw)
@@ -217,15 +297,25 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
             dropped += 1
             continue
         chunk = unit.chunk
-        located = locate_quote(chunk.text[chunk.body_start:], str(item.get("quote", "")))
+        quote = str(item.get("quote", ""))
+        located = locate_quote(chunk.text[chunk.body_start:], quote)
         if located is None:
-            dropped += 1
+            unlocated.append((unit, quote))
             continue
         start, end = located[0] + chunk.body_start, located[1] + chunk.body_start
         if cite(unit, start, end) is None:
             dropped += 1
         else:
             verified += 1
+    # A paraphrased "quote" still says which passage the model relied on: cite
+    # the sentence of that passage it restates, when there clearly is one.
+    for unit, quote in unlocated:
+        located, shared = (None, 0) if unit.key in per_unit else _support(unit.chunk, quote)
+        needed = max(_MIN_SHARED_STEMS, math.ceil(_MIN_SHARED_PART * len(_stems(quote))))
+        if located is None or shared < needed or cite(unit, *located) is None:
+            dropped += 1
+        else:
+            fallbacks += 1
 
     def numbers_for(match: re.Match) -> list[int]:
         nonlocal fallbacks
@@ -235,7 +325,7 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
             if unit is None:
                 continue
             if unit.key not in per_unit:
-                located = _best_sentence(unit.chunk, answer[sentence_bounds(match)[0]:match.start()])
+                located, _ = _support(unit.chunk, answer[sentence_bounds(match)[0]:match.start()])
                 if located is None or cite(unit, *located) is None:
                     continue
                 fallbacks += 1
@@ -254,12 +344,36 @@ def ground_answer(answer: str, draft_citations: Sequence[dict], units: Sequence[
         return max(indexes, key=lambda index: (len(wanted & {
             stem(word) for word in words(citations[index].quote) if word not in STOPWORDS}), -index))
 
+    def name_links(text: str) -> str:
+        """Link each provision the answer names but never cites to that provision's text."""
+        nonlocal fallbacks
+        by_root: dict[RootKey, list[EvidenceUnit]] = {}
+        for unit in units:
+            by_root.setdefault((unit.chunk.instrument_id, unit.chunk.root_provision_id), []).append(unit)
+        cited = {(by_public[citation.evidence_id].chunk.instrument_id,
+                  by_public[citation.evidence_id].chunk.root_provision_id) for citation in citations}
+        additions: dict[tuple[int, int], list[int]] = {}
+        for start, end in _answer_sentences(text):
+            sentence = _PLACED.sub("", text[start:end])
+            for root in _named_roots(sentence, list(by_root), snapshot):
+                if root in cited:
+                    continue
+                options = [(unit, *_support(unit.chunk, sentence)) for unit in by_root[root]]
+                unit, located, _ = max(options, key=lambda option: option[2])
+                index = cite(unit, *located) if located is not None else None
+                if index is not None:
+                    cited.add(root)
+                    fallbacks += 1
+                    additions.setdefault((start, end), []).append(index)
+        return _with_markers(text, additions)
+
     # Markers become citation placeholders first; numbering then follows the
     # order in which citations are first used in the text.
     answer = _INLINE_BULLET.sub("\n- ", answer)
     text = _MARKER.sub(lambda match: "".join(_PLACEHOLDER.format(index) for index in numbers_for(match)), answer)
     if citations and not _PLACED.search(text):
         text = _attribute(text, [citation.quote for citation in citations])
+    text = name_links(text)
     order: list[int] = list(dict.fromkeys(int(match[1]) for match in _PLACED.finditer(text)))
     order += [index for index in range(len(citations)) if index not in order]
     position = {old: new for new, old in enumerate(order)}

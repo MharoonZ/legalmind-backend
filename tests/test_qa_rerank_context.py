@@ -128,3 +128,30 @@ def test_same_law_references_are_followed_but_other_laws_are_not(snapshot):
     off = build_context(snapshot, result.candidates, result.analysis,
                         settings(qa_context_max_reference_sections=0))
     assert [unit.chunk.label for unit in off] == ["5-A"]
+
+
+def test_provisions_that_cite_the_best_passage_by_number_are_added(snapshot):
+    # The penalty clause never mentions receipts; it only says "sections 18 to 22".
+    result = retrieve(snapshot, "must a trader give the purchaser a receipt")
+    units = build_context(snapshot, result.candidates, result.analysis, settings(qa_rerank_top_k=1))
+    assert [(unit.chunk.label, unit.relation) for unit in units] == [("19", "retrieved"), ("32", "referring")]
+    off = build_context(snapshot, result.candidates, result.analysis,
+                        settings(qa_rerank_top_k=1, qa_context_max_referring_sections=0))
+    assert [unit.chunk.label for unit in off] == ["19"]
+
+
+def test_a_request_for_the_bare_text_of_a_provision_adds_no_citing_provisions(snapshot):
+    bare = retrieve(snapshot, "What is section 19 of the Punjab Consumer Protection Act 2005?")
+    units = build_context(snapshot, bare.candidates, bare.analysis, settings())
+    assert [(unit.chunk.label, unit.relation) for unit in units] == [("19", "requested")]
+    asked = retrieve(snapshot, "what is the punishment for breaking section 19 of the consumer protection act")
+    units = build_context(snapshot, asked.candidates, asked.analysis, settings())
+    assert [(unit.chunk.label, unit.relation) for unit in units] == [("19", "requested"), ("32", "referring")]
+
+
+def test_citing_provisions_are_ranked_by_the_question_when_there_are_too_many(snapshot):
+    result = retrieve(snapshot, "section 4 of the consumer protection act and the punishment for a manufacturer")
+    units = build_context(snapshot, result.candidates, result.analysis,
+                          settings(qa_context_max_referring_sections=1))
+    # Section 4 is cited by sections 25 (claims) and 32 (penalties); the question is about punishment.
+    assert [(unit.chunk.label, unit.relation) for unit in units] == [("4", "requested"), ("32", "referring")]

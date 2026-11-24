@@ -82,3 +82,15 @@ def test_units_stop_a_list_and_spans_cover_what_was_read():
     parsed = parse_references("What is Section 3 of the Ordinance?")
     start, end = parsed.spans[0]
     assert "What is Section 3 of the Ordinance?"[start:end] == "Section 3"
+
+
+def test_lists_may_mix_single_numbers_and_ranges():
+    parsed = parse_references("the liabilities provided in sections 4 to 8, 11, 13, 14, 16, 18 to 22, he shall")
+    assert [(item.start, item.end) for item in parsed.ranges] == [("4", "8"), ("18", "22")]
+    assert [item.label for item in parsed.references] == ["11", "13", "14", "16"]
+    mixed = parse_references("sections 3 to 5 and 7 of the Act")
+    assert [(item.start, item.end) for item in mixed.ranges] == [("3", "5")]
+    assert [item.label for item in mixed.references] == ["7"]
+    # A sentence length is not the end of a range.
+    sentence = parse_references("is the punishment under section 7 to 10 years")
+    assert [item.label for item in sentence.references] == ["7"] and not sentence.ranges

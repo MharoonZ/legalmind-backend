@@ -125,6 +125,8 @@ class Settings(BaseSettings):
     qa_context_max_units: int = Field(default=12, ge=1, le=40)
     qa_context_max_chars: int = Field(default=24000, ge=2000, le=200000)
     qa_context_max_reference_sections: int = Field(default=2, ge=0, le=10)
+    # Provisions that cite the best-ranked ones by number (penalty and exception clauses).
+    qa_context_max_referring_sections: int = Field(default=2, ge=0, le=10)
     qa_context_max_definition_sections: int = Field(default=1, ge=0, le=5)
 
     # Answer model. Keys stay in the server environment and are never returned.
@@ -140,14 +142,16 @@ class Settings(BaseSettings):
     qa_gemini_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o-mini"
+    # Total time allowed for one OpenAI exchange, including retries.
     qa_openai_timeout_seconds: float = Field(default=30, gt=0, le=120)
     qa_openai_max_output_tokens: int = Field(default=1500, ge=256, le=8000)
     qa_llm_temperature: float = Field(default=0.2, ge=0, le=2)
-    # Extra attempts after a timeout, overload or malformed model response.
-    qa_llm_max_retries: int = Field(default=2, ge=0, le=6)
-    # If a model call has not answered after this long, the other model is
-    # asked as well and the first reply wins. 0 disables hedging.
-    qa_llm_hedge_seconds: float = Field(default=3.5, ge=0, le=60)
+    # Failed model calls (timeout, overload, malformed output) that are replaced
+    # before the exchange gives up; the time limit above may end it sooner.
+    qa_llm_max_retries: int = Field(default=5, ge=0, le=10)
+    # While a model call has not answered after this long, another call is
+    # started beside it and the first reply wins. 0 disables hedging.
+    qa_llm_hedge_seconds: float = Field(default=3.0, ge=0, le=60)
     # One corrective regeneration when an answer cites nothing verifiable.
     qa_repair_attempts: int = Field(default=1, ge=0, le=2)
     # Store question/answer audit rows (needs migrations 20261017_18 and 20261111_19).

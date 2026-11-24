@@ -136,6 +136,23 @@ def test_conversation_history_resolves_follow_ups_and_reaches_the_prompt(snapsho
     assert answered.status == "answered" and answered.citations[0].label == "3"
 
 
+def test_a_follow_up_about_consequences_is_given_the_clause_that_cites_the_provision(snapshot):
+    """Section 32 punishes breaches of "sections 18 to 22" and never mentions receipts."""
+    model = ScriptedModel(draft(
+        "A manufacturer who infringes Section 19 can be imprisoned for up to two years or fined [E2].",
+        [("E2", "he shall be punished with imprisonment which may extend to two years")]))
+    history = [
+        {"role": "user", "content": "Does a seller have to give a receipt under the Punjab Consumer Protection Act 2005?"},
+        {"role": "assistant", "content": "Yes. Section 19 requires every trader who sells goods to issue a receipt [1]."}]
+    result, _ = ask(build(snapshot, model, qa_rerank_top_k=1), "What if they refuse to issue it?", history=history)
+    evidence = model.calls[-1][1]["evidence"]
+    assert [(item["provision"], item.get("note", "")[:6]) for item in evidence] == [
+        ("Section 19", ""), ("Section 32", "refers")]
+    assert result.status == "answered"
+    # The named-but-uncited Section 19 is linked as well as the cited penalty clause.
+    assert sorted(citation.label for citation in result.citations) == ["19", "32"]
+
+
 def test_only_recent_history_is_used(snapshot):
     history = [{"role": "user", "content": f"old question {index}"} for index in range(12)]
     model = ScriptedModel(draft("Public gaming is punishable [E1].", [("E1", "Whoever is found gaming in any public place")]))
@@ -222,14 +239,30 @@ def test_poorly_understood_questions_are_restated_once_and_searched_again(snapsh
 def test_provider_failures_are_service_errors_not_legal_conclusions(snapshot):
     for failure in (GenerationUnavailable("The answer model is temporarily unavailable (HTTP 503)."),
                     GenerationInvalid("bad output")):
-        result, _ = ask(build(snapshot, ScriptedModel(failure)), "What is Section 3 of the gambling ordinance?")
+        result, _ = ask(build(snapshot, ScriptedModel(failure)), "what is the punishment for public gaming?")
         assert result.status == "service_unavailable" and not result.citations
         assert "temporarily unavailable" in result.answer and result.publication_id == snapshot.id
 
     class Unconfigured(ScriptedModel):
         configured = False
-    unconfigured, _ = ask(build(snapshot, Unconfigured()), "What is Section 3 of the gambling ordinance?")
+    unconfigured, _ = ask(build(snapshot, Unconfigured()), "what is the punishment for public gaming?")
     assert unconfigured.status == "service_unavailable" and "not configured" in unconfigured.missing_support
+
+
+def test_a_named_provision_is_still_quoted_when_the_model_cannot_be_reached(snapshot):
+    down = ScriptedModel(GenerationUnavailable("The answer model is temporarily unavailable (HTTP 503)."))
+    result, _ = ask(build(snapshot, down), "What is Section 3 of Punjb Prevention of Gambling Ordinance 1978?")
+    assert result.status == "partial" and "temporarily unavailable" in result.missing_support
+    assert result.answer.startswith("The answer model is temporarily unavailable")
+    assert f"Section 3 of {GAMBLING} [1]" in result.answer
+    assert "keeps or uses the same as a common gaming-house" in result.answer
+    assert [(c.law, c.label) for c in result.citations] == [(GAMBLING, "3")]
+    assert result.citations[0].quote in " ".join(
+        snapshot.chunk_by_id[result.citations[0].chunk_id].text.split())
+    # Several requested provisions are quoted in the order asked for.
+    both, _ = ask(build(snapshot, ScriptedModel(GenerationInvalid("bad output"))),
+                  "sections 4 and 5 of the gambling ordinance")
+    assert both.status == "partial" and [c.label for c in both.citations] == ["4", "5"]
 
 
 def test_unexpected_draft_shapes_are_tolerated(snapshot):
@@ -238,7 +271,7 @@ def test_unexpected_draft_shapes_are_tolerated(snapshot):
     result, _ = ask(build(snapshot, odd), "What is section 5 of the gambling ordinance?")
     assert result.status == "answered" and len(result.citations) == 1
     broken = ScriptedModel({"status": "answered", "answer": 7, "citations": "none"})
-    failed, _ = ask(build(snapshot, broken), "What is section 5 of the gambling ordinance?")
+    failed, _ = ask(build(snapshot, broken), "what is the punishment for public gaming?")
     assert failed.status == "service_unavailable"
     empty = ScriptedModel(draft(""), draft(""))
     blank, _ = ask(build(snapshot, empty), "What is section 5 of the gambling ordinance?")

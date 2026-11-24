@@ -351,6 +351,13 @@ class RetrievalService:
             keys = snapshot.roots_between(law, item.kind, item.start, item.end)
             if not keys:
                 result.missing_references.append(item.display)
+            else:
+                absent = [label.upper() for label in (item.start, item.end)
+                          if snapshot.find_root(law, item.kind, label) is None]
+                if absent:
+                    result.warnings.append(
+                        f"{item.display}: this law has no {item.kind} {' or '.join(absent)}; "
+                        "showing the provisions it does have in that range.")
             roots.extend((key, (snapshot.chunks_by_root[key][0].reference_path,)) for key in keys)
 
         seen: dict[tuple[UUID, UUID], tuple[str, ...]] = {}
