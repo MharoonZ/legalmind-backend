@@ -70,8 +70,9 @@ def build_context(snapshot: PublicationSnapshot, candidates: Sequence[Candidate]
             return False
         used.add(key)
         size += cost
-        units.extend(EvidenceUnit(f"E{len(units) + offset + 1}", part, relation)
-                     for offset, part in enumerate(parts))
+        first = len(units) + 1          # fixed before extending: the list grows as it is filled
+        units.extend([EvidenceUnit(f"E{first + offset}", part, relation)
+                      for offset, part in enumerate(parts)])
         return True
 
     exact = bool(candidates) and all(item.exact_rank is not None for item in candidates)

@@ -181,3 +181,30 @@ def test_citing_provisions_are_ranked_by_the_question_when_there_are_too_many(sn
                           settings(qa_context_max_referring_sections=1))
     # Section 4 is cited by sections 25 (claims) and 32 (penalties); the question is about punishment.
     assert [(unit.chunk.label, unit.relation) for unit in units] == [("4", "requested"), ("32", "referring")]
+
+
+def test_evidence_ids_are_consecutive_when_a_provision_is_split(snapshot):
+    import dataclasses
+
+    from app.retrieval.service import Candidate
+    from app.retrieval.snapshot import PublicationSnapshot
+    # Split Gambling section 3 into three parts, as the chunker does for long provisions.
+    chunks = []
+    for chunk in snapshot.chunks:
+        if chunk.label == "3" and snapshot.instruments[chunk.instrument_id].title == GAMBLING:
+            for part in (1, 2, 3):
+                chunks.append(dataclasses.replace(chunk, id=__import__("uuid").uuid4(), sequence_in_root=part,
+                                                  root_total_chunks=3))
+        else:
+            chunks.append(chunk)
+    chunks = [dataclasses.replace(chunk, index=position) for position, chunk in enumerate(chunks)]
+    vectors = __import__("numpy").vstack([snapshot.vectors[snapshot.chunk_by_id.get(c.id, snapshot.chunks[0]).index]
+                                          if c.id in snapshot.chunk_by_id else snapshot.vectors[0] for c in chunks])
+    split = PublicationSnapshot(publication_id=snapshot.id, name="split", manifest_sha256="c" * 64,
+                                profile=snapshot.profile, instruments=snapshot.instruments.values(),
+                                chunks=chunks, vectors=vectors, nodes=snapshot.nodes.values())
+    result = retrieve(split, "sections 3 and 4 of the gambling ordinance")
+    units = build_context(split, [Candidate(c.chunk, rank=c.rank, exact_rank=c.exact_rank) for c in result.candidates],
+                          result.analysis, settings())
+    assert [unit.key for unit in units] == [f"E{n}" for n in range(1, len(units) + 1)]
+    assert [unit.chunk.label for unit in units][:4] == ["3", "3", "3", "4"]
