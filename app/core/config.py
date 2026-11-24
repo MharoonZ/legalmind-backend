@@ -142,6 +142,8 @@ class Settings(BaseSettings):
     # Used when the primary model is overloaded or rate limited.
     gemini_fallback_model: str | None = Field(default="gemini-3.1-flash-lite",
                                               pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
+    gemini_second_fallback_model: str | None = Field(default="gemini-3.5-flash",
+                                                     pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
     # Total time allowed for one model exchange, including retries and hedges.
     qa_gemini_timeout_seconds: float = Field(default=25, gt=0, le=180)
     qa_gemini_max_output_tokens: int = Field(default=1500, ge=256, le=8000)
@@ -189,7 +191,8 @@ class Settings(BaseSettings):
             raise ValueError("LOG_LEVEL must be CRITICAL, ERROR, WARNING, INFO or DEBUG")
         return normalized
 
-    @field_validator("gemini_fallback_model", "qa_gemini_thinking_level", "db_ssl_root_cert", mode="before")
+    @field_validator("gemini_fallback_model", "gemini_second_fallback_model", "qa_gemini_thinking_level",
+                     "db_ssl_root_cert", mode="before")
     @classmethod
     def blank_is_unset(cls, value):
         return None if isinstance(value, str) and not value.strip() else value

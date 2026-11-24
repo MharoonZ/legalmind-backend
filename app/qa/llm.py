@@ -115,7 +115,7 @@ class AnswerGenerator:
         self._http: httpx.AsyncClient | None = None
         self._openai = openai_client
         self._sleep = sleep
-        self._fallback_missing = False
+        self._missing_models: set[str] = set()
         # model -> (loop time until which it is avoided, whether the provider stated that wait).
         # A stated wait (rate limit) is obeyed; an assumed one (overload) only orders the models.
         self._avoid: dict[str, tuple[float, bool]] = {}
@@ -185,9 +185,10 @@ class AnswerGenerator:
 
     def _gemini_models(self) -> list[str]:
         primary, fallback = self.settings.gemini_model, self.settings.gemini_fallback_model
-        if not fallback or fallback == primary or self._fallback_missing:
+        if not fallback or fallback == primary:
             return [primary]
-        return [primary, fallback]
+        models = dict.fromkeys((primary, fallback, self.settings.gemini_second_fallback_model))
+        return [m for m in models if m and m not in self._missing_models]
 
     def _stated_wait(self, model: str, now: float) -> float:
         """When the wait the provider stated for ``model`` ends, or 0 when none is running."""
@@ -268,6 +269,10 @@ class AnswerGenerator:
             while True:
                 now = loop.time()
                 if now >= deadline:
+                    if pending:
+                        logger.warning("gemini_deadline attempts=%d pending_models=%s", launched,
+                                       ",".join(sorted(set(pending.values()))))
+                        raise GenerationUnavailable("Gemini did not respond in time.")
                     raise failure
                 models = [model for model in self._gemini_models() if model not in refused]
                 if not models and not pending:
@@ -277,7 +282,8 @@ class AnswerGenerator:
                 hedging = room and hedge > 0 and bool(pending) and hedges < _MAX_PARALLEL - 1
                 # An untried alternative may use an unused hedge slot after a refusal,
                 # including when timed hedging and ordinary retries are disabled.
-                alternate = (room and refused and not pending and not replacing and
+                alternate = (room and (refused or self._missing_models.intersection(attempted))
+                             and not pending and not replacing and
                              hedges < _MAX_PARALLEL - 1 and any(model not in attempted for model in models))
                 due = now if not launched or alternate else min(
                     (moment for wanted, moment in ((replacing, replace_at), (hedging, hedge_at)) if wanted),
@@ -331,7 +337,7 @@ class AnswerGenerator:
                     except _Retryable as exc:
                         failure, failures = exc.error, failures + 1
                         if exc.missing_model:
-                            self._fallback_missing = True
+                            self._missing_models.add(model)
                         elif exc.refused:
                             refused.add(model)
                             refusal = exc.error
@@ -346,6 +352,7 @@ class AnswerGenerator:
                         # Good news clears a cool-down that was only assumed, never a stated wait.
                         if not self._stated_wait(model, loop.time()):
                             self._avoid.pop(model, None)
+                        logger.info("gemini_answer model=%s attempts=%d", model, launched)
                         return result, launched
         finally:
             for task in pending:

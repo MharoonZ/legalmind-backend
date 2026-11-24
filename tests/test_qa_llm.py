@@ -17,7 +17,8 @@ def config(**overrides):
     values = dict(
         use_gemini=True, llm_configured=True, active_model="primary-model",
         gemini_api_key=SecretStr("test-key"), gemini_model="primary-model",
-        gemini_fallback_model="fallback-model", qa_gemini_timeout_seconds=5, qa_gemini_max_output_tokens=500,
+        gemini_fallback_model="fallback-model", gemini_second_fallback_model=None,
+        qa_gemini_timeout_seconds=5, qa_gemini_max_output_tokens=500,
         qa_gemini_thinking_level=None, qa_llm_temperature=0.2, qa_llm_max_retries=2,
         qa_llm_hedge_seconds=0.05, openai_api_key=None, openai_model="gpt-test",
         qa_openai_timeout_seconds=5, qa_openai_max_output_tokens=500)
@@ -132,6 +133,49 @@ def test_a_stalled_primary_is_raced_by_the_fallback_model():
 
 def model_of(request):
     return str(request.url).split("/models/")[1].split(":")[0]
+
+
+def test_third_model_answers_after_overload_and_stall():
+    calls = []
+
+    async def handler(request):
+        model = model_of(request)
+        calls.append(model)
+        if model == "primary-model":
+            return reply(status=503)
+        if model == "fallback-model":
+            await asyncio.sleep(60)
+        return reply({"answer": model})
+
+    client = generator(handler, gemini_second_fallback_model="third-model")
+    assert run_virtual(client.generate_json("s", "u", SCHEMA)) == {"answer": "third-model"}
+    assert calls == ["primary-model", "fallback-model", "third-model"]
+
+
+def test_missing_first_fallback_does_not_disable_second_fallback():
+    def handler(request):
+        model = model_of(request)
+        if model == "primary-model":
+            return reply(status=400)
+        if model == "fallback-model":
+            return reply(status=404)
+        return reply({"answer": model})
+
+    client = generator(handler, gemini_second_fallback_model="third-model",
+                       qa_llm_max_retries=0, qa_llm_hedge_seconds=0)
+    assert run(client.generate_json("s", "u", SCHEMA)) == {"answer": "third-model"}
+    assert client._gemini_models() == ["primary-model", "third-model"]
+
+
+def test_deadline_after_overload_reports_timeout():
+    async def handler(request):
+        if model_of(request) == "primary-model":
+            return reply(status=503)
+        await asyncio.sleep(60)
+
+    client = generator(handler, qa_llm_hedge_seconds=0)
+    with pytest.raises(GenerationUnavailable, match="did not respond in time"):
+        run_virtual(client.generate_json("s", "u", SCHEMA))
 
 
 def test_every_stalled_call_gets_company_until_one_answers():
@@ -492,7 +536,7 @@ def test_a_fallback_model_the_key_cannot_use_is_dropped():
         return reply(status=503) if calls.count("primary-model") == 1 else reply({"answer": "recovered"})
     client = generator(handler)
     assert run(client.generate_json("s", "u", SCHEMA)) == {"answer": "recovered"}
-    assert client._fallback_missing and calls.count("fallback-model") == 1
+    assert "fallback-model" in client._missing_models and calls.count("fallback-model") == 1
 
 
 @pytest.mark.parametrize("bad", [

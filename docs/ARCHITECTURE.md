@@ -185,7 +185,9 @@ The client coordinates retries and concurrent attempts within that budget.
 - A timeout, 429, 5xx or malformed output can trigger a retry after a short
   growing pause.
 - A call that has not answered after `QA_LLM_HEDGE_SECONDS` can start another
-  attempt, alternating between the primary and fallback models.
+  attempt, selecting among the primary and two configurable fallbacks. The
+  default third model is Gemini 3.5 Flash. A missing fallback is skipped
+  independently. A deadline with pending calls logs the outstanding models.
 - At most three calls compete for an answer at once. Per-model failure or
   refusal leaves other models eligible. A credential rejection ends the exchange.
 - Each model gets at most one extra attempt after its rate-limit wait. The

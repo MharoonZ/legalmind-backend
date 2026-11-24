@@ -127,6 +127,7 @@ common ones are listed with comments in `.env.example`.
 | `RATE_LIMIT_PER_MINUTE` | `60` | Per-client limit on those two routes |
 | `CORS_ORIGINS` | `http://localhost:3000` | Frontends allowed to call the API |
 | `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash-lite` / `gemini-3.1-flash-lite` | Answer model, and the one used when it is overloaded or rate limited |
+| `GEMINI_SECOND_FALLBACK_MODEL` | `gemini-3.5-flash` | Additional model eligible when the Lite models are busy. Its own quota and pricing apply. Set to an empty string to disable it. |
 | `QA_GEMINI_TIMEOUT_SECONDS` | `25` | Time allowed for one answer, retries included |
 | `QA_RERANK_MODE` | `auto` | `auto` reranks only when the host can do it inside `QA_RERANK_BUDGET_MS` |
 | `PUBLICATION_CACHE_DIR` | `.cache/publications` | Disk cache of the publication, so restarts skip the database transfer |
