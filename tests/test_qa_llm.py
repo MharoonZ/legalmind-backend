@@ -155,11 +155,11 @@ def test_a_rate_limit_longer_than_the_deadline_ends_the_exchange_at_once():
         calls.append(model_of(request))
         return rate_limited(60)
     client = generator(handler)
-    with pytest.raises(GenerationUnavailable, match="429"):
+    with pytest.raises(GenerationUnavailable, match="rate limit was reached"):
         run(client.generate_json("s", "u", SCHEMA))
     assert calls == ["primary-model", "fallback-model"]     # one call each, then no hammering
-    # The next question does not call a model that is still rate limited.
-    with pytest.raises(GenerationUnavailable):
+    # The next question does not call a model that is still rate limited, and says why.
+    with pytest.raises(GenerationUnavailable, match=r"wait about (59|60) seconds"):
         run(client.generate_json("s", "u", SCHEMA))
     assert len(calls) == 2
 

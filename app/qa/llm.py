@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import random
 import re
 from collections import Counter
@@ -203,8 +204,13 @@ class AnswerGenerator:
                     default=None)
                 if due is not None:
                     # A rate limit with a stated wait is obeyed, not hammered.
-                    due = max(due, self._rate_limited_until(now))
+                    limit_ends = self._rate_limited_until(now)
+                    due = max(due, limit_ends)
                     if due >= deadline and not pending:
+                        if limit_ends >= deadline:
+                            raise GenerationUnavailable(
+                                "The answer model's rate limit was reached; it asked callers to wait "
+                                f"about {math.ceil(limit_ends - now)} seconds.")
                         raise failure
                 if due is not None and now >= due:
                     if launched and replacing and now >= replace_at:
