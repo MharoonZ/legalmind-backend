@@ -133,3 +133,4 @@ Production hosting, email verification/delivery, recovery email delivery, malwar
 
 References: [Next.js lazy loading](https://nextjs.org/docs/app/guides/lazy-loading), [FastAPI WebSockets](https://fastapi.tiangolo.com/advanced/websockets/), [PostgreSQL NOTIFY transaction behavior](https://www.postgresql.org/docs/current/sql-notify.html).
 
+Implementation commits: backend [1089f9d](https://github.com/MharoonZ/legalmind-backend/commit/1089f9d) and frontend [3d83c33](https://github.com/MharoonZ/legalmind-frontend/commit/3d83c33).
