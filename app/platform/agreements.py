@@ -5,10 +5,14 @@ import json
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 
 from app.platform.common import Offset, agreement, conversation, dump, other_party, verified_wakeel
 from app.platform.models import (
+    Account,
+    AgreementDraft,
+    Case,
+    CaseAgreement,
     Acceptance,
     Agreement,
     AgreementEvent,
@@ -85,7 +89,7 @@ async def create(body: CreateAgreement, user: User, db: DB):
         preparation = await db.get(Preparation, str(body.preparation_id))
         if not preparation or preparation.conversation_id != thread.id:
             raise HTTPException(404, "Preparation request not found.")
-        if preparation.status != "PREPARATION_REQUESTED":
+        if preparation.status not in {"PREPARATION_REQUESTED", "ACCEPTED"}:
             raise HTTPException(409, "This request already has an agreement.")
         preparation.status = "DRAFT"
     item = Agreement(
@@ -96,6 +100,17 @@ async def create(body: CreateAgreement, user: User, db: DB):
     add_version(db, item, user, body.terms)
     event(db, item, user, "create", "PREPARATION_REQUESTED" if preparation else "DRAFT")
     await db.flush()
+    if body.case_id:
+        from app.platform.cases import owned, link_agreement
+
+        case = await owned(db, body.case_id, user)
+        await link_agreement(db, case, item, thread, user)
+    await db.execute(delete(AgreementDraft).where(AgreementDraft.conversation_id == thread.id))
+    from app.platform.mail import enqueue
+    from app.platform.events import invalidate
+
+    await enqueue(db, user.id, "agreements", "Agreement draft created: " + item.title, f"/agreements/{item.id}")
+    invalidate(db, [user.id], "/agreements", "/agreement-drafts", "/preparations")
     return dump(item)
 
 
@@ -110,6 +125,14 @@ async def detail(identifier: UUID, user: User, db: DB):
                 await db.scalars(select(model).where(model.agreement_id == item.id).order_by(model.created_at))
             ).all()
         ]
+    people = (await db.scalars(select(Account).where(Account.id.in_([thread.user_id, thread.wakeel_id])))).all()
+    result["people"] = {p.id: p.name for p in people}
+    result["cases"] = [
+        dump(row)
+        for row in (
+            await db.scalars(select(Case).join(CaseAgreement).where(CaseAgreement.agreement_id == item.id))
+        ).all()
+    ]
     return result
 
 
@@ -128,7 +151,18 @@ async def act(identifier: UUID, body: AgreementAction, user: User, db: DB):
     client = user.id == thread.user_id
     if wakeel and action == "sign":
         await verified_wakeel(db, user)
-    if action in {"decline", "request_changes", "reject_changes", "revise", "amend", "withdraw", "dispute"}:
+    if action in {
+        "decline",
+        "request_changes",
+        "reject_changes",
+        "revise",
+        "amend",
+        "withdraw",
+        "dispute",
+        "request_termination",
+        "confirm_termination",
+        "archive",
+    }:
         ensure(len(body.reason.strip()) >= 5, "Explain the reason in at least five characters.")
     if action in {"send", "revise", "amend", "reject_changes", "withdraw"}:
         await verified_wakeel(db, user)
@@ -219,6 +253,7 @@ async def act(identifier: UUID, body: AgreementAction, user: User, db: DB):
         if {thread.user_id, thread.wakeel_id}.issubset(signatures):
             item.active_version = item.current_version
             item.status = "ACTIVE"
+            item.expires_on = version.terms["completion_date"]
     elif action == "withdraw":
         ensure(
             wakeel
@@ -270,6 +305,43 @@ async def act(identifier: UUID, body: AgreementAction, user: User, db: DB):
         ).all()
         if {thread.user_id, thread.wakeel_id}.issubset(parties):
             item.status = "COMPLETED"
+    elif action in {"request_termination", "confirm_termination"}:
+        ensure(before == ("ACTIVE" if action == "request_termination" else "TERMINATION_PENDING"))
+        previous = await db.scalar(
+            select(Acceptance).where(
+                Acceptance.agreement_id == item.id,
+                Acceptance.version == item.active_version,
+                Acceptance.user_id == user.id,
+                Acceptance.kind == "termination",
+            )
+        )
+        ensure(previous is None, "Your termination confirmation is already recorded.")
+        db.add(
+            Acceptance(
+                agreement_id=item.id,
+                version=item.active_version,
+                user_id=user.id,
+                kind="termination",
+                signed_name=user.name,
+                digest="",
+            )
+        )
+        item.status = "TERMINATION_PENDING"
+        await db.flush()
+        parties = (
+            await db.scalars(
+                select(Acceptance.user_id).where(
+                    Acceptance.agreement_id == item.id,
+                    Acceptance.version == item.active_version,
+                    Acceptance.kind == "termination",
+                )
+            )
+        ).all()
+        if {thread.user_id, thread.wakeel_id}.issubset(parties):
+            item.status = "TERMINATED"
+    elif action == "archive":
+        ensure(before in {"COMPLETED", "CANCELLED", "TERMINATED", "EXPIRED", "WITHDRAWN", "DECLINED"})
+        item.status = "ARCHIVED"
     elif action == "dispute":
         ensure(
             before in {"ACTIVE", "CLOSURE_REQUESTED", "AMENDMENT_PENDING", "SIGNING_PENDING"}
@@ -279,5 +351,22 @@ async def act(identifier: UUID, body: AgreementAction, user: User, db: DB):
     item.revision += 1
     event_version = before_version if action in {"decline", "withdraw"} else item.current_version
     event(db, item, user, action, before, body.reason, version=event_version)
-    notify(db, other_party(thread, user), f"{item.title}: {action.replace('_', ' ')}", f"/agreements/{item.id}")
+    if before != "DRAFT" or action == "send":
+        await notify(
+            db, other_party(thread, user), f"{item.title}: {action.replace('_', ' ')}", f"/agreements/{item.id}"
+        )
+    from app.platform.events import invalidate
+    from app.platform.mail import enqueue
+
+    await enqueue(db, user.id, "agreements", f"{item.title}: {action.replace('_', ' ')}", f"/agreements/{item.id}")
+    case_ids = (await db.scalars(select(CaseAgreement.case_id).where(CaseAgreement.agreement_id == item.id))).all()
+    invalidate(
+        db,
+        [thread.user_id, thread.wakeel_id],
+        "/agreements",
+        f"/agreements/{item.id}",
+        "/cases",
+        *[f"/cases/{cid}" for cid in case_ids],
+    )
+
     return dump(item)

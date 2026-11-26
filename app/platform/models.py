@@ -39,6 +39,7 @@ class Account(Record, Base):
     role: Mapped[str] = mapped_column(String(12), default="user")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     city: Mapped[str] = mapped_column(String(120), default="")
+    email_preferences: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Session(Record, Base):
@@ -131,7 +132,7 @@ class Agreement(Record, Base):
     __tablename__ = "platform_agreements"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('DRAFT','SENT','UNDER_REVIEW','REVISION_REQUESTED','NEGOTIATING','DECLINED','WITHDRAWN','SIGNING_PENDING','ACTIVE','AMENDMENT_PENDING','CLOSURE_REQUESTED','COMPLETED','CANCELLED','DISPUTED')"
+            "status IN ('DRAFT','SENT','UNDER_REVIEW','REVISION_REQUESTED','NEGOTIATING','DECLINED','WITHDRAWN','SIGNING_PENDING','ACTIVE','AMENDMENT_PENDING','CLOSURE_REQUESTED','COMPLETED','CANCELLED','DISPUTED','EXPIRED','TERMINATION_PENDING','TERMINATED','ARCHIVED')"
         ),
     )
     conversation_id: Mapped[str] = mapped_column(ForeignKey("platform_conversations.id"), index=True)
@@ -141,6 +142,7 @@ class Agreement(Record, Base):
     current_version: Mapped[int] = mapped_column(Integer, default=1)
     active_version: Mapped[int | None] = mapped_column(Integer)
     revision: Mapped[int] = mapped_column(Integer, default=1)
+    expires_on: Mapped[str | None] = mapped_column(String(10), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -178,7 +180,9 @@ class Acceptance(Record, Base):
 
 class Case(Record, Base):
     __tablename__ = "platform_cases"
-    agreement_id: Mapped[str] = mapped_column(ForeignKey("platform_agreements.id"), index=True)
+    agreement_id: Mapped[str | None] = mapped_column(ForeignKey("platform_agreements.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("platform_accounts.id"), index=True)
+    wakeel_id: Mapped[str | None] = mapped_column(ForeignKey("platform_accounts.id"), index=True)
     title: Mapped[str] = mapped_column(String(180))
     description: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="OPEN")
@@ -236,3 +240,42 @@ class Report(Record, Base):
     reason: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="OPEN")
     resolution: Mapped[str] = mapped_column(Text, default="")
+
+
+class CaseAgreement(Base):
+    __tablename__ = "platform_case_agreements"
+    case_id: Mapped[str] = mapped_column(ForeignKey("platform_cases.id"), primary_key=True)
+    agreement_id: Mapped[str] = mapped_column(ForeignKey("platform_agreements.id"), primary_key=True, index=True)
+    linked_by: Mapped[str] = mapped_column(ForeignKey("platform_accounts.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class AgreementDraft(Base):
+    __tablename__ = "platform_agreement_drafts"
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("platform_conversations.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("platform_accounts.id"))
+    preparation_id: Mapped[str | None] = mapped_column(ForeignKey("platform_preparations.id"))
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("platform_cases.id"))
+    terms: Mapped[dict] = mapped_column(JSON, default=dict)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class OtpChallenge(Record, Base):
+    __tablename__ = "platform_otp_challenges"
+    user_id: Mapped[str] = mapped_column(ForeignKey("platform_accounts.id"), unique=True)
+    otp_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class MailOutbox(Record, Base):
+    __tablename__ = "platform_mail_outbox"
+    user_id: Mapped[str] = mapped_column(ForeignKey("platform_accounts.id"), index=True)
+    category: Mapped[str] = mapped_column(String(24))
+    payload: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

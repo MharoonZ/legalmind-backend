@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.platform.common import Offset, conversation, dump, other_party
 from app.platform.models import Account, Conversation, Message, Preparation, Review, WakeelProfile, now
-from app.platform.schemas import PreparationIn, SendMessage, StartConversation
+from app.platform.schemas import PreparationAction, PreparationIn, SendMessage, StartConversation
 from app.platform.security import DB, User, audit, notify, require_role
 from app.platform.events import queue_event
 
@@ -186,7 +186,7 @@ async def send(identifier: UUID, body: SendMessage, user: User, db: DB):
     message = Message(conversation_id=item.id, sender_id=user.id, request_id=str(body.request_id), body=body.body)
     db.add(message)
     item.updated_at = now()
-    notify(db, peer.id, f"New message from {user.name}", f"/messages/{item.id}")
+    await notify(db, peer.id, f"New message from {user.name}", f"/messages/{item.id}")
     await db.flush()
     queue_event(db, [item.user_id, item.wakeel_id], "message.created", conversation_id=item.id, message_id=message.id)
     return dump(message)
@@ -212,6 +212,25 @@ async def prepare(body: PreparationIn, user: User, db: DB):
     row = Preparation(conversation_id=item.id, title=body.title, requirements=body.requirements)
     db.add(row)
     await db.flush()
-    notify(db, item.wakeel_id, f"Contract preparation requested by {user.name}", "/agreements")
+    await notify(db, item.wakeel_id, f"Contract preparation requested by {user.name}", "/agreements")
     audit(db, user, "preparation_requested", row.id)
+    return dump(row)
+
+
+@router.post("/preparations/{identifier}/actions")
+async def preparation_action(identifier: UUID, body: PreparationAction, user: User, db: DB):
+    from app.platform.common import verified_wakeel
+    from app.platform.events import invalidate
+
+    await verified_wakeel(db, user)
+    row = await db.scalar(select(Preparation).where(Preparation.id == str(identifier)).with_for_update())
+    if not row:
+        raise HTTPException(404, "Preparation request not found.")
+    thread = await conversation(db, row.conversation_id, user)
+    if row.status != "PREPARATION_REQUESTED":
+        raise HTTPException(409, "This preparation request was already handled.")
+    row.status = "ACCEPTED" if body.action == "accept" else "DECLINED"
+    audit(db, user, "preparation_" + body.action, row.id, body.reason)
+    await notify(db, thread.user_id, f"Your agreement preparation request was {row.status.lower()}", "/agreements")
+    invalidate(db, [thread.user_id, thread.wakeel_id], "/preparations", "/agreements")
     return dump(row)

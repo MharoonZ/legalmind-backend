@@ -15,6 +15,19 @@ _ENVIRONMENTS = {"development", "test", "staging", "production"}
 
 
 class Settings(BaseSettings):
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_user: str = ""
+    smtp_password: str = Field(default="", repr=False, exclude=True)
+    smtp_from_email: str = ""
+    smtp_from_name: str = "LegalMind"
+    smtp_use_tls: bool = True
+    frontend_url: str = "http://localhost:3000"
+    otp_secret: str = Field(default="", repr=False, exclude=True)
+    otp_expiry_minutes: int = Field(default=5, ge=5, le=5)
+    otp_length: int = Field(default=6, ge=6, le=6)
+    email_notifications_enabled: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -140,10 +153,8 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = Field(default="gemini-3.5-flash-lite", pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
     # Used when the primary model is overloaded or rate limited.
-    gemini_fallback_model: str | None = Field(default="gemini-3.1-flash-lite",
-                                              pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
-    gemini_second_fallback_model: str | None = Field(default="gemini-3.5-flash",
-                                                     pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
+    gemini_fallback_model: str | None = Field(default="gemini-3.1-flash-lite", pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
+    gemini_second_fallback_model: str | None = Field(default="gemini-3.5-flash", pattern=r"^[a-z0-9][a-z0-9.-]{0,100}$")
     # Total time allowed for one model exchange, including retries and hedges.
     qa_gemini_timeout_seconds: float = Field(default=25, gt=0, le=180)
     qa_gemini_max_output_tokens: int = Field(default=1500, ge=256, le=8000)
@@ -172,7 +183,7 @@ class Settings(BaseSettings):
         """Accept a normal Postgres URL and switch it to the asyncpg driver."""
         for prefix in ("postgresql://", "postgres://"):
             if value.startswith(prefix):
-                return "postgresql+asyncpg://" + value[len(prefix):]
+                return "postgresql+asyncpg://" + value[len(prefix) :]
         return value
 
     @field_validator("environment")
@@ -191,8 +202,13 @@ class Settings(BaseSettings):
             raise ValueError("LOG_LEVEL must be CRITICAL, ERROR, WARNING, INFO or DEBUG")
         return normalized
 
-    @field_validator("gemini_fallback_model", "gemini_second_fallback_model", "qa_gemini_thinking_level",
-                     "db_ssl_root_cert", mode="before")
+    @field_validator(
+        "gemini_fallback_model",
+        "gemini_second_fallback_model",
+        "qa_gemini_thinking_level",
+        "db_ssl_root_cert",
+        mode="before",
+    )
     @classmethod
     def blank_is_unset(cls, value):
         return None if isinstance(value, str) and not value.strip() else value

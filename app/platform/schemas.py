@@ -116,6 +116,7 @@ class Terms(Input):
 class CreateAgreement(Input):
     conversation_id: UUID
     preparation_id: UUID | None = None
+    case_id: UUID | None = None
     terms: Terms
 
 
@@ -134,6 +135,9 @@ class AgreementAction(Input):
         "request_closure",
         "confirm_closure",
         "dispute",
+        "request_termination",
+        "confirm_termination",
+        "archive",
     ]
     revision: int = Field(ge=1)
     reason: str = Field(default="", max_length=8000)
@@ -144,7 +148,8 @@ class AgreementAction(Input):
 
 
 class CaseIn(Input):
-    agreement_id: UUID
+    agreement_id: UUID | None = None
+    wakeel_id: UUID | None = None
     title: str = Field(min_length=3, max_length=180)
     description: str = Field(min_length=5, max_length=8000)
     important_date: date | None = None
@@ -152,7 +157,22 @@ class CaseIn(Input):
 
 class CaseNote(Input):
     note: str = Field(min_length=3, max_length=8000)
-    status: Literal["OPEN", "IN_PROGRESS", "ON_HOLD", "CLOSED"]
+    status: Literal[
+        "DRAFT",
+        "OPEN",
+        "SUBMITTED",
+        "UNDER_REVIEW",
+        "ASSIGNED",
+        "IN_PROGRESS",
+        "AWAITING_HEARING",
+        "HEARING_COMPLETED",
+        "AWAITING_DECISION",
+        "RESOLVED",
+        "DISMISSED",
+        "ON_HOLD",
+        "CLOSED",
+        "REOPENED",
+    ]
     important_date: date | None = None
 
 
@@ -172,3 +192,48 @@ class AdminAction(Input):
     resource_id: UUID
     reason: str = Field(min_length=5, max_length=8000)
     outcome: Literal["ACTIVE", "CANCELLED"] | None = None
+
+
+class EmailInput(Input):
+    email: str = Field(max_length=254)
+    _email = field_validator("email")(Login.valid_email.__func__)
+
+
+class OtpVerify(EmailInput):
+    challenge_id: UUID
+    otp: str = Field(pattern=r"^\d{6}$")
+
+
+class EmailPreferences(Input):
+    messages: bool = True
+    agreements: bool = True
+    cases: bool = True
+    account: bool = True
+
+
+class DraftIn(Input):
+    preparation_id: UUID | None = None
+    case_id: UUID | None = None
+    revision: int = Field(ge=0)
+    terms: dict[str, str] = Field(max_length=14)
+
+    @field_validator("terms")
+    @classmethod
+    def validate_terms(cls, value):
+        if set(value) - set(Terms.model_fields) or any(len(v) > 5000 for v in value.values()):
+            raise ValueError("Invalid draft fields")
+        return value
+
+
+class CaseLink(Input):
+    agreement_id: UUID
+
+
+class CaseAssignment(Input):
+    wakeel_id: UUID
+    reason: str = Field(min_length=5, max_length=1000)
+
+
+class PreparationAction(Input):
+    action: Literal["accept", "decline"]
+    reason: str = Field(min_length=5, max_length=1000)

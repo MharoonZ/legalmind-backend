@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request
 
-from app.platform import admin, agreements, auth, cases, chats, marketplace
+from app.platform import admin, agreements, auth, cases, chats, marketplace, recovery, workflows
 from app.platform.security import COOKIE, DB, csrf, load_identity, throttle
 from app.platform.realtime import http_router
 
@@ -22,3 +22,5 @@ router = APIRouter(prefix="/platform", dependencies=[Depends(csrf), Depends(plat
 for child in (auth, chats, marketplace, agreements, cases, admin):
     router.include_router(child.router)
 router.include_router(http_router)
+router.include_router(recovery.router)
+router.include_router(workflows.router)

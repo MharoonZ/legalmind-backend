@@ -42,6 +42,16 @@ async def notifications(user: User, db: DB, offset: Offset = 0):
     ]
 
 
+@router.get("/notifications/count")
+async def notification_count(user: User, db: DB):
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Notification)
+        .where(Notification.user_id == user.id, Notification.read_at.is_(None))
+    )
+    return {"unread": count}
+
+
 @router.post("/notifications/{identifier}/read")
 async def read(identifier: UUID, user: User, db: DB):
     item = await db.get(Notification, str(identifier))
@@ -189,7 +199,7 @@ async def administer(body: AdminAction, user: User, db: DB):
             raise HTTPException(404, "Wakeel not found.")
         profile.verification = "verified" if body.action == "verify" else "rejected"
         profile.verification_reason = body.reason
-        notify(db, identifier, "Professional verification updated", "/profile")
+        await notify(db, identifier, "Professional verification updated", "/profile")
     elif body.action in {"suspend", "restore"}:
         target = await db.get(Account, identifier)
         if not target or target.role == "admin":
@@ -201,7 +211,7 @@ async def administer(body: AdminAction, user: User, db: DB):
         if not row:
             raise HTTPException(404, "Report not found.")
         row.status, row.resolution = "RESOLVED", body.reason
-        notify(db, row.reporter_id, "Your report was reviewed: " + body.reason[:100], "/notifications")
+        await notify(db, row.reporter_id, "Your report was reviewed: " + body.reason[:100], "/notifications")
     elif body.action == "resolve_dispute":
         row = await db.scalar(select(Agreement).where(Agreement.id == identifier).with_for_update())
         if not row or row.status != "DISPUTED" or body.outcome is None:
@@ -214,7 +224,7 @@ async def administer(body: AdminAction, user: User, db: DB):
         event(db, row, user, "dispute_resolved", "DISPUTED", body.reason)
         thread = await db.get(Conversation, row.conversation_id)
         for recipient in (thread.user_id, thread.wakeel_id):
-            notify(db, recipient, "Contract dispute resolved", f"/agreements/{row.id}")
+            await notify(db, recipient, "Contract dispute resolved", f"/agreements/{row.id}")
     if body.action in {"verify", "reject", "suspend", "restore"}:
         directory_changed(db)
     audit(db, user, "admin_" + body.action, identifier, body.reason)

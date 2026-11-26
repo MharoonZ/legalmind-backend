@@ -23,6 +23,7 @@ from app.db.session import Database
 from app.platform.router import router as platform_router
 from app.platform.realtime import RealtimeHub, socket_router
 from app.platform.titles import TitleWorker
+from app.platform.mail import MailWorker
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await db.connect()
     app.state.realtime = RealtimeHub(db, settings)
     await app.state.realtime.start()
+    app.state.mail_worker = MailWorker(db, app.state.realtime, settings)
+    app.state.mail_worker.start()
 
     app.state.services = None
     app.state.title_worker = None
@@ -62,6 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         if app.state.title_worker:
             await app.state.title_worker.stop()
+        await app.state.mail_worker.stop()
         await app.state.realtime.stop()
         if app.state.services is not None:
             await app.state.services.aclose()
@@ -76,7 +80,7 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version=settings.app_version,
         description="Legal question answering over a reviewed, published corpus of statutes, "
-                    "with legal-PDF ingestion and review tooling for local administration.",
+        "with legal-PDF ingestion and review tooling for local administration.",
         debug=settings.debug and not settings.is_production,
         lifespan=lifespan,
         docs_url="/docs" if docs else None,
@@ -110,8 +114,13 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
         route = request.scope.get("route")
-        logger.error("request_failed method=%s route=%s error=%s", request.method,
-                     getattr(route, "path", "unknown"), type(exc).__name__, exc_info=settings.debug)
+        logger.error(
+            "request_failed method=%s route=%s error=%s",
+            request.method,
+            getattr(route, "path", "unknown"),
+            type(exc).__name__,
+            exc_info=settings.debug,
+        )
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     return app

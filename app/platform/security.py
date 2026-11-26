@@ -72,6 +72,7 @@ async def current_user(request: Request, db: DB) -> Account:
     if identity is None:
         raise HTTPException(401, "Your session expired. Please sign in.")
     record, account = identity
+    db.info["actor"] = account
     request.state.platform_session = record
     return account
 
@@ -186,7 +187,7 @@ def audit(db, user, action, resource=None, detail=""):
     db.add(Audit(actor_id=user.id if user else None, action=action, resource_id=resource, detail=detail))
 
 
-def notify(db, recipient, title, href):
+async def notify(db, recipient, title, href):
     db.add(Notification(user_id=recipient, title=title[:180], href=href))
     from app.platform.events import invalidate
 
@@ -198,7 +199,13 @@ def notify(db, recipient, title, href):
         paths.append("/preparations")
     if area == "profile":
         paths.append("/auth/me")
-    invalidate(db, [recipient], *paths)
+    actor = db.info.get("actor")
+    recipients = [recipient] + ([actor.id] if actor and actor.role != "admin" else [])
+    invalidate(db, recipients, *paths)
+    from app.platform.mail import enqueue
+
+    category = area if area in {"messages", "agreements", "cases"} else "account"
+    await enqueue(db, recipient, category, title, href, batch=href if area == "messages" else None)
 
 
 def public_account(user):

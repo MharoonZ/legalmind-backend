@@ -5,8 +5,8 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
-from app.platform.models import Account, ResetToken, WakeelProfile, now
-from app.platform.schemas import Login, PasswordChange, Profile, Register, ResetPassword
+from app.platform.models import Account, OtpChallenge, ResetToken, WakeelProfile, now
+from app.platform.schemas import EmailPreferences, Login, PasswordChange, Profile, Register, ResetPassword
 from app.platform.security import (
     COOKIE,
     DB,
@@ -21,6 +21,8 @@ from app.platform.security import (
     throttle,
     revoke_sessions,
 )
+
+from app.platform.mail import enqueue
 
 router = APIRouter(prefix="/auth", tags=["accounts"])
 # Use a real hash to keep the nonexistent-account path equally expensive.
@@ -55,6 +57,7 @@ async def register(body: Register, request: Request, response: Response, db: DB)
         raise HTTPException(409, "An account with these registration details already exists.") from None
     await new_session(db, user, response)
     audit(db, user, "account_registered", user.id)
+    await enqueue(db, user.id, "account", "Welcome to LegalMind", payload={"welcome": True})
     return public_account(user)
 
 
@@ -135,6 +138,9 @@ async def password(body: PasswordChange, request: Request, response: Response, u
     user.password_hash = await asyncio.to_thread(hash_password, body.password)
     await revoke_sessions(db, user_id=user.id)
     await new_session(db, user, response)
+    await db.execute(delete(ResetToken).where(ResetToken.user_id == user.id))
+    await db.execute(delete(OtpChallenge).where(OtpChallenge.user_id == user.id))
+    await enqueue(db, user.id, "security", "Your LegalMind password was changed")
     audit(db, user, "password_changed", user.id)
     return {"ok": True}
 
@@ -142,12 +148,39 @@ async def password(body: PasswordChange, request: Request, response: Response, u
 @router.post("/reset")
 async def reset(body: ResetPassword, request: Request, db: DB):
     await throttle(request, "reset", request.client.host, 10)
-    token = await db.scalar(select(ResetToken).where(ResetToken.token_hash == digest(body.token)).with_for_update())
+    token = await db.scalar(select(ResetToken).where(ResetToken.token_hash == digest(body.token)))
     if not token or token.expires_at.replace(tzinfo=UTC) <= now():
         raise HTTPException(400, "This password reset link is invalid or expired.")
-    user = await db.get(Account, token.user_id)
+    user = await db.scalar(select(Account).where(Account.id == token.user_id).with_for_update())
+    if not user or not user.active:
+        raise HTTPException(400, "This password reset link is invalid or expired.")
+    # Recheck after the account lock: another reset may have consumed the token.
+    token = await db.scalar(
+        select(ResetToken)
+        .where(ResetToken.token_hash == digest(body.token))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not token or token.expires_at.replace(tzinfo=UTC) <= now():
+        raise HTTPException(400, "This password reset link is invalid or expired.")
     user.password_hash = await asyncio.to_thread(hash_password, body.password)
     await revoke_sessions(db, user_id=user.id)
     await db.execute(delete(ResetToken).where(ResetToken.user_id == user.id))
+    await db.execute(delete(OtpChallenge).where(OtpChallenge.user_id == user.id))
+    await enqueue(db, user.id, "security", "Your LegalMind password was reset")
     audit(db, user, "password_reset", user.id)
     return {"ok": True}
+
+
+@router.get("/email-preferences")
+async def preferences(user: User):
+    return EmailPreferences(**(user.email_preferences or {}))
+
+
+@router.post("/email-preferences")
+async def save_preferences(body: EmailPreferences, user: User, db: DB):
+    from app.platform.events import invalidate
+
+    user.email_preferences = body.model_dump()
+    invalidate(db, [user.id], "/auth/email-preferences")
+    return body
