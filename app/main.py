@@ -20,6 +20,7 @@ from app.bootstrap import build_services
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import Database
+from app.platform.router import router as platform_router
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(legal_search.router)
     app.include_router(qa.router)
+    app.include_router(platform_router)
     if settings.is_development:
         # Unauthenticated administration and contract uploads exist only for
         # loopback development; other environments do not mount them at all.

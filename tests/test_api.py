@@ -305,7 +305,8 @@ def test_cancelling_an_admitted_question_releases_its_slot(settings):
         started = asyncio.Event()
         slots = asyncio.BoundedSemaphore(1)
 
-        async def pending(_payload):
+        async def pending(_payload, *, record=True):
+            assert record is False
             started.set()
             await asyncio.Future()
 

@@ -36,7 +36,7 @@ async def ask(payload: AskIn, settings: SettingsDep, services=Depends(get_servic
                             headers={"Retry-After": "5"})
     try:
         async with asyncio.timeout(settings.qa_request_timeout_seconds):
-            result, timings = await services.qa.ask(payload)
+            result, timings = await services.qa.ask(payload, record=False)
     except TimeoutError:
         logger.warning("qa_request_timeout seconds=%s", settings.qa_request_timeout_seconds)
         result = QuestionAnswerService.unavailable(payload.question, reason="The answer request timed out.")

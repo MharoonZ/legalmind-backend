@@ -16,6 +16,7 @@ from app.db import models  # noqa: F401 - register existing tables
 from app.db import publication_models  # noqa: F401 - register publication tables
 from app.db import qa_record_models  # noqa: F401 - register Phase C tables
 from app.embeddings import models as embedding_models  # noqa: F401 - register embedding tables
+from app.platform import models as platform_models  # noqa: F401
 
 config = context.config
 target_metadata = Base.metadata

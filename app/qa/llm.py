@@ -185,7 +185,7 @@ class AnswerGenerator:
 
     def _gemini_models(self) -> list[str]:
         primary, fallback = self.settings.gemini_model, self.settings.gemini_fallback_model
-        if not fallback or fallback == primary:
+        if not fallback:
             return [primary]
         models = dict.fromkeys((primary, fallback, self.settings.gemini_second_fallback_model))
         return [m for m in models if m and m not in self._missing_models]

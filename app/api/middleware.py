@@ -67,6 +67,8 @@ class RequestContextMiddleware:
                     await reject(exc.status_code, str(exc.detail))
                     return
             limit = settings.max_request_bytes if path.startswith(_UPLOAD_PREFIXES) else _JSON_LIMIT
+            if path.startswith("/platform/cases/") and path.endswith("/attachments"):
+                limit = 6 * 1024 * 1024
             declared = headers.get(b"content-length")
             if declared and declared.isdigit() and (
                     len(declared.lstrip(b"0")) > len(str(limit)) or int(declared.lstrip(b"0") or b"0") > limit):

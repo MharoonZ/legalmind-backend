@@ -140,7 +140,7 @@ class QuestionAnswerService:
         return rewritten if rewritten and rewritten.casefold() != question.casefold() else None
 
     # ----------------------------------------------------------------- ask
-    async def ask(self, request: AskIn) -> tuple[AskOut, dict[str, float]]:
+    async def ask(self, request: AskIn, *, record: bool = True) -> tuple[AskOut, dict[str, float]]:
         """Answer one question. Returns the response and per-stage milliseconds."""
         timings: dict[str, float] = {}
         started = self._clock()
@@ -214,7 +214,7 @@ class QuestionAnswerService:
         except Exception as exc:
             logger.exception("qa_pipeline_failed error=%s", type(exc).__name__)
             result = self.unavailable(request.question, self._publication(retrieval))
-        if self.recorder is not None and retrieval is not None:
+        if record and self.recorder is not None and retrieval is not None:
             try:
                 await self.recorder.record(request, result, retrieval, self.generator.model,
                                            self.settings.qa_rerank_model_name if method == "cross_encoder" else None)
