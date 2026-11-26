@@ -5,11 +5,11 @@ import hashlib
 import hmac
 import secrets
 import time
-from datetime import UTC, timedelta
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_database
@@ -47,10 +47,16 @@ def csrf(request: Request):
         raise HTTPException(403, "Untrusted request origin.")
 
 
-async def transaction(db=Depends(get_database)):
+async def transaction(request: Request, db=Depends(get_database)):
     async with db.session() as session:
         async with session.begin():
             yield session
+            events = session.info.get("platform_events", [])
+            hub = getattr(request.app.state, "realtime", None)
+            if hub and events:
+                await hub.publish(session, events)
+        if hub and events:
+            await hub.after_commit(events)
 
 
 DB = Annotated[AsyncSession, Depends(transaction, scope="function")]
@@ -60,18 +66,34 @@ async def current_user(request: Request, db: DB) -> Account:
     token = request.cookies.get(COOKIE, "")
     if not token or len(token) > 200:
         raise HTTPException(401, "Please sign in.")
-    record = await db.scalar(select(Session).where(Session.token_hash == digest(token)))
-    if (
-        record is None
-        or record.expires_at.replace(tzinfo=UTC) <= now()
-        or record.absolute_expires_at.replace(tzinfo=UTC) <= now()
-    ):
+    if not hasattr(request.state, "platform_identity"):
+        await load_identity(request, db)
+    identity = request.state.platform_identity
+    if identity is None:
         raise HTTPException(401, "Your session expired. Please sign in.")
-    account = await db.get(Account, record.user_id)
-    if not account or not account.active:
-        raise HTTPException(401, "Your account is unavailable.")
+    record, account = identity
     request.state.platform_session = record
     return account
+
+
+async def load_identity(request: Request, db):
+    token = request.cookies.get(COOKIE, "")
+    identity = None
+    if token and len(token) <= 200:
+        identity = (
+            await db.execute(
+                select(Session, Account)
+                .join(Account)
+                .where(
+                    Session.token_hash == digest(token),
+                    Session.expires_at > now(),
+                    Session.absolute_expires_at > now(),
+                    Account.active.is_(True),
+                )
+            )
+        ).first()
+    request.state.platform_identity = identity
+    return identity
 
 
 User = Annotated[Account, Depends(current_user)]
@@ -101,25 +123,62 @@ async def new_session(db, user, response):
     cookie(response, token)
 
 
-async def throttle(request, scope: str, identity: str, maximum: int):
+async def revoke_sessions(db, *, user_id=None, token=None):
+    from app.platform.events import queue_event
+
+    condition = Session.user_id == user_id if user_id else Session.token_hash == digest(token)
+    rows = (await db.execute(delete(Session).where(condition).returning(Session.user_id, Session.id))).all()
+    if user_id:
+        queue_event(db, [user_id], "session.revoked")
+    else:
+        for uid, sid in rows:
+            queue_event(db, [uid], "session.revoked", session_id=sid)
+
+
+async def throttle(request, scope: str, identity: str, maximum: int, *, lease=False):
     # Separate committed counters survive failed logins and work across API workers.
     db = get_database(request)
     key = digest(scope + ":" + identity)
     window = int(time.time() // 60)
-    async with db.session() as session:
-        async with session.begin():
-            count = (
-                await session.execute(
-                    text(
-                        "INSERT INTO platform_rate_buckets (key, window_start, attempts) VALUES (:key, :window, 1) "
-                        "ON CONFLICT (key) DO UPDATE SET window_start = :window, attempts = "
-                        "CASE WHEN platform_rate_buckets.window_start = :window THEN platform_rate_buckets.attempts + 1 ELSE 1 END "
-                        "RETURNING attempts"
-                    ),
-                    {"key": key, "window": window},
-                )
-            ).scalar()
-    if count > maximum:
+    # Reserve small blocks against the shared DB ceiling. Local requests consume
+    # an already-paid token; workers never mint extra quota. Lost leases only
+    # tighten the limit. Login/reset counters always reserve one attempt.
+    if not hasattr(request.app.state, "rate_leases"):
+        request.app.state.rate_leases = {}
+        request.app.state.rate_lease_locks = {}
+    leases = request.app.state.rate_leases
+    locks = request.app.state.rate_lease_locks
+    if len(locks) > 4096:
+        request.app.state.rate_lease_locks = locks = {k: v for k, v in locks.items() if v.locked()}
+    async with locks.setdefault(key, asyncio.Lock()):
+        cached = leases.get(key)
+        if lease and cached and cached[0] == window and cached[1] > 0:
+            leases[key] = (window, cached[1] - 1)
+            return
+        granted = False
+        for cost in [min(10, maximum), 1] if lease else [1]:
+            async with db.engine.connect() as connection:
+                connection = await connection.execution_options(isolation_level="AUTOCOMMIT")
+                count = (
+                    await connection.execute(
+                        text(
+                            "INSERT INTO platform_rate_buckets (key, window_start, attempts) VALUES (:key, :window, :cost) "
+                            "ON CONFLICT (key) DO UPDATE SET window_start = :window, attempts = "
+                            "CASE WHEN platform_rate_buckets.window_start = :window THEN platform_rate_buckets.attempts + :cost ELSE :cost END "
+                            "WHERE platform_rate_buckets.window_start <> :window OR platform_rate_buckets.attempts + :cost <= :maximum "
+                            "RETURNING attempts"
+                        ),
+                        {"key": key, "window": window, "cost": cost, "maximum": maximum},
+                    )
+                ).scalar()
+            if count is not None:
+                granted = True
+                if lease:
+                    if len(leases) >= 2048:
+                        leases.clear()
+                    leases[key] = (window, cost - 1)
+                break
+    if not granted:
         raise HTTPException(429, "Too many attempts. Please wait a minute.", headers={"Retry-After": "60"})
 
 
@@ -129,6 +188,17 @@ def audit(db, user, action, resource=None, detail=""):
 
 def notify(db, recipient, title, href):
     db.add(Notification(user_id=recipient, title=title[:180], href=href))
+    from app.platform.events import invalidate
+
+    area = href.split("/")[1]
+    paths = ["/notifications"]
+    if area != "messages":
+        paths.extend(["/" + area, href])
+    if area == "agreements":
+        paths.append("/preparations")
+    if area == "profile":
+        paths.append("/auth/me")
+    invalidate(db, [recipient], *paths)
 
 
 def public_account(user):

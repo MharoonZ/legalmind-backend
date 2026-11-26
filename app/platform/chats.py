@@ -1,8 +1,8 @@
 import json
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import and_, or_, select
 
 from app.api.deps import SettingsDep, enforce_rate_limit, get_services
 from app.api.routes.qa import ask
@@ -10,6 +10,8 @@ from app.platform.models import Chat, ChatMessage, now
 from app.platform.schemas import ChatAsk, GuestImport
 from app.platform.security import DB, User
 from app.platform.common import Offset, dump
+from app.platform.events import queue_event
+from app.platform.security import throttle
 from app.schemas.qa import AskIn, ConversationTurn
 
 router = APIRouter(prefix="/chats", tags=["saved AI conversations"])
@@ -77,7 +79,7 @@ async def import_guest(body: GuestImport, user: User, db: DB, services=Depends(g
                     409,
                     "A guest citation is from an older collection. Keep this chat on this device or start a new saved chat.",
                 )
-    chat = Chat(user_id=user.id, title=body.messages[0].question[:100])
+    chat = Chat(user_id=user.id)
     db.add(chat)
     await db.flush()
     from uuid import uuid4
@@ -92,16 +94,36 @@ async def import_guest(body: GuestImport, user: User, db: DB, services=Depends(g
             )
         )
     await db.flush()
+    queue_event(db, [user.id], "title.requested", chat_id=chat.id)
     return dump(chat)
 
 
 @router.get("/{chat_id}")
-async def detail(chat_id: UUID, user: User, db: DB):
+async def detail(chat_id: UUID, user: User, db: DB, before: UUID | None = None):
     item = await owned(db, chat_id, user)
-    messages = (
-        await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == item.id).order_by(ChatMessage.created_at))
-    ).all()
-    return {**dump(item), "messages": [dump(m) for m in messages]}
+    query = select(ChatMessage).where(ChatMessage.chat_id == item.id)
+    if before:
+        cursor = await db.get(ChatMessage, str(before))
+        if not cursor or cursor.chat_id != item.id:
+            raise HTTPException(404, "Message not found.")
+        query = query.where(
+            or_(
+                ChatMessage.created_at < cursor.created_at,
+                and_(ChatMessage.created_at == cursor.created_at, ChatMessage.id < cursor.id),
+            )
+        )
+    messages = (await db.scalars(query.order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).limit(50))).all()
+    return {**dump(item), "messages": [dump(m) for m in reversed(messages)], "has_more": len(messages) == 50}
+
+
+@router.post("/{chat_id}/title")
+async def retry_title(chat_id: UUID, request: Request, user: User, db: DB):
+    await throttle(request, "title_retry", user.id, 3)
+    chat = await owned(db, chat_id, user, lock=True)
+    if chat.title_status == "failed":
+        chat.title_status, chat.title_attempts, chat.title_attempted_at = "pending", 0, None
+        queue_event(db, [user.id], "title.requested", chat_id=chat.id)
+    return dump(chat)
 
 
 @router.post("/{chat_id}/ask", dependencies=[Depends(enforce_rate_limit)])
@@ -136,7 +158,7 @@ async def answer(
     message = ChatMessage(chat_id=chat.id, request_id=str(body.request_id), question=body.question, response=payload)
     db.add(message)
     chat.updated_at = now()
-    if chat.title == "New conversation":
-        chat.title = body.question[:100]
+    if not previous:
+        queue_event(db, [user.id], "title.requested", chat_id=chat.id)
     await db.flush()
     return dump(message)

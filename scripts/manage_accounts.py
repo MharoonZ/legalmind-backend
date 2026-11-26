@@ -29,8 +29,8 @@ async def main():
                 if args.action == "create-admin":
                     if user:
                         raise SystemExit("An account already uses this email.")
-                    password = getpass.getpass("New administrator password (at least 12 characters): ")
-                    if len(password) < 12 or password != getpass.getpass("Confirm password: "):
+                    password = getpass.getpass("New administrator password (at least 6 characters): ")
+                    if len(password) < 6 or password != getpass.getpass("Confirm password: "):
                         raise SystemExit("Password confirmation failed.")
                     user = Account(
                         email=args.email.strip().casefold(),

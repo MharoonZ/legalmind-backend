@@ -331,6 +331,8 @@ several processes each applies its own limit.
 
 ## Documentation
 
+- [docs/WEBSITE_OPTIMIZATION.md](docs/WEBSITE_OPTIMIZATION.md): theme, performance, WebSocket and Gemini-title delivery, measurements and deployment configuration.
+
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how each stage works and why.
 - [docs/AUDIT_2026-11.md](docs/AUDIT_2026-11.md): the November 2026 audit: root
   causes found, what changed, measurements and known limits.

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.main import create_app
 from app.platform.models import Account, Base, Chat
 from app.platform.security import hash_password
+from app.platform.realtime import RealtimeHub
 from app.schemas.qa import AskOut
 
 
@@ -60,8 +61,11 @@ def platform(tmp_path):
             )
             await db.commit()
         app.state.db = database
+        app.state.realtime = RealtimeHub(database)
+        await app.state.realtime.start()
         app.state.services = SimpleNamespace(qa=TestQA(), ask_slots=asyncio.Semaphore(2))
         yield
+        await app.state.realtime.stop()
         await database.engine.dispose()
 
     app.router.lifespan_context = lifespan

@@ -15,12 +15,13 @@ from app.platform.models import (
     Notification,
     Report,
     Review,
-    Session,
     WakeelProfile,
     now,
 )
 from app.platform.schemas import AdminAction, ReportIn, ReviewIn
-from app.platform.security import DB, User, audit, notify, require_role
+from app.platform.security import DB, User, audit, notify, require_role, revoke_sessions
+
+from app.platform.events import directory_changed, invalidate
 
 router = APIRouter(tags=["notifications, reviews and platform administration"])
 
@@ -47,6 +48,7 @@ async def read(identifier: UUID, user: User, db: DB):
     if not item or item.user_id != user.id:
         raise HTTPException(404, "Notification not found.")
     item.read_at = now()
+    invalidate(db, [user.id], "/notifications")
     return {"ok": True}
 
 
@@ -82,6 +84,8 @@ async def rate(body: ReviewIn, user: User, db: DB):
     )
     db.add(row)
     await db.flush()
+    directory_changed(db)
+    invalidate(db, [row.subject_id], "/reviews")
     audit(db, user, "review_added", row.id)
     return dump(row)
 
@@ -114,9 +118,21 @@ async def overview(user: User, db: DB, offset: Offset = 0):
         )
     ).all()
     logs = (await db.scalars(select(Audit).order_by(Audit.created_at.desc()).offset(offset).limit(200))).all()
-    counts = {}
-    for model in (Account, Chat, Conversation, Agreement, Report):
-        counts[model.__tablename__] = await db.scalar(select(func.count()).select_from(model))
+    count_models = (Account, Chat, Conversation, Agreement, Report)
+    counts = dict(
+        (
+            await db.execute(
+                select(
+                    *[
+                        select(func.count()).select_from(model).scalar_subquery().label(model.__tablename__)
+                        for model in count_models
+                    ]
+                )
+            )
+        )
+        .mappings()
+        .one()
+    )
     return {
         "users": [dump(u, ("password_hash",)) for u in accounts],
         "wakeels": [dump(p) for p in profiles],
@@ -179,7 +195,7 @@ async def administer(body: AdminAction, user: User, db: DB):
         if not target or target.role == "admin":
             raise HTTPException(403, "This account cannot be changed here.")
         target.active = body.action == "restore"
-        await db.execute(delete(Session).where(Session.user_id == target.id))
+        await revoke_sessions(db, user_id=target.id)
     elif body.action == "resolve_report":
         row = await db.get(Report, identifier)
         if not row:
@@ -199,5 +215,7 @@ async def administer(body: AdminAction, user: User, db: DB):
         thread = await db.get(Conversation, row.conversation_id)
         for recipient in (thread.user_id, thread.wakeel_id):
             notify(db, recipient, "Contract dispute resolved", f"/agreements/{row.id}")
+    if body.action in {"verify", "reject", "suspend", "restore"}:
+        directory_changed(db)
     audit(db, user, "admin_" + body.action, identifier, body.reason)
     return {"ok": True}

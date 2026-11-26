@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import or_, select
+from sqlalchemy.orm import defer
 
 from app.platform.common import Offset, agreement, dump, other_party
 from app.platform.models import Agreement, Attachment, Case, CaseUpdate, Conversation
@@ -56,7 +57,9 @@ async def detail(identifier: UUID, user: User, db: DB):
     updates = (
         await db.scalars(select(CaseUpdate).where(CaseUpdate.case_id == row.id).order_by(CaseUpdate.created_at))
     ).all()
-    attachments = (await db.scalars(select(Attachment).where(Attachment.case_id == row.id))).all()
+    attachments = (
+        await db.scalars(select(Attachment).options(defer(Attachment.content)).where(Attachment.case_id == row.id))
+    ).all()
     return {
         **dump(row),
         "user_id": thread.user_id,

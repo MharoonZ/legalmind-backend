@@ -21,6 +21,8 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import Database
 from app.platform.router import router as platform_router
+from app.platform.realtime import RealtimeHub, socket_router
+from app.platform.titles import TitleWorker
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +36,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db = Database(settings)
     app.state.db = db
     await db.connect()
+    app.state.realtime = RealtimeHub(db, settings)
+    await app.state.realtime.start()
 
     app.state.services = None
+    app.state.title_worker = None
     if settings.legal_search_enabled:
         services = build_services(db, settings)
         app.state.services = services
+        app.state.title_worker = TitleWorker(db, services.generator, app.state.realtime)
+        app.state.title_worker.start()
         # Read the active publication into memory, then keep it current.
         await services.index.refresh()
         services.index.start()
@@ -53,6 +60,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if app.state.title_worker:
+            await app.state.title_worker.stop()
+        await app.state.realtime.stop()
         if app.state.services is not None:
             await app.state.services.aclose()
         await db.dispose()
@@ -88,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(legal_search.router)
     app.include_router(qa.router)
     app.include_router(platform_router)
+    app.include_router(socket_router)
     if settings.is_development:
         # Unauthenticated administration and contract uploads exist only for
         # loopback development; other environments do not mount them at all.

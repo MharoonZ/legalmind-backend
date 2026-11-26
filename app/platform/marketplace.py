@@ -1,56 +1,61 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, HTTPException, Query, Request
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.platform.common import Offset, conversation, dump, other_party
 from app.platform.models import Account, Conversation, Message, Preparation, Review, WakeelProfile, now
 from app.platform.schemas import PreparationIn, SendMessage, StartConversation
 from app.platform.security import DB, User, audit, notify, require_role
+from app.platform.events import queue_event
 
 router = APIRouter(tags=["Wakeel discovery and messaging"])
 
 
 @router.get("/wakeels")
 async def wakeels(
+    request: Request,
     db: DB,
     q: str = Query("", max_length=160),
     city: str = Query("", max_length=120),
     specialization: str = Query("", max_length=160),
     offset: Offset = 0,
 ):
-    query = (
-        select(Account, WakeelProfile)
-        .join(WakeelProfile, Account.id == WakeelProfile.user_id)
-        .where(Account.active.is_(True), WakeelProfile.verification == "verified")
-    )
-    for column, value in ((Account.name, q), (Account.city, city), (WakeelProfile.specialization, specialization)):
-        if value:
-            query = query.where(column.icontains(value, autoescape=True))
-    rows = (await db.execute(query.order_by(Account.name).offset(offset).limit(200))).all()
-    ratings = (
-        await db.execute(
-            select(Review.subject_id, func.avg(Review.rating), func.count(Review.id))
-            .where(Review.subject_id.in_([account.id for account, _ in rows]))
+    async def load():
+        ratings = (
+            select(Review.subject_id, func.avg(Review.rating).label("rating"), func.count(Review.id).label("reviews"))
             .group_by(Review.subject_id)
+            .subquery()
         )
-    ).all()
-    ratings_by_user = {subject: (average, count) for subject, average, count in ratings}
-    results = []
-    for account, professional in rows:
-        average, count = ratings_by_user.get(account.id, (None, 0))
-        results.append(
-            {
-                "id": account.id,
-                "name": account.name,
-                "city": account.city,
-                **dump(professional),
-                "rating": float(average) if average else None,
-                "review_count": count,
-            }
+        query = (
+            select(Account, WakeelProfile, ratings.c.rating, ratings.c.reviews)
+            .join(WakeelProfile, Account.id == WakeelProfile.user_id)
+            .outerjoin(ratings, ratings.c.subject_id == Account.id)
+            .where(Account.active.is_(True), WakeelProfile.verification == "verified")
         )
-    return results
+        for column, value in ((Account.name, q), (Account.city, city), (WakeelProfile.specialization, specialization)):
+            if value:
+                query = query.where(column.icontains(value, autoescape=True))
+        rows = (await db.execute(query.order_by(Account.name).offset(offset).limit(200))).all()
+        results = []
+        for account, professional, average, count in rows:
+            results.append(
+                {
+                    "id": account.id,
+                    "name": account.name,
+                    "city": account.city,
+                    **dump(professional),
+                    "rating": float(average) if average else None,
+                    "review_count": count or 0,
+                }
+            )
+        return results
+
+    hub = getattr(request.app.state, "realtime", None)
+    if hub:
+        return await hub.directory_cache.get((q, city, specialization, offset), load, enabled=lambda: hub.connected)
+    return await load()
 
 
 @router.get("/wakeels/{identifier}")
@@ -81,35 +86,24 @@ async def wakeel(identifier: UUID, db: DB):
 
 @router.get("/conversations")
 async def conversations(user: User, db: DB, offset: Offset = 0):
-    items = (
-        await db.scalars(
-            select(Conversation)
+    unread = (
+        select(func.count(Message.id))
+        .where(Message.conversation_id == Conversation.id, Message.sender_id != user.id, Message.read_at.is_(None))
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
+    peer_id = case((Conversation.user_id == user.id, Conversation.wakeel_id), else_=Conversation.user_id)
+    rows = (
+        await db.execute(
+            select(Conversation, Account.name, unread)
+            .join(Account, Account.id == peer_id)
             .where(or_(Conversation.user_id == user.id, Conversation.wakeel_id == user.id))
-            .order_by(Conversation.updated_at.desc())
+            .order_by(Conversation.updated_at.desc(), Conversation.id)
             .offset(offset)
             .limit(200)
         )
     ).all()
-    peers = (await db.scalars(select(Account).where(Account.id.in_([other_party(item, user) for item in items])))).all()
-    names = {peer.id: peer.name for peer in peers}
-    counts = (
-        await db.execute(
-            select(Message.conversation_id, func.count(Message.id))
-            .where(
-                Message.conversation_id.in_([item.id for item in items]),
-                Message.sender_id != user.id,
-                Message.read_at.is_(None),
-            )
-            .group_by(Message.conversation_id)
-        )
-    ).all()
-    unread_counts = dict(counts)
-    results = []
-    for item in items:
-        results.append(
-            {**dump(item), "peer_name": names[other_party(item, user)], "unread": unread_counts.get(item.id, 0)}
-        )
-    return results
+    return [{**dump(item), "peer_name": name, "unread": count} for item, name, count in rows]
 
 
 @router.post("/conversations", status_code=201)
@@ -141,8 +135,13 @@ async def messages(identifier: UUID, user: User, db: DB, before: UUID | None = N
         cursor = await db.get(Message, str(before))
         if not cursor or cursor.conversation_id != item.id:
             raise HTTPException(404, "Message not found.")
-        query = query.where(Message.created_at < cursor.created_at)
-    rows = (await db.scalars(query.order_by(Message.created_at.desc()).limit(100))).all()
+        query = query.where(
+            or_(
+                Message.created_at < cursor.created_at,
+                and_(Message.created_at == cursor.created_at, Message.id < cursor.id),
+            )
+        )
+    rows = (await db.scalars(query.order_by(Message.created_at.desc(), Message.id.desc()).limit(100))).all()
     peer = await db.get(Account, other_party(item, user))
     return {**dump(item), "peer_name": peer.name, "messages": [dump(m) for m in reversed(rows)]}
 
@@ -151,13 +150,22 @@ async def messages(identifier: UUID, user: User, db: DB, before: UUID | None = N
 async def read_messages(identifier: UUID, user: User, db: DB):
     from sqlalchemy import update
 
-    item = await conversation(db, identifier, user)
+    item = await conversation(db, identifier, user, lock=True)
+    read_at = now()
     await db.execute(
         update(Message)
         .where(Message.conversation_id == item.id, Message.sender_id != user.id, Message.read_at.is_(None))
-        .values(read_at=now())
+        .values(read_at=read_at)
     )
-    return {"ok": True}
+    queue_event(
+        db,
+        [item.user_id, item.wakeel_id],
+        "conversation.read",
+        conversation_id=item.id,
+        reader_id=user.id,
+        read_at=read_at.isoformat(),
+    )
+    return {"ok": True, "read_at": read_at.isoformat()}
 
 
 @router.post("/conversations/{identifier}/messages", status_code=201)
@@ -180,6 +188,7 @@ async def send(identifier: UUID, body: SendMessage, user: User, db: DB):
     item.updated_at = now()
     notify(db, peer.id, f"New message from {user.name}", f"/messages/{item.id}")
     await db.flush()
+    queue_event(db, [item.user_id, item.wakeel_id], "message.created", conversation_id=item.id, message_id=message.id)
     return dump(message)
 
 

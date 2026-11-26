@@ -145,7 +145,7 @@ class AnswerGenerator:
 
     async def generate_json(self, system: str, user: str, schema: dict, *,
                             max_output_tokens: int | None = None, purpose: str = "answer",
-                            timeout: float | None = None) -> dict:
+                            timeout: float | None = None, allow_failover: bool = True) -> dict:
         """Return one JSON object that follows ``schema``.
 
         ``timeout`` caps the whole exchange in seconds, failover included. Each
@@ -167,7 +167,7 @@ class AnswerGenerator:
                 except _CredentialRejected:
                     raise
                 except (GenerationUnavailable, GenerationInvalid):
-                    if not self._openai_ready() or left() < _MIN_CALL_SECONDS:
+                    if not allow_failover or not self._openai_ready() or left() < _MIN_CALL_SECONDS:
                         raise
                     # Gemini is down for this request: use the configured OpenAI model.
                     logger.warning("llm_failover purpose=%s from=gemini to=openai", purpose)

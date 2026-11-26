@@ -28,7 +28,7 @@ class Login(Input):
 
 class Register(Login):
     name: str = Field(min_length=2, max_length=120)
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=6, max_length=128)
     role: Literal["user", "wakeel"] = "user"
     bar_number: str = Field(default="", max_length=120)
     specialization: str = Field(default="", max_length=160)
@@ -52,12 +52,12 @@ class Profile(Input):
 
 class PasswordChange(Input):
     current_password: str = Field(min_length=1, max_length=128)
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=6, max_length=128)
 
 
 class ResetPassword(Input):
     token: str = Field(min_length=20, max_length=200)
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=6, max_length=128)
 
 
 class ChatAsk(Input):

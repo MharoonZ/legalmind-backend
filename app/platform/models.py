@@ -80,6 +80,16 @@ class Chat(Record, Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("platform_accounts.id"), index=True)
     title: Mapped[str] = mapped_column(String(120), default="New conversation")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    title_status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    title_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    title_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SocketTicket(Record, Base):
+    __tablename__ = "platform_socket_tickets"
+    session_id: Mapped[str] = mapped_column(ForeignKey("platform_sessions.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class ChatMessage(Record, Base):

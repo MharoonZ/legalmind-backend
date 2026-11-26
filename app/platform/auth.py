@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
-from app.platform.models import Account, ResetToken, Session, WakeelProfile, now
+from app.platform.models import Account, ResetToken, WakeelProfile, now
 from app.platform.schemas import Login, PasswordChange, Profile, Register, ResetPassword
 from app.platform.security import (
     COOKIE,
@@ -19,6 +19,7 @@ from app.platform.security import (
     password_matches,
     public_account,
     throttle,
+    revoke_sessions,
 )
 
 router = APIRouter(prefix="/auth", tags=["accounts"])
@@ -67,7 +68,7 @@ async def login(body: Login, request: Request, response: Response, db: DB):
         raise HTTPException(401, "Email or password is incorrect, or the account is unavailable.")
     old = request.cookies.get(COOKIE)
     if old:
-        await db.execute(delete(Session).where(Session.token_hash == digest(old)))
+        await revoke_sessions(db, token=old)
     await new_session(db, user, response)
     audit(db, user, "login", user.id)
     return public_account(user)
@@ -76,7 +77,7 @@ async def login(body: Login, request: Request, response: Response, db: DB):
 @router.get("/me")
 async def me(user: User, db: DB):
     data = public_account(user)
-    profile = await db.get(WakeelProfile, user.id)
+    profile = await db.get(WakeelProfile, user.id) if user.role == "wakeel" else None
     if profile:
         data["professional"] = {
             key: getattr(profile, key)
@@ -104,7 +105,7 @@ async def refresh(request: Request, response: Response, user: User, db: DB):
 async def logout(request: Request, response: Response, db: DB):
     token = request.cookies.get(COOKIE)
     if token:
-        await db.execute(delete(Session).where(Session.token_hash == digest(token)))
+        await revoke_sessions(db, token=token)
     response.delete_cookie(COOKIE, path="/")
     return {"ok": True}
 
@@ -117,6 +118,11 @@ async def profile(body: Profile, user: User, db: DB):
         professional.biography = body.biography
         professional.specialization = body.specialization
         professional.experience = body.experience
+    from app.platform.events import directory_changed, invalidate
+
+    if professional:
+        directory_changed(db)
+    invalidate(db, [user.id], "/auth/me")
     audit(db, user, "profile_updated", user.id)
     return public_account(user)
 
@@ -127,7 +133,7 @@ async def password(body: PasswordChange, request: Request, response: Response, u
     if not await password_matches(body.current_password, user.password_hash):
         raise HTTPException(400, "Current password is incorrect.")
     user.password_hash = await asyncio.to_thread(hash_password, body.password)
-    await db.execute(delete(Session).where(Session.user_id == user.id))
+    await revoke_sessions(db, user_id=user.id)
     await new_session(db, user, response)
     audit(db, user, "password_changed", user.id)
     return {"ok": True}
@@ -141,7 +147,7 @@ async def reset(body: ResetPassword, request: Request, db: DB):
         raise HTTPException(400, "This password reset link is invalid or expired.")
     user = await db.get(Account, token.user_id)
     user.password_hash = await asyncio.to_thread(hash_password, body.password)
-    await db.execute(delete(Session).where(Session.user_id == user.id))
+    await revoke_sessions(db, user_id=user.id)
     await db.execute(delete(ResetToken).where(ResetToken.user_id == user.id))
     audit(db, user, "password_reset", user.id)
     return {"ok": True}
