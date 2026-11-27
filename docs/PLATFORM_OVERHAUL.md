@@ -123,7 +123,57 @@ legalmind-frontend/src
 
 ## 5 Performance
 
-PERF_SECTION
+**What the investigation found.** In a local lab the frontend was already inside the Core Web Vitals
+targets before this work. The slowness reported in use comes from the API talking to a remote database: each
+SQL statement is one network round trip (earlier measurements in `WEBSITE_OPTIMIZATION.md` recorded seconds
+per uncached request against the Sydney pooler). The work therefore concentrated on round trips per screen.
+
+**Backend — SQL statements per request** (isolated SQLite, same data, mean of five calls, including the
+session lookup):
+
+| Endpoint | Before | After | Note |
+| --- | ---: | ---: | --- |
+| `GET /agreements/{id}` | 8.2 | 7.2 | agreement and conversation loaded together |
+| `GET /conversations` | 2.2 | 2.2 | now also returns the last-message preview |
+| `GET /conversations/{id}` | 4.2 | 4.2 | now also returns the workspace link |
+| `GET /cases` | 2.0 | 2.0 | now also returns the other party's name, with search, filter and sort |
+| `GET /notifications/count` | 2.2 | 2.2 | now returns three navigation badges instead of one |
+| `GET /dashboard` (new) | — | 6.2 | every dashboard panel in one request |
+| `GET /relationships`, `/hiring-requests` (new) | — | 2.2 / 2.0 | |
+| `GET /documents`, `/calendar` (new) | — | 3.2 / 3.0 | |
+
+Other backend changes: case reads no longer take `FOR UPDATE` row locks; new indexes for message threads,
+unread notifications, audit lookups, case status and engagement; queued email is sent as soon as the
+transaction commits instead of on the next 30-second poll; list endpoints stay paginated at 200 rows and
+omit large text fields.
+
+**Frontend — lab Core Web Vitals** (production build, Chromium, 4× CPU slowdown, 9 Mbit/s with 40 ms
+latency, cache disabled, median of three loads, signed in as a client, local test backend):
+
+| Route | LCP before | LCP after | CLS before | CLS after | INP sample after | JS transferred before → after |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `/` | 216 ms | 264 ms | 0.005 | 0 | 24 ms | 145 → 156 KB |
+| `/login` | 180 ms | 212 ms | 0.005 | 0 | 16 ms | 150 → 164 KB |
+| `/wakeels` | 176 ms | 788 ms | 0.005 | 0 | 32 ms | 151 → 165 KB |
+| `/dashboard` | 652 ms | 876 ms | 0.005 | 0 | 32 ms | 151 → 162 KB |
+| `/messages` | 660 ms | 848 ms | 0.005 | 0 | 32 ms | 151 → 163 KB |
+| `/cases` | 628 ms | 784 ms | 0.005 | 0 | 32 ms | 153 → 177 KB |
+| `/agreements` | 672 ms | 848 ms | 0.007 | 0.000 | 24 ms | 153 → 182 KB |
+| `/ask` | 724 ms | 816 ms | 0.005 | 0 | 24 ms | 152 → 163 KB |
+
+Read these honestly: every route is well inside the targets (LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1) both
+before and after, and layout shift is now zero. LCP and script size went **up** slightly, not down: the
+screens show considerably more (a real dashboard, tables, the sidebar), and `/wakeels` for a signed-in
+visitor now waits for the session check before painting its chrome so the layout does not jump. These are
+lab numbers against a local backend. They do not include the remote database latency that dominates real
+use, and no field data, Lighthouse run or load test was taken.
+
+Frontend measures kept or added: each screen is a separate on-demand chunk; one cached, deduplicated request
+per resource per user, invalidated by mutations and realtime events instead of polling; the shell uses one
+badge request; search inputs are debounced; no web fonts or images are downloaded; private responses are
+never placed in a shared cache.
+
+The largest remaining gain is operational: run the API in the same region as the database.
 
 ## 6 Database changes
 
@@ -302,7 +352,30 @@ route error boundary. Success messages are shown only after the API confirms.
 
 ## 12 Test results
 
-TEST_SECTION
+Backend (`python -m pytest`): **761 passed, 5 skipped** (the skipped tests need optional external services). New in `tests/test_engagements.py`: hiring → engagement →
+two independent cases → fee counter-offer → payments → completion → case rating → blocked and then completed
+termination → engagement rating → re-hire; multi-party agreement with in-app and emailed invitations,
+revision, approvals, wrong-password and partial signatures through to active; identical responses for unknown
+emails in recovery; private documents and admin-only oversight. The engagement and recovery tests also pass
+on PostgreSQL 16 (11 tests).
+
+Frontend: `tsc --noEmit`, `eslint .` and `next build` pass. Browser journeys (`npm run test:journeys`,
+6 passed) on the production build and the isolated backend:
+
+- password reset in the browser: validation, masked address, wrong code, correct code, mismatch, success,
+  old password rejected, new password accepted;
+- a client sends a hiring request, the Wakeel accepts, the workspace opens, the client accepts the proposed
+  case, the case thread stays out of general chat, an outsider gets 404;
+- every route for guest, client, Wakeel and admin at 1440, 768 and 390 px: no script errors, no load
+  failures, no horizontal overflow;
+- a failed request shows the connection message and recovers with "Try again".
+
+Not covered by automated or manual checks: real SMTP delivery (no credentials were available; the mail
+transport is mocked and the browser test reads the code from the test server); the migration on the live
+Supabase database (rehearsed locally only); most dialogs on the agreements, admin and workspace screens
+(termination, ratings, uploads, announcements, service-agreement actions) were not clicked through in a
+browser, although their API paths are covered by backend tests; dark mode was spot-checked, not swept. The
+earlier Playwright specs targeted the previous markup and were replaced by the journeys above.
 
 ## 13 Setup and migration
 
@@ -328,4 +401,22 @@ tests on a disposable PostgreSQL. Browser journeys: see the frontend README.
 
 ## 14 Remaining limitations
 
-LIMITATIONS_SECTION
+- **Apply the migration and configure SMTP yourself.** Neither the live database nor a real mailbox was
+  reachable from the development environment.
+- **Email addresses are not verified at registration.** An invitation to an address that already has an
+  account can be accepted in the app by that account. Invitations to new addresses require the emailed link.
+- **Electronic signing** records consent and evidence only; see the note in section 8. No external identity
+  or signature provider is integrated.
+- **Agreement discussion** happens through review notes and change requests on the agreement; there is no
+  separate chat thread per agreement.
+- **Re-hiring** creates a new engagement and workspace, but general chat between the same two people
+  continues in their existing conversation, so earlier messages remain visible there.
+- **Payments** are records confirmed by the Wakeel. No payment provider is integrated.
+- **Documents** are stored in the database with a 5 MB limit and no malware scanning.
+- **Password policy** keeps the six-character minimum chosen earlier (configurable) and adds a common-password
+  list; it does not check breached-password databases.
+- **Session identity** is still read from the database on every request; caching it was left out to keep
+  revocation immediate.
+- **Platform settings** in administration are read-only; they are changed through environment variables.
+- **Multi-party wizard** does not auto-save drafts before the draft is created.
+- Load, penetration and accessibility audits were not performed.
