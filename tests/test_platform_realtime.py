@@ -149,7 +149,7 @@ def test_rate_leases_never_exceed_shared_database_limit(platform, monkeypatch):
 
 
 def test_six_character_registration_and_password_change(platform):
-    registration = {"email": "six@example.test", "name": "Six Character", "password": "abc123", "role": "user"}
+    registration = {"email": "six@example.test", "name": "Six Character", "password": "k7mq2x", "role": "user"}
     result = request(platform, "POST", "/auth/register", json=registration)
     assert result.status_code == 201
     token = result.cookies["legalmind_session"]
@@ -163,7 +163,7 @@ def test_six_character_registration_and_password_change(platform):
         == 422
     )
     result = request(
-        platform, "POST", "/auth/password", token, json={"current_password": "abc123", "password": "xyz456"}
+        platform, "POST", "/auth/password", token, json={"current_password": "k7mq2x", "password": "xyz456"}
     )
     assert result.status_code == 200
     assert (

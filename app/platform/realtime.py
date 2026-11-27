@@ -173,6 +173,7 @@ class RealtimeHub:
                                     unread_message.conversation_id == Message.conversation_id,
                                     unread_message.sender_id != uid,
                                     unread_message.read_at.is_(None),
+                                    unread_message.case_id.is_(None),
                                 )
                                 .correlate(Message)
                                 .scalar_subquery()

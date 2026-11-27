@@ -25,6 +25,17 @@ from app.platform.security import (
 from app.platform.mail import enqueue
 
 router = APIRouter(prefix="/auth", tags=["accounts"])
+
+
+def check_new_password(password, user):
+    from app.platform.schemas import password_policy
+
+    try:
+        password_policy(password, user.email, user.email.split("@")[0], user.name)
+    except ValueError as error:
+        raise HTTPException(422, str(error) + ".") from None
+
+
 # Use a real hash to keep the nonexistent-account path equally expensive.
 _DUMMY_HASH = hash_password("unused-login-timing-placeholder")
 
@@ -54,7 +65,13 @@ async def register(body: Register, request: Request, response: Response, db: DB)
                 )
             await db.flush()
     except IntegrityError:
-        raise HTTPException(409, "An account with these registration details already exists.") from None
+        duplicate_email = await db.scalar(select(Account.id).where(Account.email == body.email))
+        raise HTTPException(
+            409,
+            "An account with this email already exists."
+            if duplicate_email
+            else "This bar registration number is already registered.",
+        ) from None
     await new_session(db, user, response)
     audit(db, user, "account_registered", user.id)
     await enqueue(db, user.id, "account", "Welcome to LegalMind", payload={"welcome": True})
@@ -68,7 +85,7 @@ async def login(body: Login, request: Request, response: Response, db: DB):
     user = await db.scalar(select(Account).where(Account.email == body.email))
     correct = await password_matches(body.password, user.password_hash if user else _DUMMY_HASH)
     if not user or not correct or not user.active:
-        raise HTTPException(401, "Email or password is incorrect, or the account is unavailable.")
+        raise HTTPException(401, "Email or password is incorrect.")
     old = request.cookies.get(COOKIE)
     if old:
         await revoke_sessions(db, token=old)
@@ -91,6 +108,9 @@ async def me(user: User, db: DB):
                 "biography",
                 "verification",
                 "verification_reason",
+                "qualifications",
+                "services",
+                "fees",
             )
         }
     return data
@@ -121,6 +141,9 @@ async def profile(body: Profile, user: User, db: DB):
         professional.biography = body.biography
         professional.specialization = body.specialization
         professional.experience = body.experience
+        professional.qualifications = body.qualifications
+        professional.services = body.services
+        professional.fees = body.fees
     from app.platform.events import directory_changed, invalidate
 
     if professional:
@@ -135,6 +158,9 @@ async def password(body: PasswordChange, request: Request, response: Response, u
     await throttle(request, "change_password", user.id, 5)
     if not await password_matches(body.current_password, user.password_hash):
         raise HTTPException(400, "Current password is incorrect.")
+    check_new_password(body.password, user)
+    if body.password == body.current_password:
+        raise HTTPException(422, "Choose a password you have not used before.")
     user.password_hash = await asyncio.to_thread(hash_password, body.password)
     await revoke_sessions(db, user_id=user.id)
     await new_session(db, user, response)
@@ -150,10 +176,10 @@ async def reset(body: ResetPassword, request: Request, db: DB):
     await throttle(request, "reset", request.client.host, 10)
     token = await db.scalar(select(ResetToken).where(ResetToken.token_hash == digest(body.token)))
     if not token or token.expires_at.replace(tzinfo=UTC) <= now():
-        raise HTTPException(400, "This password reset link is invalid or expired.")
+        raise HTTPException(400, "Your password reset session has expired. Please request a new verification code.")
     user = await db.scalar(select(Account).where(Account.id == token.user_id).with_for_update())
     if not user or not user.active:
-        raise HTTPException(400, "This password reset link is invalid or expired.")
+        raise HTTPException(400, "Your password reset session has expired. Please request a new verification code.")
     # Recheck after the account lock: another reset may have consumed the token.
     token = await db.scalar(
         select(ResetToken)
@@ -162,12 +188,26 @@ async def reset(body: ResetPassword, request: Request, db: DB):
         .execution_options(populate_existing=True)
     )
     if not token or token.expires_at.replace(tzinfo=UTC) <= now():
-        raise HTTPException(400, "This password reset link is invalid or expired.")
+        raise HTTPException(400, "Your password reset session has expired. Please request a new verification code.")
+    check_new_password(body.password, user)
+    if await password_matches(body.password, user.password_hash):
+        raise HTTPException(422, "Choose a password different from your current one.")
     user.password_hash = await asyncio.to_thread(hash_password, body.password)
+    # Policy: a reset signs the account out everywhere and voids every pending recovery artefact.
     await revoke_sessions(db, user_id=user.id)
     await db.execute(delete(ResetToken).where(ResetToken.user_id == user.id))
     await db.execute(delete(OtpChallenge).where(OtpChallenge.user_id == user.id))
-    await enqueue(db, user.id, "security", "Your LegalMind password was reset")
+    await enqueue(
+        db,
+        user.id,
+        "security",
+        "Your LegalMind password was changed",
+        "/login",
+        payload={
+            "summary": "Your password was reset using a verification code and all devices were signed out. "
+            "If this was not you, reset your password again immediately and contact support."
+        },
+    )
     audit(db, user, "password_reset", user.id)
     return {"ok": True}
 

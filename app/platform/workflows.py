@@ -89,16 +89,46 @@ async def expire_agreements(database, hub):
             )
         ).all()
         for row in rows:
-            thread = await db.get(Conversation, row.conversation_id)
-            actor = await db.get(Account, thread.wakeel_id)
             before = row.status
+            if row.kind == "multi_party":
+                from app.platform.multiparty import participants, parties_of
+
+                recipients = participants(row, await parties_of(db, row))
+                actor = await db.get(Account, row.creator_id)
+            else:
+                thread = await db.get(Conversation, row.conversation_id)
+                recipients = [thread.user_id, thread.wakeel_id]
+                actor = await db.get(Account, thread.wakeel_id)
             row.status = "EXPIRED"
             row.revision += 1
             event(db, row, actor, "expire", before, "System: the signed agreement end date has passed.")
-            for recipient in (thread.user_id, thread.wakeel_id):
+            for recipient in recipients:
                 await notify(db, recipient, "Agreement expired: " + row.title, f"/agreements/{row.id}")
             cases = (await db.scalars(select(CaseAgreement.case_id).where(CaseAgreement.agreement_id == row.id))).all()
-            invalidate(db, [thread.user_id, thread.wakeel_id], "/cases", *[f"/cases/{cid}" for cid in cases])
+            invalidate(db, recipients, "/cases", *[f"/cases/{cid}" for cid in cases])
+        # Fully signed multi-party agreements take effect on their effective date.
+        waiting = (
+            await db.scalars(
+                select(Agreement).where(Agreement.status == "FULLY_SIGNED").limit(100).with_for_update(skip_locked=True)
+            )
+        ).all()
+        for row in waiting:
+            from app.platform.models import AgreementVersion
+            from app.platform.multiparty import participants, parties_of
+
+            version = await db.scalar(
+                select(AgreementVersion).where(
+                    AgreementVersion.agreement_id == row.id, AgreementVersion.number == row.active_version
+                )
+            )
+            if not version or version.terms.get("effective_date", "9999") > today:
+                continue
+            row.status = "ACTIVE"
+            row.revision += 1
+            actor = await db.get(Account, row.creator_id)
+            event(db, row, actor, "activate", "FULLY_SIGNED", "System: the effective date was reached.")
+            for recipient in participants(row, await parties_of(db, row)):
+                await notify(db, recipient, "Agreement now in effect: " + row.title, f"/agreements/{row.id}")
         events = db.info.get("platform_events", [])
         if events:
             await hub.publish(db, events)

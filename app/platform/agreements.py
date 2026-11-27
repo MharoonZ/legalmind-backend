@@ -4,8 +4,10 @@ import hashlib
 import json
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
-from sqlalchemy import delete, or_, select
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from sqlalchemy import and_, delete, or_, select
 
 from app.platform.common import Offset, agreement, conversation, dump, other_party, verified_wakeel
 from app.platform.models import (
@@ -21,7 +23,7 @@ from app.platform.models import (
     Preparation,
     now,
 )
-from app.platform.schemas import AgreementAction, CreateAgreement
+from app.platform.schemas import AgreementAction, CreateAgreement, Terms, parse
 from app.platform.security import DB, User, audit, notify
 
 router = APIRouter(prefix="/agreements", tags=["service agreements"])
@@ -61,15 +63,36 @@ def event(db, item, user, action, before, reason="", version=None):
     item.updated_at = now()
 
 
+async def kind_of(db, identifier):
+    return await db.scalar(select(Agreement.kind).where(Agreement.id == str(identifier)))
+
+
 @router.get("")
-async def agreements(user: User, db: DB, offset: Offset = 0):
-    query = (
-        select(Agreement)
-        .join(Conversation)
-        .where(or_(Conversation.user_id == user.id, Conversation.wakeel_id == user.id))
+async def agreements(
+    user: User,
+    db: DB,
+    offset: Offset = 0,
+    q: Annotated[str, Query(max_length=120)] = "",
+    status: Annotated[str, Query(max_length=32)] = "",
+    kind: Annotated[str, Query(max_length=16)] = "",
+):
+    from app.platform.multiparty import visible_to
+
+    service = and_(
+        Agreement.kind == "service",
+        or_(Conversation.user_id == user.id, Conversation.wakeel_id == user.id),
+        # Clients never see a Wakeel's private draft.
+        Agreement.status != "DRAFT" if user.role == "user" else True,
     )
-    if user.role == "user":
-        query = query.where(Agreement.status != "DRAFT")
+    query = select(Agreement).outerjoin(Conversation).where(or_(service, visible_to(user)))
+    if q:
+        query = query.where(
+            or_(Agreement.title.icontains(q, autoescape=True), Agreement.reference.icontains(q, autoescape=True))
+        )
+    if status:
+        query = query.where(Agreement.status == status.upper())
+    if kind in {"service", "multi_party"}:
+        query = query.where(Agreement.kind == kind)
     return [
         dump(a) for a in (await db.scalars(query.order_by(Agreement.updated_at.desc()).offset(offset).limit(200))).all()
     ]
@@ -92,8 +115,18 @@ async def create(body: CreateAgreement, user: User, db: DB):
         if preparation.status not in {"PREPARATION_REQUESTED", "ACCEPTED"}:
             raise HTTPException(409, "This request already has an agreement.")
         preparation.status = "DRAFT"
+    from app.platform.models import Relationship
+
+    workspace = await db.scalar(
+        select(Relationship.id).where(Relationship.conversation_id == thread.id, Relationship.status != "ENDED")
+    )
     item = Agreement(
-        conversation_id=thread.id, preparation_id=preparation.id if preparation else None, title=body.terms.title
+        conversation_id=thread.id,
+        preparation_id=preparation.id if preparation else None,
+        title=body.terms.title,
+        creator_id=user.id,
+        relationship_id=workspace,
+        category="Legal service agreement",
     )
     db.add(item)
     await db.flush()
@@ -116,6 +149,10 @@ async def create(body: CreateAgreement, user: User, db: DB):
 
 @router.get("/{identifier}")
 async def detail(identifier: UUID, user: User, db: DB):
+    if await kind_of(db, identifier) == "multi_party":
+        from app.platform import multiparty
+
+        return await multiparty.detail(db, identifier, user)
     item, thread = await agreement(db, identifier, user)
     result = {**dump(item), "user_id": thread.user_id, "wakeel_id": thread.wakeel_id}
     for name, model in (("versions", AgreementVersion), ("events", AgreementEvent), ("acceptances", Acceptance)):
@@ -142,7 +179,15 @@ def ensure(condition, detail="This action is unavailable for the current contrac
 
 
 @router.post("/{identifier}/actions")
-async def act(identifier: UUID, body: AgreementAction, user: User, db: DB):
+async def act(identifier: UUID, body: AgreementAction, request: Request, user: User, db: DB):
+    if await kind_of(db, identifier) == "multi_party":
+        from app.platform import multiparty
+
+        return await multiparty.act(db, identifier, body, user, request)
+    ensure(
+        body.action not in {"approve", "reject", "open_signing", "resend_invitations"},
+        "This action is only available for multi-party agreements.",
+    )
     item, thread = await agreement(db, identifier, user, lock=True)
     ensure(item.revision == body.revision, "The contract changed. Reload it before acting.")
     action, before = body.action, item.status
@@ -198,6 +243,7 @@ async def act(identifier: UUID, body: AgreementAction, user: User, db: DB):
         }
         ensure(before == "ACTIVE" if action == "amend" else before in allowed)
         ensure(body.terms is not None, "Provide the complete revised terms.")
+        revised = parse(Terms, body.terms, "terms")
         # A rejected amendment can leave earlier drafts in history. Never reuse their version number.
         from sqlalchemy import func
 
@@ -205,7 +251,7 @@ async def act(identifier: UUID, body: AgreementAction, user: User, db: DB):
             select(func.max(AgreementVersion.number)).where(AgreementVersion.agreement_id == item.id)
         )
         item.current_version = latest + 1
-        add_version(db, item, user, body.terms)
+        add_version(db, item, user, revised)
         item.status = "AMENDMENT_PENDING" if item.active_version else "SENT"
         if before == "DRAFT":
             item.status = "DRAFT"

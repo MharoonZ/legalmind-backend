@@ -70,9 +70,11 @@ def test_otp_expiry_and_failed_attempts_persist(platform, email_settings, failur
         platform.portal.call(expire)
     else:
         wrong = "000000" if code != "000000" else "111111"
-        for _ in range(5):
-            post(platform, "/auth/verify-otp", None, {**body, "otp": wrong}, 400)
-    post(platform, "/auth/verify-otp", None, body, 400)
+        for attempt in range(5):
+            result = post(platform, "/auth/verify-otp", None, {**body, "otp": wrong}, 400 if attempt < 4 else 429)
+            assert result["code"] == ("otp_incorrect" if attempt < 4 else "otp_locked")
+    result = post(platform, "/auth/verify-otp", None, body, 400 if failure == "expired" else 429)
+    assert result["code"] == ("otp_expired" if failure == "expired" else "otp_locked")
 
 
 def test_otp_resend_cooldown_invalidates_old_code(platform, email_settings):

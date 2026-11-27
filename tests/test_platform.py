@@ -43,12 +43,18 @@ class TestQA:
 @pytest.fixture
 def platform(tmp_path):
     app = create_app()
-    database = TestDatabase("sqlite+aiosqlite:///" + str(tmp_path / "platform.db"))
+    import os
+
+    # Optional: PLATFORM_TEST_DATABASE_URL=postgresql+asyncpg://... runs the same tests on a disposable PostgreSQL.
+    external = os.environ.get("PLATFORM_TEST_DATABASE_URL")
+    database = TestDatabase(external or "sqlite+aiosqlite:///" + str(tmp_path / "platform.db"))
     tables = [t for t in Base.metadata.sorted_tables if t.name.startswith("platform_")]
 
     @asynccontextmanager
     async def lifespan(app):
         async with database.engine.begin() as connection:
+            if external:
+                await connection.run_sync(lambda conn: Base.metadata.drop_all(conn, tables=tables))
             await connection.run_sync(lambda conn: Base.metadata.create_all(conn, tables=tables))
         async with database.session() as db:
             db.add(

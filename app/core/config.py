@@ -24,7 +24,10 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     frontend_url: str = "http://localhost:3000"
     otp_secret: str = Field(default="", repr=False, exclude=True)
-    otp_expiry_minutes: int = Field(default=5, ge=5, le=5)
+    otp_expiry_minutes: int = Field(default=5, ge=5, le=10)
+    otp_max_attempts: int = Field(default=5, ge=3, le=10)
+    otp_resend_seconds: int = Field(default=60, ge=30, le=300)
+    password_min_length: int = Field(default=6, ge=6, le=64)
     otp_length: int = Field(default=6, ge=6, le=6)
     email_notifications_enabled: bool = True
 

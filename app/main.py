@@ -111,6 +111,45 @@ def create_app() -> FastAPI:
         app.include_router(legal_inspection.router)
         app.include_router(publications.router)
 
+    # Database failures never reach the client as stack traces or SQL text.
+    from sqlalchemy.exc import DBAPIError, IntegrityError
+
+    def log_failure(request: Request, exc: Exception) -> None:
+        route = request.scope.get("route")
+        logger.error(
+            "request_failed method=%s route=%s error=%s",
+            request.method,
+            getattr(route, "path", "unknown"),
+            type(exc).__name__,
+            exc_info=settings.debug,
+        )
+
+    @app.exception_handler(IntegrityError)
+    async def conflict(request: Request, exc: IntegrityError) -> JSONResponse:
+        # The request transaction has already been rolled back by the session dependency.
+        log_failure(request, exc)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "This change conflicts with an existing record. Reload and try again.", "code": "conflict"},
+        )
+
+    @app.exception_handler(DBAPIError)
+    async def database_unavailable(request: Request, exc: DBAPIError) -> JSONResponse:
+        log_failure(request, exc)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "The service is temporarily unavailable. Please try again shortly.", "code": "unavailable"},
+            headers={"Retry-After": "5"},
+        )
+
+    @app.exception_handler(TimeoutError)
+    async def timed_out(request: Request, exc: TimeoutError) -> JSONResponse:
+        log_failure(request, exc)
+        return JSONResponse(
+            status_code=504,
+            content={"detail": "The request took too long. Please try again.", "code": "timeout"},
+        )
+
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
         route = request.scope.get("route")

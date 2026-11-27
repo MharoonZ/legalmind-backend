@@ -18,7 +18,7 @@ from app.platform.models import (
     WakeelProfile,
     now,
 )
-from app.platform.schemas import AdminAction, ReportIn, ReviewIn
+from app.platform.schemas import AdminAction, Announcement, ReportIn, ReviewIn
 from app.platform.security import DB, User, audit, notify, require_role, revoke_sessions
 
 from app.platform.events import directory_changed, invalidate
@@ -58,24 +58,28 @@ async def read(identifier: UUID, user: User, db: DB):
     if not item or item.user_id != user.id:
         raise HTTPException(404, "Notification not found.")
     item.read_at = now()
-    invalidate(db, [user.id], "/notifications")
+    invalidate(db, [user.id], "/notifications", "/dashboard")
+    return {"ok": True}
+
+
+@router.post("/notifications/read-all")
+async def read_all(user: User, db: DB):
+    from sqlalchemy import update
+
+    await db.execute(
+        update(Notification)
+        .where(Notification.user_id == user.id, Notification.read_at.is_(None))
+        .values(read_at=now())
+    )
+    invalidate(db, [user.id], "/notifications", "/dashboard")
     return {"ok": True}
 
 
 @router.get("/reviews")
-async def reviews(user: User, db: DB, offset: Offset = 0):
-    return [
-        dump(r)
-        for r in (
-            await db.scalars(
-                select(Review)
-                .where(Review.subject_id == user.id)
-                .order_by(Review.created_at.desc())
-                .offset(offset)
-                .limit(200)
-            )
-        ).all()
-    ]
+async def reviews(user: User, db: DB):
+    from app.platform.marketplace import public_reviews
+
+    return await public_reviews(db, user.id, 200)
 
 
 @router.post("/reviews", status_code=201)
@@ -128,7 +132,9 @@ async def overview(user: User, db: DB, offset: Offset = 0):
         )
     ).all()
     logs = (await db.scalars(select(Audit).order_by(Audit.created_at.desc()).offset(offset).limit(200))).all()
-    count_models = (Account, Chat, Conversation, Agreement, Report)
+    from app.platform.models import Case, HiringRequest, Relationship
+
+    count_models = (Account, Chat, Conversation, Agreement, Report, Case, HiringRequest, Relationship)
     counts = dict(
         (
             await db.execute(
@@ -151,6 +157,77 @@ async def overview(user: User, db: DB, offset: Offset = 0):
         "audit": [dump(a) for a in logs],
         "counts": counts,
     }
+
+
+RECORDS = {
+    "hiring": (
+        "platform_hiring_requests",
+        ("id", "user_id", "wakeel_id", "category", "status", "created_at", "updated_at"),
+    ),
+    "relationships": ("platform_relationships", ("id", "user_id", "wakeel_id", "status", "created_at", "ended_at")),
+    "cases": (
+        "platform_cases",
+        ("id", "user_id", "wakeel_id", "title", "category", "status", "payment_status", "created_at"),
+    ),
+    "agreements": (
+        "platform_agreements",
+        ("id", "creator_id", "title", "kind", "category", "status", "created_at", "updated_at"),
+    ),
+}
+
+
+@router.get("/admin/records")
+async def records(kind: str, user: User, db: DB, offset: Offset = 0):
+    """Oversight metadata only. Descriptions, messages, terms and documents stay private to participants."""
+    from app.platform import models
+
+    require_role(user, "admin")
+    if kind not in RECORDS:
+        raise HTTPException(404, "Unknown record type.")
+    table, columns = RECORDS[kind]
+    model = next(m.class_ for m in models.Base.registry.mappers if m.class_.__tablename__ == table)
+    rows = (await db.scalars(select(model).order_by(model.created_at.desc()).offset(offset).limit(100))).all()
+    ids = {getattr(r, c) for r in rows for c in ("user_id", "wakeel_id", "creator_id") if getattr(r, c, None)}
+    people = dict((await db.execute(select(Account.id, Account.name).where(Account.id.in_(ids or [""])))).all())
+    audit(db, user, "admin_records_viewed", None, kind)
+    return {
+        "rows": [{c: getattr(r, c) for c in columns} for r in rows],
+        "people": people,
+        "has_more": len(rows) == 100,
+    }
+
+
+@router.get("/admin/settings")
+async def platform_settings(user: User):
+    """Read-only operational status. Secrets are never returned."""
+    from app.core.config import get_settings
+    from app.platform.mail import configured
+
+    require_role(user, "admin")
+    settings = get_settings()
+    return {
+        "environment": settings.environment,
+        "email_delivery_configured": configured(settings),
+        "password_recovery_available": configured(settings) and len(settings.otp_secret) >= 32,
+        "email_notifications_enabled": settings.email_notifications_enabled,
+        "otp_expiry_minutes": settings.otp_expiry_minutes,
+        "otp_max_attempts": settings.otp_max_attempts,
+        "password_min_length": settings.password_min_length,
+        "max_document_mb": 5,
+    }
+
+
+@router.post("/admin/announcements", status_code=201)
+async def announce(body: Announcement, user: User, db: DB):
+    require_role(user, "admin")
+    query = select(Account.id).where(Account.active.is_(True), Account.role != "admin")
+    if body.audience != "all":
+        query = query.where(Account.role == body.audience)
+    recipients = (await db.scalars(query.limit(5000))).all()
+    db.add_all([Notification(user_id=uid, title=body.title, href="/notifications") for uid in recipients])
+    invalidate(db, list(recipients), "/notifications", "/dashboard")
+    audit(db, user, "admin_announcement", None, f"{body.audience}: {body.title}")
+    return {"sent": len(recipients)}
 
 
 @router.get("/admin/reports/{identifier}")

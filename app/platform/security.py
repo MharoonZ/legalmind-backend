@@ -57,6 +57,10 @@ async def transaction(request: Request, db=Depends(get_database)):
                 await hub.publish(session, events)
         if hub and events:
             await hub.after_commit(events)
+        # Deliver queued email promptly instead of waiting for the next poll.
+        worker = getattr(request.app.state, "mail_worker", None)
+        if worker and session.info.get("mail_queued"):
+            worker.wake.set()
 
 
 DB = Annotated[AsyncSession, Depends(transaction, scope="function")]
@@ -205,6 +209,7 @@ async def notify(db, recipient, title, href):
     from app.platform.mail import enqueue
 
     category = area if area in {"messages", "agreements", "cases"} else "account"
+    invalidate(db, [recipient], "/dashboard")
     await enqueue(db, recipient, category, title, href, batch=href if area == "messages" else None)
 
 

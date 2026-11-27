@@ -16,10 +16,21 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from sqlalchemy import or_, select
 
 from app.core.config import get_settings
-from app.platform.models import Account, Agreement, Case, Conversation, MailOutbox, OtpChallenge, now
+from types import SimpleNamespace
+
+from app.platform.models import (
+    Account,
+    Agreement,
+    AgreementParty,
+    Case,
+    Conversation,
+    MailOutbox,
+    OtpChallenge,
+    now,
+)
 
 logger = logging.getLogger(__name__)
-SECURITY = {"otp", "security"}
+SECURITY = {"otp", "security", "invite"}
 
 
 def configured(settings):
@@ -37,14 +48,18 @@ def otp_digest(identifier, code, settings=None):
     return hmac.new(settings.otp_secret.encode(), f"verify|{identifier}|{code}".encode(), hashlib.sha256).hexdigest()
 
 
-async def enqueue(db, user_id, category, title, href="/dashboard", *, payload=None, batch=None):
+async def enqueue(db, user_id, category, title, href="/dashboard", *, payload=None, batch=None, email=None):
+    """Queue one email in the caller's transaction. `email` addresses a person without an account."""
     settings = get_settings()
-    user = await db.get(Account, user_id)
-    if not user or not user.active:
-        return
-    if category not in SECURITY and (
-        not settings.email_notifications_enabled or not (user.email_preferences or {}).get(category, True)
-    ):
+    if user_id:
+        user = await db.get(Account, user_id)
+        if not user or not user.active:
+            return
+        if category not in SECURITY and (
+            not settings.email_notifications_enabled or not (user.email_preferences or {}).get(category, True)
+        ):
+            return
+    elif not email:
         return
     identifier = (
         str(uuid5(NAMESPACE_URL, f"legalmind|{user_id}|{batch}|{int(time.time() // 300)}")) if batch else str(uuid4())
@@ -52,6 +67,7 @@ async def enqueue(db, user_id, category, title, href="/dashboard", *, payload=No
     values = dict(
         id=identifier,
         user_id=user_id,
+        email=email,
         category=category,
         payload={"title": title[:180], "href": href, **(payload or {})},
         status="pending",
@@ -65,45 +81,108 @@ async def enqueue(db, user_id, category, title, href="/dashboard", *, payload=No
     else:
         from sqlalchemy.dialects.sqlite import insert
     await db.execute(insert(MailOutbox).values(**values).on_conflict_do_nothing(index_elements=["id"]))
+    db.info["mail_queued"] = True
 
 
-def render_message(user, row, settings, code=None):
+BRAND = "#1f3a5f"
+
+
+def layout(heading, blocks, button, url, footer, preheader=""):
+    """Single-column, table-based layout that renders in common mail clients and on phones."""
+    body = "".join(blocks)
+    action = (
+        f'''<table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 4px"><tr>
+        <td style="background:{BRAND};border-radius:6px"><a href="{escape(url, quote=True)}"
+        style="display:inline-block;padding:12px 22px;color:#ffffff;font-weight:600;font-size:15px;text-decoration:none">{escape(button)}</a></td>
+        </tr></table>'''
+        if button
+        else ""
+    )
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(heading)}</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1c2430">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0">{escape(preheader)}</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e3e6ea;border-radius:10px">
+<tr><td style="padding:22px 28px;border-bottom:1px solid #e3e6ea;font-size:17px;font-weight:700;letter-spacing:.2px;color:{BRAND}">LegalMind</td></tr>
+<tr><td style="padding:28px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.35;color:#111827">{escape(heading)}</h1>
+{body}{action}
+</td></tr>
+<tr><td style="padding:18px 28px;border-top:1px solid #e3e6ea;font-size:12px;line-height:1.6;color:#6b7280">{escape(footer)}<br>
+This is an automated message from LegalMind. Please do not reply to this email.</td></tr>
+</table></td></tr></table></body></html>"""
+
+
+def paragraph(text):
+    return f'<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#374151">{escape(text)}</p>'
+
+
+def render_message(user, row, settings, code=None, recipient=None):
     payload = row.payload
     title = payload["title"]
     href = payload.get("href", "/dashboard")
     if not href.startswith("/") or href.startswith("//") or "\\" in href:
         href = "/dashboard"
     url = settings.frontend_url.rstrip("/") + href
-    lines = [f"Hello {user.name},"]
+    name = user.name if user else payload.get("name", "")
+    greeting = f"Hello {name}," if name else "Hello,"
+    button = "Open LegalMind"
+    lines = []
+    extra = ""
     if row.category == "otp":
-        lines += [
-            f"Your LegalMind password reset code is {code}.",
-            "It expires five minutes after your request. Do not share this code. If you did not request it, ignore this email.",
+        minutes = settings.otp_expiry_minutes
+        lines = [
+            "Use this verification code to reset your LegalMind password.",
+            f"The code expires in {minutes} minutes and can be used once. Never share it with anyone; "
+            "LegalMind staff will never ask for it.",
+            "If you did not request a password reset, you can ignore this email. Your password stays unchanged.",
         ]
+        extra = (
+            f'<p style="margin:6px 0 20px;padding:16px;background:#f3f6fa;border:1px solid #dbe3ec;border-radius:8px;'
+            f"font-size:30px;font-weight:700;letter-spacing:8px;text-align:center;color:#111827;"
+            f'font-family:SFMono-Regular,Consolas,Menlo,monospace">{escape(code or "")}</p>'
+        )
+        button = ""
+    elif row.category == "invite":
+        token = payload.get("token")
+        url = settings.frontend_url.rstrip("/") + (
+            "/agreements/invite#token=" + token if token else "/agreements/invitations"
+        )
+        lines = [
+            f"{payload.get('inviter', 'A LegalMind member')} has invited you to take part in an agreement "
+            f"as {payload.get('role', 'a party')}.",
+            "For confidentiality, the agreement is only shown after you sign in to LegalMind with this email "
+            "address and accept the invitation. If you do not have an account yet, you can create one first.",
+        ]
+        button = "Review invitation"
     elif payload.get("welcome"):
-        lines += [
-            f"Welcome to LegalMind. Your {user.role} account is ready.",
-            "Explore AI legal assistance, manage agreements and cases, and communicate securely with verified Wakeels.",
+        lines = [
+            f"Welcome to LegalMind. Your {'Wakeel' if user.role == 'wakeel' else 'client'} account is ready.",
+            "Ask legal questions with cited sources, work with verified Wakeels, and manage cases and agreements in one place.",
         ]
     else:
-        lines += [title, payload.get("summary", "Open LegalMind to view the latest activity and details securely.")]
-    text = "\n\n".join(lines) + "\n\n" + url
-    paragraphs = "".join(f'<p style="line-height:1.6">{escape(line)}</p>' for line in lines)
+        lines = [
+            payload.get(
+                "summary", "There is new activity on your LegalMind account. Sign in to view the details securely."
+            )
+        ]
+    plain = [greeting, *([f"Verification code: {code}"] if code else []), *lines]
+    text = "\n\n".join(plain) + ("\n\n" + url if button else "")
     footer = (
-        "Security messages cannot be disabled."
+        "Security messages cannot be turned off."
         if row.category in SECURITY
-        else "Manage email preferences in your LegalMind profile."
+        else "You can manage email notifications in your LegalMind settings."
     )
-    html = f"""<!doctype html><html><body style="margin:0;background:#f2f5f3;color:#16382e;font-family:Arial,sans-serif">
-    <div style="max-width:560px;margin:24px auto;background:white;padding:28px;border-radius:16px">
-    <h1 style="font-size:25px">LegalMind</h1>{paragraphs}
-    <a href="{escape(url, quote=True)}" style="display:inline-block;background:#164f3d;color:white;padding:13px 22px;border-radius:8px">Open LegalMind</a>
-    <p style="font-size:12px;color:#576b63;margin-top:28px">{footer}</p></div></body></html>"""
+    html = layout(
+        title, [paragraph(greeting), extra, *[paragraph(line) for line in lines]], button, url, footer, lines[0]
+    )
     message = EmailMessage()
     message["Subject"] = title.replace("\r", "").replace("\n", "")
     message["From"] = formataddr((settings.smtp_from_name, settings.smtp_from_email))
-    message["To"] = user.email
+    message["To"] = recipient or user.email
     message["Message-ID"] = f"<{row.id}@legalmind.notifications>"
+    message["Auto-Submitted"] = "auto-generated"
     message.set_content(text)
     message.add_alternative(html, subtype="html")
     return message
@@ -178,9 +257,9 @@ class MailWorker:
             )
             if not row:
                 return False
-            user = await db.get(Account, row.user_id)
+            user = await db.get(Account, row.user_id) if row.user_id else None
             code = None
-            allowed = (
+            allowed = bool(row.email) or (
                 user
                 and user.active
                 and (
@@ -202,11 +281,28 @@ class MailWorker:
                     resource = await db.get(Conversation, parts[1])
                 else:
                     agreement = await db.get(Agreement, parts[1])
-                    if agreement:
+                    if agreement and agreement.kind == "multi_party":
+                        party = await db.scalar(
+                            select(AgreementParty.id).where(
+                                AgreementParty.agreement_id == agreement.id,
+                                AgreementParty.account_id == user.id,
+                                AgreementParty.invite_status == "ACCEPTED",
+                            )
+                        )
+                        resource = (
+                            SimpleNamespace(user_id=user.id, wakeel_id=None)
+                            if (party or agreement.creator_id == user.id)
+                            else None
+                        )
+                    elif agreement:
                         resource = await db.get(Conversation, agreement.conversation_id)
                         if agreement.status == "DRAFT" and resource and user.id != resource.wakeel_id:
                             resource = None
                 allowed = resource and user.id in {resource.user_id, resource.wakeel_id}
+            if row.category == "invite":
+                # An invitation that was answered or withdrawn is no longer delivered.
+                party = await db.get(AgreementParty, row.payload.get("party_id", ""))
+                allowed = bool(party and party.invite_status == "PENDING" and party.invite_token_hash)
             if row.category == "otp":
                 challenge = await db.get(OtpChallenge, row.payload.get("challenge_id"))
                 allowed = (
@@ -221,7 +317,7 @@ class MailWorker:
             row.status, row.claimed_at = "sending", now()
             row.attempts += 1
             attempt, identifier = row.attempts, row.id
-            message = render_message(user, row, self.settings, code)
+            message = render_message(user, row, self.settings, code, recipient=row.email)
         failed = False
         try:
             await asyncio.to_thread(deliver, message, self.settings)

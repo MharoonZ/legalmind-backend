@@ -1,6 +1,18 @@
 from fastapi import APIRouter, Depends, Request
 
-from app.platform import admin, agreements, auth, cases, chats, marketplace, recovery, workflows
+from app.platform import (
+    admin,
+    agreements,
+    auth,
+    cases,
+    chats,
+    dashboard,
+    hiring,
+    marketplace,
+    multiparty,
+    recovery,
+    workflows,
+)
 from app.platform.security import COOKIE, DB, csrf, load_identity, throttle
 from app.platform.realtime import http_router
 
@@ -19,7 +31,8 @@ async def platform_limit(request: Request, db: DB):
 
 
 router = APIRouter(prefix="/platform", dependencies=[Depends(csrf), Depends(platform_limit)])
-for child in (auth, chats, marketplace, agreements, cases, admin):
+# multiparty before agreements: /agreements/multi-party must not match /agreements/{identifier}.
+for child in (auth, chats, marketplace, multiparty, agreements, cases, admin, hiring, dashboard):
     router.include_router(child.router)
 router.include_router(http_router)
 router.include_router(recovery.router)

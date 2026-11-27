@@ -5,12 +5,26 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.platform.common import Offset, conversation, dump, other_party
-from app.platform.models import Account, Conversation, Message, Preparation, Review, WakeelProfile, now
+from app.platform.models import Account, Conversation, Message, Preparation, Rating, Review, WakeelProfile, now
 from app.platform.schemas import PreparationAction, PreparationIn, SendMessage, StartConversation
 from app.platform.security import DB, User, audit, notify, require_role
 from app.platform.events import queue_event
 
 router = APIRouter(tags=["Wakeel discovery and messaging"])
+
+
+def all_ratings():
+    """Average of agreement reviews, case ratings and engagement ratings per Wakeel."""
+    scores = (
+        select(Review.subject_id.label("subject_id"), Review.rating.label("score"))
+        .union_all(select(Rating.subject_id, Rating.overall))
+        .subquery()
+    )
+    return (
+        select(scores.c.subject_id, func.avg(scores.c.score).label("rating"), func.count().label("reviews"))
+        .group_by(scores.c.subject_id)
+        .subquery()
+    )
 
 
 @router.get("/wakeels")
@@ -23,11 +37,7 @@ async def wakeels(
     offset: Offset = 0,
 ):
     async def load():
-        ratings = (
-            select(Review.subject_id, func.avg(Review.rating).label("rating"), func.count(Review.id).label("reviews"))
-            .group_by(Review.subject_id)
-            .subquery()
-        )
+        ratings = all_ratings()
         query = (
             select(Account, WakeelProfile, ratings.c.rating, ratings.c.reviews)
             .join(WakeelProfile, Account.id == WakeelProfile.user_id)
@@ -70,25 +80,60 @@ async def wakeel(identifier: UUID, db: DB):
     if not rows:
         raise HTTPException(404, "Wakeel not found.")
     user, profile = rows
-    reviews = (
-        await db.scalars(
-            select(Review).where(Review.subject_id == user.id).order_by(Review.created_at.desc()).limit(100)
-        )
-    ).all()
+    ratings = all_ratings()
+    average = (
+        await db.execute(select(ratings.c.rating, ratings.c.reviews).where(ratings.c.subject_id == user.id))
+    ).first()
     return {
         "id": user.id,
         "name": user.name,
         "city": user.city,
         **dump(profile),
-        "reviews": [dump(r, ("author_id",)) for r in reviews],
+        "rating": float(average[0]) if average and average[0] else None,
+        "review_count": average[1] if average else 0,
+        "reviews": await public_reviews(db, user.id),
     }
+
+
+async def public_reviews(db, subject_id, limit=100):
+    """Published feedback without author identities."""
+    reviews = (
+        await db.scalars(
+            select(Review).where(Review.subject_id == subject_id).order_by(Review.created_at.desc()).limit(limit)
+        )
+    ).all()
+    ratings = (
+        await db.scalars(
+            select(Rating).where(Rating.subject_id == subject_id).order_by(Rating.created_at.desc()).limit(limit)
+        )
+    ).all()
+    rows = [
+        {"id": r.id, "rating": r.rating, "body": r.body, "created_at": r.created_at, "kind": "agreement", "scores": {}}
+        for r in reviews
+    ] + [
+        {
+            "id": r.id,
+            "rating": r.overall,
+            "body": r.body,
+            "created_at": r.created_at,
+            "kind": "case" if r.case_id else "engagement",
+            "scores": r.scores,
+        }
+        for r in ratings
+    ]
+    return sorted(rows, key=lambda row: row["created_at"], reverse=True)[:limit]
 
 
 @router.get("/conversations")
 async def conversations(user: User, db: DB, offset: Offset = 0):
     unread = (
         select(func.count(Message.id))
-        .where(Message.conversation_id == Conversation.id, Message.sender_id != user.id, Message.read_at.is_(None))
+        .where(
+            Message.conversation_id == Conversation.id,
+            Message.sender_id != user.id,
+            Message.read_at.is_(None),
+            Message.case_id.is_(None),
+        )
         .correlate(Conversation)
         .scalar_subquery()
     )
@@ -103,7 +148,28 @@ async def conversations(user: User, db: DB, offset: Offset = 0):
             .limit(200)
         )
     ).all()
-    return [{**dump(item), "peer_name": name, "unread": count} for item, name, count in rows]
+    ids = [item.id for item, _, _ in rows]
+    latest = (
+        select(Message.conversation_id, func.max(Message.created_at).label("at"))
+        .where(Message.conversation_id.in_(ids or [""]), Message.case_id.is_(None))
+        .group_by(Message.conversation_id)
+        .subquery()
+    )
+    previews = dict(
+        (
+            await db.execute(
+                select(Message.conversation_id, Message.body)
+                .join(
+                    latest, and_(latest.c.conversation_id == Message.conversation_id, latest.c.at == Message.created_at)
+                )
+                .where(Message.case_id.is_(None))
+            )
+        ).all()
+    )
+    return [
+        {**dump(item), "peer_name": name, "unread": count, "preview": (previews.get(item.id) or "")[:120]}
+        for item, name, count in rows
+    ]
 
 
 @router.post("/conversations", status_code=201)
@@ -130,7 +196,7 @@ async def start(body: StartConversation, user: User, db: DB):
 @router.get("/conversations/{identifier}")
 async def messages(identifier: UUID, user: User, db: DB, before: UUID | None = None):
     item = await conversation(db, identifier, user)
-    query = select(Message).where(Message.conversation_id == item.id)
+    query = select(Message).where(Message.conversation_id == item.id, Message.case_id.is_(None))
     if before:
         cursor = await db.get(Message, str(before))
         if not cursor or cursor.conversation_id != item.id:
@@ -142,8 +208,18 @@ async def messages(identifier: UUID, user: User, db: DB, before: UUID | None = N
             )
         )
     rows = (await db.scalars(query.order_by(Message.created_at.desc(), Message.id.desc()).limit(100))).all()
+    from app.platform.models import Relationship
+
     peer = await db.get(Account, other_party(item, user))
-    return {**dump(item), "peer_name": peer.name, "messages": [dump(m) for m in reversed(rows)]}
+    workspace = await db.scalar(
+        select(Relationship.id).where(Relationship.conversation_id == item.id, Relationship.status != "ENDED").limit(1)
+    )
+    return {
+        **dump(item),
+        "peer_name": peer.name,
+        "relationship_id": workspace,
+        "messages": [dump(m) for m in reversed(rows)],
+    }
 
 
 @router.post("/conversations/{identifier}/read")
