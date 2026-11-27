@@ -16,6 +16,12 @@ os.environ.update(
     OPENAI_API_KEY="",
     ENVIRONMENT="development",
     RATE_LIMIT_PER_MINUTE="0",
+    # Recovery is enabled, but no mail worker runs here: nothing is ever sent.
+    SMTP_USER="browser-test@example.test",
+    SMTP_PASSWORD="browser-test-only",
+    SMTP_FROM_EMAIL="browser-test@example.test",
+    OTP_SECRET="browser-test-only-otp-secret-0123456789abcdef",
+    OTP_RESEND_SECONDS="30",
 )
 
 from app.core.config import Settings, get_settings  # noqa: E402
@@ -125,3 +131,31 @@ async def lifespan(app):
 
 
 app.router.lifespan_context = lifespan
+
+
+# Browser tests read what a real inbox would have received. These routes exist
+# only in this isolated test server, never in the application.
+@app.get("/__test__/otp")
+async def test_otp(email: str):
+    from sqlalchemy import select
+
+    from app.platform.mail import otp_value
+    from app.platform.models import OtpChallenge
+
+    async with app.state.db.session() as db:
+        account = await db.scalar(select(Account).where(Account.email == email))
+        challenge = await db.scalar(select(OtpChallenge).where(OtpChallenge.user_id == account.id)) if account else None
+        return {"otp": otp_value(challenge.id, account.id) if challenge else None}
+
+
+@app.get("/__test__/invitation")
+async def test_invitation(email: str):
+    from sqlalchemy import select
+
+    from app.platform.models import MailOutbox
+
+    async with app.state.db.session() as db:
+        row = await db.scalar(
+            select(MailOutbox).where(MailOutbox.email == email).order_by(MailOutbox.created_at.desc()).limit(1)
+        )
+        return {"token": row.payload.get("token") if row else None}
