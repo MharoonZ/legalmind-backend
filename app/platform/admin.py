@@ -44,12 +44,35 @@ async def notifications(user: User, db: DB, offset: Offset = 0):
 
 @router.get("/notifications/count")
 async def notification_count(user: User, db: DB):
-    count = await db.scalar(
-        select(func.count())
-        .select_from(Notification)
-        .where(Notification.user_id == user.id, Notification.read_at.is_(None))
-    )
-    return {"unread": count}
+    """Navigation badges in one round trip: notifications, general-chat messages, open hiring requests."""
+    from sqlalchemy import or_
+
+    from app.platform.models import HiringRequest, Message
+
+    def total(source, *conditions):
+        return select(func.count()).select_from(source).where(*conditions).scalar_subquery()
+
+    threads = select(Conversation.id).where(or_(Conversation.user_id == user.id, Conversation.wakeel_id == user.id))
+    row = (
+        await db.execute(
+            select(
+                total(Notification, Notification.user_id == user.id, Notification.read_at.is_(None)),
+                total(
+                    Message,
+                    Message.conversation_id.in_(threads),
+                    Message.sender_id != user.id,
+                    Message.read_at.is_(None),
+                    Message.case_id.is_(None),
+                ),
+                total(
+                    HiringRequest,
+                    or_(HiringRequest.user_id == user.id, HiringRequest.wakeel_id == user.id),
+                    HiringRequest.status.in_(["PENDING", "UNDER_DISCUSSION"]),
+                ),
+            )
+        )
+    ).one()
+    return {"unread": row[0], "messages": row[1], "hiring": row[2]}
 
 
 @router.post("/notifications/{identifier}/read")

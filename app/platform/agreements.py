@@ -63,8 +63,14 @@ def event(db, item, user, action, before, reason="", version=None):
     item.updated_at = now()
 
 
-async def kind_of(db, identifier):
-    return await db.scalar(select(Agreement.kind).where(Agreement.id == str(identifier)))
+async def service_or_multiparty(db, identifier, user, lock=False):
+    """Load a service agreement; (None, None) means the id may be a multi-party agreement."""
+    try:
+        return await agreement(db, identifier, user, lock=lock)
+    except HTTPException:
+        if await db.scalar(select(Agreement.kind).where(Agreement.id == str(identifier))) == "multi_party":
+            return None, None
+        raise
 
 
 @router.get("")
@@ -149,11 +155,11 @@ async def create(body: CreateAgreement, user: User, db: DB):
 
 @router.get("/{identifier}")
 async def detail(identifier: UUID, user: User, db: DB):
-    if await kind_of(db, identifier) == "multi_party":
+    item, thread = await service_or_multiparty(db, identifier, user)
+    if item is None:
         from app.platform import multiparty
 
         return await multiparty.detail(db, identifier, user)
-    item, thread = await agreement(db, identifier, user)
     result = {**dump(item), "user_id": thread.user_id, "wakeel_id": thread.wakeel_id}
     for name, model in (("versions", AgreementVersion), ("events", AgreementEvent), ("acceptances", Acceptance)):
         result[name] = [
@@ -180,7 +186,8 @@ def ensure(condition, detail="This action is unavailable for the current contrac
 
 @router.post("/{identifier}/actions")
 async def act(identifier: UUID, body: AgreementAction, request: Request, user: User, db: DB):
-    if await kind_of(db, identifier) == "multi_party":
+    item, thread = await service_or_multiparty(db, identifier, user, lock=True)
+    if item is None:
         from app.platform import multiparty
 
         return await multiparty.act(db, identifier, body, user, request)
@@ -188,7 +195,6 @@ async def act(identifier: UUID, body: AgreementAction, request: Request, user: U
         body.action not in {"approve", "reject", "open_signing", "resend_invitations"},
         "This action is only available for multi-party agreements.",
     )
-    item, thread = await agreement(db, identifier, user, lock=True)
     ensure(item.revision == body.revision, "The contract changed. Reload it before acting.")
     action, before = body.action, item.status
     before_version = item.current_version

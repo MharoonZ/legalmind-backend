@@ -132,34 +132,26 @@ async def dashboard(user: User, db: DB):
         )
     ).all()
     peer_id = sql_case((Conversation.user_id == user.id, Conversation.wakeel_id), else_=Conversation.user_id)
+    newest = (
+        select(Message.id)
+        .where(Message.conversation_id == Conversation.id, Message.case_id.is_(None))
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
     threads = (
         await db.execute(
-            select(Conversation.id, Conversation.updated_at, Account.name)
+            select(
+                Conversation.id, Conversation.updated_at, Account.name, Message.body, Message.sender_id, Message.read_at
+            )
             .join(Account, Account.id == peer_id)
+            .join(Message, Message.id == newest)
             .where(mine(Conversation, user))
             .order_by(Conversation.updated_at.desc())
             .limit(5)
         )
     ).all()
-    previews = {}
-    if threads:
-        latest = (
-            select(Message.conversation_id, func.max(Message.created_at).label("at"))
-            .where(Message.conversation_id.in_([t.id for t in threads]), Message.case_id.is_(None))
-            .group_by(Message.conversation_id)
-            .subquery()
-        )
-        previews = {
-            cid: (body, sender, read)
-            for cid, body, sender, read in (
-                await db.execute(
-                    select(Message.conversation_id, Message.body, Message.sender_id, Message.read_at).join(
-                        latest,
-                        and_(latest.c.conversation_id == Message.conversation_id, latest.c.at == Message.created_at),
-                    )
-                )
-            ).all()
-        }
     activity = (
         await db.scalars(
             select(Notification)
@@ -184,11 +176,10 @@ async def dashboard(user: User, db: DB):
                 "conversation_id": t.id,
                 "peer_name": t.name,
                 "updated_at": t.updated_at,
-                "preview": (previews[t.id][0] or "")[:120],
-                "unread": previews[t.id][1] != user.id and previews[t.id][2] is None,
+                "preview": (t.body or "")[:120],
+                "unread": t.sender_id != user.id and t.read_at is None,
             }
             for t in threads
-            if t.id in previews
         ],
         "activity": [dump(n) for n in activity],
         "attention": [

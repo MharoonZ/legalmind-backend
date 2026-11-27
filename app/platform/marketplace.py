@@ -138,9 +138,17 @@ async def conversations(user: User, db: DB, offset: Offset = 0):
         .scalar_subquery()
     )
     peer_id = case((Conversation.user_id == user.id, Conversation.wakeel_id), else_=Conversation.user_id)
+    preview = (
+        select(Message.body)
+        .where(Message.conversation_id == Conversation.id, Message.case_id.is_(None))
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
     rows = (
         await db.execute(
-            select(Conversation, Account.name, unread)
+            select(Conversation, Account.name, unread, preview)
             .join(Account, Account.id == peer_id)
             .where(or_(Conversation.user_id == user.id, Conversation.wakeel_id == user.id))
             .order_by(Conversation.updated_at.desc(), Conversation.id)
@@ -148,27 +156,9 @@ async def conversations(user: User, db: DB, offset: Offset = 0):
             .limit(200)
         )
     ).all()
-    ids = [item.id for item, _, _ in rows]
-    latest = (
-        select(Message.conversation_id, func.max(Message.created_at).label("at"))
-        .where(Message.conversation_id.in_(ids or [""]), Message.case_id.is_(None))
-        .group_by(Message.conversation_id)
-        .subquery()
-    )
-    previews = dict(
-        (
-            await db.execute(
-                select(Message.conversation_id, Message.body)
-                .join(
-                    latest, and_(latest.c.conversation_id == Message.conversation_id, latest.c.at == Message.created_at)
-                )
-                .where(Message.case_id.is_(None))
-            )
-        ).all()
-    )
     return [
-        {**dump(item), "peer_name": name, "unread": count, "preview": (previews.get(item.id) or "")[:120]}
-        for item, name, count in rows
+        {**dump(item), "peer_name": name, "unread": count, "preview": (last or "")[:120]}
+        for item, name, count, last in rows
     ]
 
 
@@ -210,14 +200,19 @@ async def messages(identifier: UUID, user: User, db: DB, before: UUID | None = N
     rows = (await db.scalars(query.order_by(Message.created_at.desc(), Message.id.desc()).limit(100))).all()
     from app.platform.models import Relationship
 
-    peer = await db.get(Account, other_party(item, user))
-    workspace = await db.scalar(
-        select(Relationship.id).where(Relationship.conversation_id == item.id, Relationship.status != "ENDED").limit(1)
+    workspace = (
+        select(Relationship.id)
+        .where(Relationship.conversation_id == item.id, Relationship.status != "ENDED")
+        .limit(1)
+        .scalar_subquery()
     )
+    peer_name, workspace_id = (
+        await db.execute(select(Account.name, workspace).where(Account.id == other_party(item, user)))
+    ).one()
     return {
         **dump(item),
-        "peer_name": peer.name,
-        "relationship_id": workspace,
+        "peer_name": peer_name,
+        "relationship_id": workspace_id,
         "messages": [dump(m) for m in reversed(rows)],
     }
 

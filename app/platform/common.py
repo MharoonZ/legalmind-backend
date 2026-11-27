@@ -25,8 +25,9 @@ async def conversation(db, identifier, user, lock=False):
 
 
 async def agreement(db, identifier, user, lock=False):
+    """Service agreement plus its conversation, in one round trip."""
     query = (
-        select(Agreement)
+        select(Agreement, Conversation)
         .join(Conversation)
         .where(
             Agreement.id == str(identifier),
@@ -36,10 +37,10 @@ async def agreement(db, identifier, user, lock=False):
     )
     if lock:
         query = query.with_for_update(of=Agreement)
-    item = await db.scalar(query)
-    if not item:
+    row = (await db.execute(query)).first()
+    if not row:
         raise HTTPException(404, "Agreement not found.")
-    thread = await conversation(db, item.conversation_id, user)
+    item, thread = row
     if item.status == "DRAFT" and user.id != thread.wakeel_id:
         raise HTTPException(404, "Agreement not found.")
     return item, thread

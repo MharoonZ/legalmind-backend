@@ -330,3 +330,44 @@ def test_unknown_email_recovery_is_indistinguishable(platform, email_settings):
 
     assert platform.portal.call(decoys) == 1
     post(platform, "/auth/resend-otp", None, {"email": "a@example.test", "challenge_id": known["challenge_id"]}, 429)
+
+
+def test_documents_are_private_and_oversight_is_admin_only(platform):
+    client = platform
+    user, ut, wakeel, wt = people(client)
+    outsider, ot = register(client, suffix="outsider")
+    workspace = hire(client, ut, wt, wakeel)
+    upload = request(
+        client,
+        "POST",
+        f"/relationships/{workspace}/documents",
+        ut,
+        files={"file": ("deed.pdf", b"%PDF-1.4\nprivate", "application/pdf")},
+        data={"title": "Sale deed", "kind": "evidence"},
+    )
+    assert upload.status_code == 201, upload.text
+    document = upload.json()
+    assert document["title"] == "Sale deed" and "content" not in document
+    # A disguised executable is rejected by content, whatever the browser claims.
+    bad = request(
+        client,
+        "POST",
+        f"/relationships/{workspace}/documents",
+        ut,
+        files={"file": ("deed.pdf", b"MZ\x90\x00not a pdf", "application/pdf")},
+    )
+    assert bad.status_code == 415
+    assert request(client, "GET", f"/documents/{document['id']}", wt).content.startswith(b"%PDF")
+    assert request(client, "GET", f"/documents/{document['id']}", ot).status_code == 404
+    assert get(client, "/documents", ot) == [] and len(get(client, "/documents", wt)) == 1
+    assert (
+        request(
+            client, "POST", f"/relationships/{workspace}/documents", ot, files={"file": ("a.pdf", b"%PDF-1")}
+        ).status_code
+        == 404
+    )
+    # Oversight lists expose metadata only, to administrators only, and are audited.
+    get(client, "/admin/records?kind=relationships", ut, 403)
+    rows = get(client, "/admin/records?kind=hiring", admin_token(client))["rows"]
+    assert rows and "description" not in rows[0]
+    assert get(client, "/notifications/count", wt).keys() == {"unread", "messages", "hiring"}

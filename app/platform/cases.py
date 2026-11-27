@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Query, UploadFile
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy import case as sql_case
 from sqlalchemy.orm import defer
 
 from app.platform.common import (
@@ -60,12 +61,9 @@ from app.platform.security import DB, User, audit, notify
 router = APIRouter(prefix="/cases", tags=["case management"])
 
 
-async def owned(db, identifier, user):
-    row = await db.scalar(
-        select(Case)
-        .where(Case.id == str(identifier), or_(Case.user_id == user.id, Case.wakeel_id == user.id))
-        .with_for_update()
-    )
+async def owned(db, identifier, user, lock=True):
+    query = select(Case).where(Case.id == str(identifier), or_(Case.user_id == user.id, Case.wakeel_id == user.id))
+    row = await db.scalar(query.with_for_update() if lock else query)
     if not row:
         raise HTTPException(404, "Case not found.")
     return row
@@ -140,18 +138,17 @@ async def cases(
         query = query.where(Case.relationship_id == str(relationship_id))
     # A draft is private to its author until it is submitted.
     query = query.where(or_(Case.status != "DRAFT", Case.proposed_by == user.id, Case.proposed_by.is_(None)))
+    peer_id = sql_case((Case.user_id == user.id, Case.wakeel_id), else_=Case.user_id)
     rows = (
-        await db.scalars(query.order_by(SORTS.get(sort, SORTS["updated"]), Case.id).offset(offset).limit(200))
+        await db.execute(
+            query.add_columns(Account.name)
+            .outerjoin(Account, Account.id == peer_id)
+            .order_by(SORTS.get(sort, SORTS["updated"]), Case.id)
+            .offset(offset)
+            .limit(200)
+        )
     ).all()
-    ids = {uid for c in rows for uid in (c.user_id, c.wakeel_id) if uid and uid != user.id}
-    people = dict((await db.execute(select(Account.id, Account.name).where(Account.id.in_(ids or [""])))).all())
-    return [
-        {
-            **dump(c, ("details", "legal_issue")),
-            "peer_name": people.get(c.wakeel_id if c.user_id == user.id else c.user_id, ""),
-        }
-        for c in rows
-    ]
+    return [{**dump(c, ("details", "legal_issue")), "peer_name": name or ""} for c, name in rows]
 
 
 def apply_fields(row, body):
@@ -311,7 +308,7 @@ async def create(body: CaseIn, user: User, db: DB):
 
 @router.get("/{identifier}")
 async def detail(identifier: UUID, user: User, db: DB):
-    row = await owned(db, identifier, user)
+    row = await owned(db, identifier, user, lock=False)
     updates = (
         await db.scalars(select(CaseUpdate).where(CaseUpdate.case_id == row.id).order_by(CaseUpdate.created_at))
     ).all()
@@ -327,13 +324,12 @@ async def detail(identifier: UUID, user: User, db: DB):
     ).all()
     people_ids = {uid for uid in (row.user_id, row.wakeel_id, row.proposed_by) if uid} | {u.actor_id for u in updates}
     people = (await db.scalars(select(Account).where(Account.id.in_(people_ids)))).all()
-    thread = (
-        await db.scalar(
-            select(Conversation).where(Conversation.user_id == row.user_id, Conversation.wakeel_id == row.wakeel_id)
+    engagement = await db.get(Relationship, row.relationship_id) if row.relationship_id else None
+    conversation_id = engagement.conversation_id if engagement else None
+    if not engagement and row.wakeel_id:
+        conversation_id = await db.scalar(
+            select(Conversation.id).where(Conversation.user_id == row.user_id, Conversation.wakeel_id == row.wakeel_id)
         )
-        if row.wakeel_id
-        else None
-    )
     if row.status == "DRAFT" and row.proposed_by and row.proposed_by != user.id:
         raise HTTPException(404, "Case not found.")
     fees = (await db.scalars(select(CaseFee).where(CaseFee.case_id == row.id).order_by(CaseFee.created_at))).all()
@@ -343,12 +339,12 @@ async def detail(identifier: UUID, user: User, db: DB):
     deadlines = (
         await db.scalars(select(CaseDeadline).where(CaseDeadline.case_id == row.id).order_by(CaseDeadline.due_on))
     ).all()
-    rating = await db.scalar(select(Rating).where(Rating.case_id == row.id))
-    engagement = await db.get(Relationship, row.relationship_id) if row.relationship_id else None
+    rated = row.status in {"COMPLETED", "CLOSED"}
+    rating = await db.scalar(select(Rating).where(Rating.case_id == row.id)) if rated else None
     paid = sum(float(p.amount) for p in payments if p.status == "CONFIRMED")
     return {
         **dump(row),
-        "conversation_id": thread.id if thread else None,
+        "conversation_id": conversation_id,
         "allowed_statuses": sorted(allowed_statuses(row, user)),
         "actions": case_actions(row, user, engagement),
         "updates": [dump(u) for u in updates],
@@ -360,7 +356,7 @@ async def detail(identifier: UUID, user: User, db: DB):
         "deadlines": [dump(d) for d in deadlines],
         "paid": paid,
         "rating": dump(rating) if rating else None,
-        "can_rate": row.status in {"COMPLETED", "CLOSED"} and user.id == row.user_id and rating is None,
+        "can_rate": rated and user.id == row.user_id and rating is None,
         "relationship_status": engagement.status if engagement else None,
     }
 
@@ -642,7 +638,7 @@ async def upload(
 
 @router.get("/{identifier}/attachments/{attachment_id}")
 async def download(identifier: UUID, attachment_id: UUID, user: User, db: DB):
-    row = await owned(db, identifier, user)
+    row = await owned(db, identifier, user, lock=False)
     file = await db.get(Attachment, str(attachment_id))
     if not file or file.case_id != row.id:
         raise HTTPException(404, "Attachment not found.")
@@ -797,7 +793,7 @@ async def thread_of(db, row):
 
 @router.get("/{identifier}/messages")
 async def case_messages(identifier: UUID, user: User, db: DB, before: UUID | None = None):
-    row = await owned(db, identifier, user)
+    row = await owned(db, identifier, user, lock=False)
     query = select(Message).where(Message.case_id == row.id)
     if before:
         cursor = await db.get(Message, str(before))
